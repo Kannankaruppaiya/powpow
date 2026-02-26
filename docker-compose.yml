@@ -1,0 +1,46 @@
+services:
+  powpow-gateway:
+    image: ${POWPOW_IMAGE:-powpow:local}
+    environment:
+      HOME: /home/node
+      TERM: xterm-256color
+      POWPOW_GATEWAY_TOKEN: ${POWPOW_GATEWAY_TOKEN}
+      CLAUDE_AI_SESSION_KEY: ${CLAUDE_AI_SESSION_KEY}
+      CLAUDE_WEB_SESSION_KEY: ${CLAUDE_WEB_SESSION_KEY}
+      CLAUDE_WEB_COOKIE: ${CLAUDE_WEB_COOKIE}
+    volumes:
+      - ${POWPOW_CONFIG_DIR}:/home/node/.powpow
+      - ${POWPOW_WORKSPACE_DIR}:/home/node/.powpow/workspace
+    ports:
+      - "${POWPOW_GATEWAY_PORT:-18789}:18789"
+      - "${POWPOW_BRIDGE_PORT:-18790}:18790"
+    init: true
+    restart: unless-stopped
+    command:
+      [
+        "node",
+        "dist/index.js",
+        "gateway",
+        "--bind",
+        "${POWPOW_GATEWAY_BIND:-lan}",
+        "--port",
+        "18789",
+      ]
+
+  powpow-cli:
+    image: ${POWPOW_IMAGE:-powpow:local}
+    environment:
+      HOME: /home/node
+      TERM: xterm-256color
+      POWPOW_GATEWAY_TOKEN: ${POWPOW_GATEWAY_TOKEN}
+      BROWSER: echo
+      CLAUDE_AI_SESSION_KEY: ${CLAUDE_AI_SESSION_KEY}
+      CLAUDE_WEB_SESSION_KEY: ${CLAUDE_WEB_SESSION_KEY}
+      CLAUDE_WEB_COOKIE: ${CLAUDE_WEB_COOKIE}
+    volumes:
+      - ${POWPOW_CONFIG_DIR}:/home/node/.powpow
+      - ${POWPOW_WORKSPACE_DIR}:/home/node/.powpow/workspace
+    stdin_open: true
+    tty: true
+    init: true
+    entrypoint: ["node", "dist/index.js"]

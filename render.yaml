@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: powpow
+    runtime: docker
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: "8080"
+      - key: POWPOW_GATEWAY_TOKEN
+        value: "4587fb9c0992f5cd12254a513bcb03fae2594f1d429a0947897f5c4009feac"
+      - key: GROQ_API_KEY
+        value: "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"
+      - key: NODE_ENV
+        value: "production"
