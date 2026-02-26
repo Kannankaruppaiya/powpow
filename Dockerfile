@@ -63,4 +63,5 @@ USER node
 #
 # For container platforms requiring external health checks:
 #   Set POWPOW_GATEWAY_TOKEN env var and the server binds to 0.0.0.0 automatically.
-CMD ["node", "powpow.mjs", "gateway", "--allow-unconfigured", "--bind", "lan"]
+# Shell form used so Render's $PORT env var is expanded at runtime.
+CMD node powpow.mjs gateway --allow-unconfigured --bind lan --port ${PORT:-18789}
