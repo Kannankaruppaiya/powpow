@@ -52,6 +52,10 @@ ENV POWPOW_PREFER_PNPM=1
 RUN pnpm ui:build
 
 ENV NODE_ENV=production
+# Default gateway token — required for --bind lan to work.
+# Override via Render env vars if needed.
+ENV POWPOW_GATEWAY_TOKEN=4587fb9c0992f5cd12254a513bcb03fae2594f1d429a0947897f5c4009feac
+ENV GROQ_API_KEY=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
 
 # Security hardening: Run as non-root user
 # The node:22-bookworm image includes a 'node' user (uid 1000)
