@@ -46,7 +46,7 @@ RUN if [ -n "$POWPOW_INSTALL_BROWSER" ]; then \
 
 USER node
 COPY --chown=node:node . .
-RUN pnpm build
+# dist/ is pre-built and committed — skip pnpm build to avoid tsdown compile issues on cloud
 # Force pnpm for UI build (Bun may fail on ARM/Synology architectures)
 ENV POWPOW_PREFER_PNPM=1
 RUN pnpm ui:build
