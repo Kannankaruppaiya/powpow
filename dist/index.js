@@ -121,7 +121,7 @@ import { t as ensurePowPowCliOnPath } from "./path-env-BnFwNMeA.js";
 import { t as assertSupportedRuntime } from "./runtime-guard-BR0n6eR2.js";
 import "./ports-B34iRLOx.js";
 import { a as hasFlag, i as getVerboseFlag, n as getCommandPath, o as hasHelpOrVersion, s as hasRootVersionAlias } from "./argv-B6HH6_Su.js";
-import { i as getCoreCliCommandsWithSubcommands, n as setProgramContext, o as registerProgramCommands, s as getSubCliCommandsWithSubcommands } from "./program-context-D_HBmwfF.js";
+import { i as getCoreCliCommandsWithSubcommands, n as setProgramContext, o as registerProgramCommands, s as getSubCliCommandsWithSubcommands } from "./program-context-BzmkI7v4.js";
 import "./plugin-registry-BsxhYVsm.js";
 import { n as resolveCliChannelOptions } from "./channel-options-DR8V_Zq-.js";
 import process$1 from "node:process";

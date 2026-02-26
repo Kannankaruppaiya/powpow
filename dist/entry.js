@@ -497,7 +497,7 @@ if (!isMainModule({
 			applyCliProfileEnv({ profile: parsed.profile });
 			process$1.argv = parsed.argv;
 		}
-		import("./run-main-DtsRkwGc.js").then(({ runCli }) => runCli(process$1.argv)).catch((error) => {
+		import("./run-main-E97Izehs.js").then(({ runCli }) => runCli(process$1.argv)).catch((error) => {
 			console.error("[powpow] Failed to start CLI:", error instanceof Error ? error.stack ?? error.message : error);
 			process$1.exitCode = 1;
 		});

@@ -473,6 +473,13 @@ export function createGatewayHttpServer(opts: {
         req.url = scopedCanvas.rewrittenUrl;
       }
       const requestPath = new URL(req.url ?? "/", "http://localhost").pathname;
+      // Health check endpoint for Render and other cloud platforms.
+      if (requestPath === "/health") {
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(JSON.stringify({ ok: true, status: "healthy" }));
+        return;
+      }
       if (await handleHooksRequest(req, res)) {
         return;
       }
