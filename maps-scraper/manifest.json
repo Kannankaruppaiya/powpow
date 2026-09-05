@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Maps Lead Scraper",
+  "version": "0.1.0",
+  "description": "Collect business listings from Google Maps for a city + category and export them as CSV.",
+  "permissions": ["tabs", "scripting", "storage", "downloads", "unlimitedStorage"],
+  "host_permissions": ["https://www.google.com/*", "https://*/*", "http://*/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Maps Lead Scraper"
+  }
+}
