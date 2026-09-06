@@ -376,7 +376,7 @@
       // The user changing the query is an end condition too — better to stop
       // than to blend two different searches into one export.
       if (expectedFingerprint !== null && fingerprint() !== expectedFingerprint) {
-        console.warn('[maps-lead-scraper] LinkedIn search changed mid-run; stopping.');
+        console.warn('[leadmine] LinkedIn search changed mid-run; stopping.');
         return true;
       }
       // Exhaustion is loadMore's call: no Next button does not mean this page

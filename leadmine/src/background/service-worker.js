@@ -1,5 +1,5 @@
 /**
- * Maps Lead Scraper — background service worker.
+ * LeadMine — background service worker.
  *
  * Owns the run. A run is a queue of search tasks (batch entries × grid cells),
  * each of which drives the Maps tab and returns records that are merged into
@@ -318,7 +318,7 @@ async function drainQueue(config, tabId) {
       task.status = 'failed';
       task.error = message;
       await save({ tasks: job.tasks });
-      console.warn('[maps-lead-scraper] task failed', task.id, message);
+      console.warn('[leadmine] task failed', task.id, message);
     }
   }
 }
@@ -354,7 +354,7 @@ async function enrichEmails(records, config) {
         record.youtube = social.youtube || '';
       }
     } catch (err) {
-      console.warn('[maps-lead-scraper] email lookup failed', record.website, err);
+      console.warn('[leadmine] email lookup failed', record.website, err);
     }
     done += 1;
     if (done % 3 === 0 || done === targets.length) await save({ emailed: done, emailsFound: hits });
@@ -379,7 +379,7 @@ async function verifyEmails(records, config) {
       if (isSendable(status)) good += 1;
     } catch (err) {
       record.emailStatus = 'unknown';
-      console.warn('[maps-lead-scraper] verification failed', record.email, err);
+      console.warn('[leadmine] verification failed', record.email, err);
     }
     done += 1;
     if (done % 5 === 0 || done === targets.length) await save({ verified: done, sendable: good });
@@ -635,7 +635,7 @@ chrome.runtime.onInstalled.addListener(() => {
   ready.catch(() => {});
   chrome.sidePanel
     .setPanelBehavior({ openPanelOnActionClick: true })
-    .catch((err) => console.warn('[maps-lead-scraper] side panel behaviour', err));
+    .catch((err) => console.warn('[leadmine] side panel behaviour', err));
 });
 
 chrome.runtime.onStartup.addListener(() => {

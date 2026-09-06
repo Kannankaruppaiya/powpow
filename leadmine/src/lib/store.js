@@ -14,6 +14,9 @@
  * the 64 MiB message ceiling on a big export.
  */
 
+// Deliberately not renamed with the product. The database holds the user's
+// results and their cross-run "already downloaded" index; renaming it would
+// orphan both behind a name nobody sees. A rebrand is not worth someone's data.
 const DB_NAME = 'maps-lead-scraper';
 const DB_VERSION = 1;
 
@@ -46,7 +49,7 @@ export function openDb() {
 
       // A version bump must not silently drop a user's data.
       if (event.oldVersion > 0 && event.oldVersion < DB_VERSION) {
-        console.info('[maps-lead-scraper] upgraded database', event.oldVersion, '->', DB_VERSION);
+        console.info('[leadmine] upgraded database', event.oldVersion, '->', DB_VERSION);
       }
     };
 

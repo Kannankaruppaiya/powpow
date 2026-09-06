@@ -1,8 +1,8 @@
 {
-  "name": "maps-lead-scraper",
-  "version": "4.4.0",
+  "name": "leadmine",
+  "version": "5.0.0",
   "private": true,
-  "description": "Chrome extension that scrapes Google Maps business listings for a city + category into one downloadable file.",
+  "description": "Chrome extension that scrapes Google Maps business listings and LinkedIn people search into one downloadable file.",
   "type": "module",
   "license": "MIT",
   "scripts": {

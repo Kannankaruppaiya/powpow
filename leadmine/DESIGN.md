@@ -26,19 +26,37 @@ Three rules fixed that, and every decision below follows from them:
 
 ---
 
+## The name
+
+Two names, one product. `LeadMine` is the brand: short, spellable, and it
+carries "lead" — the word people actually type. The manifest's `name` is the
+full store title, `LeadMine — Google Maps & LinkedIn Lead Scraper`, because
+that string is what the Chrome Web Store indexes; `short_name` is the brand
+alone, for the places Chrome has no room.
+
+The UI only ever says LeadMine. Keyword tails belong in a store listing, not
+in a header the user reads forty times a day.
+
 ## The mark
 
-A location pin whose hole is a sheet rather than the usual circle: the map
-going in, the spreadsheet coming out. One silhouette, one idea.
+A horseshoe magnet with three points being drawn into it. "Lead magnet" is
+already the term for the thing that pulls prospects in, so the mark says what
+the product does using a word its users have.
+
+The poles are cut out of the arms rather than painted on, so the tile gradient
+shows through and the magnet reads two-tone the way a real one does. The points
+above it fade out at small sizes; the magnet does not, and that is the test —
+at 16px it is still unmistakably a magnet.
 
 `icons/logo.svg` is the source; `npm run icons` renders the PNG sizes Chrome
-needs through Chromium, so the mark gets real anti-aliasing and gradients
-rather than a hand-rolled rasteriser's approximation.
+needs through Chromium, so the mark gets real anti-aliasing, masking and
+gradients rather than a hand-rolled rasteriser's approximation.
 
-An earlier version cut rows across the whole pin. Better idea on paper, worse
-mark on screen — the cuts flattened the head until it stopped reading as a pin.
-The meaning moved into the hole, where it cannot damage the outline, and at
-16px it simply reads as a pin. Restraint beat the cleverer drawing.
+Two earlier marks were drawn and thrown away: a pin cut into rows, which
+flattened until it stopped reading as a pin, and a pin whose hole was a sheet,
+which was clean but said nothing a hundred other tools do not. The rule that
+survived both is that a mark has to still work at 16px and still mean
+something there.
 
 ## Colour
 

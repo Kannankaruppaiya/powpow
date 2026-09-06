@@ -1,4 +1,6 @@
-# Maps Lead Scraper
+# LeadMine
+
+**LeadMine — Google Maps & LinkedIn Lead Scraper**
 
 A Chrome extension that turns a search you could run by hand into **one
 downloadable file**.
@@ -71,7 +73,7 @@ Needs Chrome (or Edge) **116 or newer** — the UI is a side panel.
 To build a `.zip` for the Chrome Web Store:
 
 ```bash
-npm run package     # -> dist/maps-lead-scraper-v1.0.0.zip
+npm run package     # -> dist/leadmine-v5.0.0.zip
 ```
 
 ## Use it

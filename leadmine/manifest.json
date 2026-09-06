@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "Maps Lead Scraper",
-  "version": "4.4.0",
-  "description": "Scrape Google Maps business listings and LinkedIn People search results into one downloadable CSV/Excel/JSON file.",
+  "name": "LeadMine \u2014 Google Maps & LinkedIn Lead Scraper",
+  "short_name": "LeadMine",
+  "version": "5.0.0",
+  "description": "Scrape business leads from Google Maps and people from LinkedIn search \u2014 name, phone, verified email, area, rating \u2014 into one downloadable Excel, CSV or JSON file.",
   "minimum_chrome_version": "116",
   "permissions": [
     "storage",
@@ -39,8 +40,11 @@
       "all_frames": false
     }
   ],
+  "side_panel": {
+    "default_path": "src/panel/panel.html"
+  },
   "action": {
-    "default_title": "Maps Lead Scraper",
+    "default_title": "LeadMine",
     "default_icon": {
       "16": "icons/icon16.png",
       "32": "icons/icon32.png",
@@ -53,8 +57,5 @@
     "32": "icons/icon32.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
-  },
-  "side_panel": {
-    "default_path": "src/panel/panel.html"
   }
 }

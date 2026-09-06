@@ -95,6 +95,7 @@ const SETUP = (total) => {
   };
 
   window.__seed = new Promise((resolve) => {
+    // The database name did not change with the product — see store.js.
     const req = indexedDB.open('maps-lead-scraper', 1);
     req.onupgradeneeded = () => {
       const db = req.result;

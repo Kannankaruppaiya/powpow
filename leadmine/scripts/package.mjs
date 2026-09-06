@@ -1,5 +1,5 @@
 /**
- * Bundles the extension into dist/maps-lead-scraper-v<version>.zip.
+ * Bundles the extension into dist/leadmine-v<version>.zip.
  *
  * Writes the ZIP by hand (local headers + central directory + EOCD, deflated
  * with node:zlib) so packaging needs no dependencies and no system `zip`,
@@ -109,7 +109,7 @@ const files = INCLUDE.flatMap(collect).sort();
 const zip = buildZip(files);
 
 mkdirSync(join(ROOT, 'dist'), { recursive: true });
-const out = join(ROOT, 'dist', `maps-lead-scraper-v${version}.zip`);
+const out = join(ROOT, 'dist', `leadmine-v${version}.zip`);
 writeFileSync(out, zip);
 
 console.log(`packaged ${files.length} files -> ${relative(ROOT, out)} (${(zip.length / 1024).toFixed(1)} KB)`);

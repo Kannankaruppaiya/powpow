@@ -1,0 +1,44 @@
+<!--
+  LeadMine mark.
+
+  A horseshoe magnet with three points being drawn into it. "Lead magnet" is
+  already the term for the thing that pulls prospects in, so the mark says what
+  the product does using a word its users have.
+
+  The poles are cut out of the arms rather than painted on, so the tile's
+  gradient shows through and the magnet reads two-tone the way a real one does.
+  At 16px those cuts close and it degrades to a solid horseshoe — still
+  unmistakably a magnet, which is the test that matters.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0.35" y2="1">
+      <stop offset="0" stop-color="#7b85ee" />
+      <stop offset="1" stop-color="#4650b8" />
+    </linearGradient>
+
+    <mask id="poles">
+      <rect width="128" height="128" fill="#fff" />
+      <!-- Two bands across the arms: the pole tips, read as gaps. -->
+      <rect x="18" y="84" width="30" height="8" fill="#000" />
+      <rect x="80" y="84" width="30" height="8" fill="#000" />
+    </mask>
+  </defs>
+
+  <rect width="128" height="128" rx="29" fill="url(#tile)" />
+  <!-- A hairline highlight along the top edge: the one gloss the mark gets. -->
+  <rect x="0.5" y="0.5" width="127" height="127" rx="28.5" fill="none"
+        stroke="#ffffff" stroke-opacity="0.2" />
+
+  <!-- What is being pulled in. Fades out at small sizes; the magnet does not. -->
+  <g fill="#ffffff" fill-opacity="0.5">
+    <circle cx="34" cy="30" r="5.5" />
+    <circle cx="64" cy="22" r="6.5" />
+    <circle cx="94" cy="30" r="5.5" />
+  </g>
+
+  <g mask="url(#poles)">
+    <path d="M33 104V66a31 31 0 0 1 62 0v38"
+          stroke="#ffffff" stroke-width="18" fill="none" />
+  </g>
+</svg>

@@ -131,7 +131,7 @@
         try {
           record = adapter.extractResult(id, container);
         } catch (err) {
-          console.warn('[maps-lead-scraper] extract failed', id, err);
+          console.warn('[leadmine] extract failed', id, err);
         }
         if (record) byId.set(id, record);
       }
@@ -177,7 +177,7 @@
           }
         }
       } catch (err) {
-        console.warn('[maps-lead-scraper] detail failed for', record.name, err);
+        console.warn('[leadmine] detail failed for', record.name, err);
       }
 
       try {
