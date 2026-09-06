@@ -206,7 +206,7 @@ popup  ──START_JOB──▶  service worker  ──RUN_SCRAPE──▶  cont
 | `src/content/engine.js` | The source-agnostic half: harvest loop, detail pass, progress, cancellation |
 | `src/content/adapters/` | The source-specific half: one adapter per site |
 | `src/lib/sources.js` | What differs per source — URL shape, whether a grid applies, health gates |
-| `src/panel/` | The side panel UI |
+| `src/panel/` | The side panel UI — see [DESIGN.md](DESIGN.md) |
 
 Three design notes worth knowing:
 
@@ -231,6 +231,14 @@ Three design notes worth knowing:
   document, and service workers do not have one.
 
 ---
+
+## Design
+
+The UI follows [DESIGN.md](DESIGN.md): one accent colour, five type sizes, a
+4px space scale, and three rules — one primary action per view, anything with a
+sensible default is disclosed rather than displayed, and controls name the
+outcome rather than the mechanism. Every value is a token in
+`src/panel/tokens.css`.
 
 ## Development
 

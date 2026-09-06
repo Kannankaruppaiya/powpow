@@ -16,27 +16,60 @@ import { summariseRates } from '../lib/health.js';
 import * as store from '../lib/store.js';
 
 const SETTINGS_KEY = 'mls.settings';
-const ROW_HEIGHT = 30; // must match .rows td height in panel.css
+/**
+ * Row height, read from the stylesheet rather than duplicated here.
+ *
+ * These were two separate constants and they drifted: the CSS said 32px while
+ * this said 30, which silently mis-positions every row in the virtual window.
+ */
+const ROW_HEIGHT =
+  parseInt(getComputedStyle(document.documentElement).getPropertyValue('--row-h'), 10) || 32;
 const OVERSCAN = 8; // rows rendered above and below the viewport
 
 const el = (id) => document.getElementById(id);
 const ui = Object.fromEntries(
   [
-    'form', 'statusPill', 'viewSetup', 'viewResults', 'paneSetup', 'paneResults',
-    'tabSingle', 'tabBatch', 'modeSingle', 'modeBatch',
-    'source', 'sourceNote', 'coverageRow', 'categoryLabel', 'cityLabel',
+    'form', 'statusPill', 'viewSetup', 'viewResults', 'paneSetup', 'paneResults', 'tabCount',
+    'modeSingle', 'modeBatch', 'toggleBatch',
+    'source', 'sourceGroup', 'sourceNote', 'coverageRow', 'coverage',
+    'categoryLabel', 'cityLabel',
     'optEmails', 'optContact', 'optVerify', 'optDeep',
     'optCurrentTab', 'useCurrentTab', 'currentTabHint',
     'category', 'city', 'batch', 'grid', 'maxResults',
     'deep', 'fetchEmails', 'followContactPage', 'verifyEmails', 'skipSeen', 'seenNote',
-    'start', 'resume', 'stop',
-    'status', 'barFill', 'message', 'taskLine',
-    'statFound', 'statPhones', 'statEmails', 'statSendable',
+    'start', 'resume', 'stop', 'again', 'goResults',
+    'runView', 'spinner', 'runTitle', 'barFill', 'message', 'taskLine',
+    'statFound', 'statFoundLabel', 'statPhones', 'statEmails', 'statSendable',
     'healthBox', 'healthList', 'error',
     'format', 'download', 'clear', 'filter',
-    'scroller', 'viewport', 'spacer', 'rowBody', 'rowNote',
+    'scroller', 'viewport', 'spacer', 'rowBody', 'rowNote', 'footnote',
   ].map((id) => [id, el(id)])
 );
+
+/**
+ * The radio groups are the visible controls; the hidden <select>s behind them
+ * stay authoritative so config reading, saved settings and the tests all keep
+ * one source of truth.
+ */
+function bindRadios(name, target, after) {
+  for (const radio of document.querySelectorAll(`input[name="${name}"]`)) {
+    radio.addEventListener('change', () => {
+      if (!radio.checked) return;
+      target.value = radio.value;
+      target.dispatchEvent(new Event('change'));
+      if (after) after();
+    });
+  }
+}
+
+function syncRadios(name, value) {
+  for (const radio of document.querySelectorAll(`input[name="${name}"]`)) {
+    radio.checked = radio.value === value;
+  }
+}
+
+/** Five grid presets were three too many to choose between. */
+const COVERAGE_CHOICES = ['off', 'balanced', 'exhaustive'];
 
 let current = null;
 let batchMode = false;
@@ -54,10 +87,11 @@ let visibleRows = [];
  */
 const SOURCE_UI = {
   maps: {
-    categoryLabel: 'Category',
-    cityLabel: 'City',
-    categoryPlaceholder: 'e.g. dentists',
-    cityPlaceholder: 'e.g. Chennai',
+    categoryLabel: 'What are you looking for?',
+    cityLabel: 'Where?',
+    categoryPlaceholder: 'dentists',
+    cityPlaceholder: 'Chennai',
+    noun: 'businesses',
     grid: true,
     emails: true,
     // The grid needs to drive the tab itself, so this is off for Maps.
@@ -65,23 +99,26 @@ const SOURCE_UI = {
     note: '',
   },
   linkedin: {
-    categoryLabel: 'Keywords',
-    cityLabel: 'Location',
-    categoryPlaceholder: 'e.g. java developer',
-    cityPlaceholder: 'e.g. London',
+    categoryLabel: 'What are you looking for?',
+    cityLabel: 'Where?',
+    categoryPlaceholder: 'java developer',
+    cityPlaceholder: 'London',
+    noun: 'people',
     grid: false,
     emails: false,
     // Navigating to our own URL would throw away any filter the user applied,
     // so reading the tab they already set up is the better default here.
     currentTab: true,
     note:
-      'Uses your signed-in LinkedIn session and reads the same results you see. ' +
-      'LinkedIn restricts accounts for automated collection — keep runs small and infrequent.',
+      'This reads the results you are already signed in to see. LinkedIn restricts ' +
+      'accounts for automated collection, so keep runs small and infrequent.',
   },
 };
 
 function applySource() {
   const conf = SOURCE_UI[ui.source.value] || SOURCE_UI.maps;
+  syncRadios('source', ui.source.value);
+  ui.statFoundLabel.textContent = conf.noun;
   ui.optCurrentTab.hidden = !conf.currentTab;
   if (!conf.currentTab) ui.useCurrentTab.checked = false;
   applyCurrentTab();
@@ -106,9 +143,13 @@ function applySource() {
 function applyCurrentTab() {
   const on = ui.useCurrentTab.checked && !ui.optCurrentTab.hidden;
   ui.modeSingle.hidden = on || batchMode;
-  ui.tabSingle.parentElement.hidden = on;
+  ui.modeBatch.hidden = on || !batchMode;
+  ui.toggleBatch.hidden = on;
   ui.currentTabHint.hidden = !on;
 }
+
+bindRadios('source', ui.source);
+bindRadios('coverage', ui.grid);
 
 ui.source.addEventListener('change', () => {
   applySource();
@@ -135,16 +176,15 @@ ui.viewResults.addEventListener('click', () => setView(true));
 
 function setMode(useBatch) {
   batchMode = useBatch;
-  ui.modeSingle.hidden = useBatch;
   ui.modeBatch.hidden = !useBatch;
-  ui.tabSingle.classList.toggle('is-active', !useBatch);
-  ui.tabBatch.classList.toggle('is-active', useBatch);
-  ui.tabSingle.setAttribute('aria-selected', String(!useBatch));
-  ui.tabBatch.setAttribute('aria-selected', String(useBatch));
+  ui.toggleBatch.textContent = useBatch ? 'Just one search' : 'Search several at once';
+  applyCurrentTab();
 }
 
-ui.tabSingle.addEventListener('click', () => { setMode(false); saveSettings(); });
-ui.tabBatch.addEventListener('click', () => { setMode(true); saveSettings(); });
+ui.toggleBatch.addEventListener('click', () => {
+  setMode(!batchMode);
+  saveSettings();
+});
 
 /* ------------------------------------------------------------- persistence */
 
@@ -164,8 +204,11 @@ async function restoreSettings() {
   ui.skipSeen.checked = Boolean(s.skipSeen);
   ui.useCurrentTab.checked = Boolean(s.useCurrentTab);
   // An older build stored "xls"; the exporter only writes real xlsx now.
-  ui.format.value = s.format === 'xls' ? 'xlsx' : s.format || 'csv';
+  ui.format.value = s.format === 'xls' ? 'xlsx' : s.format || 'xlsx';
   ui.source.value = s.source || 'maps';
+  // Only the three offered levels can be restored; anything else falls back.
+  ui.grid.value = COVERAGE_CHOICES.includes(s.grid) ? s.grid : 'balanced';
+  syncRadios('coverage', ui.grid.value);
   setMode(Boolean(s.batchMode));
   applySource();
 }
@@ -215,7 +258,7 @@ async function refreshRows() {
 function relabelColumns() {
   const isLinkedIn = rows.some((r) => r.source === 'linkedin');
   const labels = isLinkedIn
-    ? ['Name', 'Company', 'Headline', 'Location', 'Connection', '']
+    ? ['Name', 'Company', 'Headline', 'Location', 'Degree', '']
     : ['Name', 'Phone', 'Email', 'Area', 'Category', '★'];
   document.querySelectorAll('.scroller thead th').forEach((th, i) => {
     th.textContent = labels[i];
@@ -235,8 +278,8 @@ function applyFilter() {
   ui.rowNote.textContent = visibleRows.length
     ? `${visibleRows.length.toLocaleString()}${needle ? ` of ${rows.length.toLocaleString()}` : ''} rows`
     : rows.length
-      ? 'No rows match that filter.'
-      : 'Nothing collected yet.';
+      ? 'Nothing matches that filter.'
+      : 'Nothing collected yet — run a search first.';
   drawWindow();
 }
 
@@ -320,7 +363,15 @@ function progressFor(job) {
 
 const PILL = {
   idle: 'Idle', running: 'Running', paused: 'Paused',
-  done: 'Done', error: 'Error', cancelled: 'Stopped',
+  done: 'Done', error: 'Failed', cancelled: 'Stopped',
+};
+
+/** What the run is doing, in words rather than phase names. */
+const PHASE_TITLE = {
+  listing: 'Collecting listings…',
+  details: 'Opening each listing…',
+  emails: 'Looking for emails…',
+  verify: 'Checking emails…',
 };
 
 function render(job) {
@@ -329,28 +380,36 @@ function render(job) {
   current = job;
 
   const running = job.status === 'running';
+  const settled = ['done', 'error', 'cancelled', 'paused'].includes(job.status);
+
+  ui.statusPill.hidden = job.status === 'idle';
   ui.statusPill.textContent = PILL[job.status] || job.status;
   ui.statusPill.dataset.state = job.status;
 
-  ui.start.disabled = running;
-  ui.start.hidden = running || job.canResume;
-  ui.resume.hidden = !job.canResume || running;
+  // The form and the run never share the screen: while a scrape is going,
+  // the settings that started it are not what the user needs to look at.
+  const showRun = running || (settled && job.status !== 'idle' && job.tasksTotal > 0);
+  ui.form.hidden = showRun;
+  ui.runView.hidden = !showRun;
+
+  ui.start.hidden = job.canResume;
+  ui.resume.hidden = !job.canResume;
   ui.stop.hidden = !running;
+  ui.again.hidden = running;
+  ui.goResults.hidden = running || !job.count;
+  ui.spinner.hidden = !running;
+  ui.footnote.hidden = !running;
 
-  for (const input of [
-    ui.source, ui.useCurrentTab, ui.category, ui.city, ui.batch, ui.grid, ui.maxResults,
-    ui.deep, ui.fetchEmails, ui.followContactPage, ui.verifyEmails, ui.skipSeen,
-  ]) {
-    input.disabled = running;
-  }
-
-  ui.status.hidden = job.status === 'idle';
+  ui.runTitle.textContent = running
+    ? PHASE_TITLE[job.phase] || 'Working…'
+    : { done: 'Finished', cancelled: 'Stopped', paused: 'Paused', error: "Couldn't finish" }[job.status] ||
+      'Finished';
   ui.message.textContent = job.message || '';
 
   ui.taskLine.hidden = !job.tasksTotal;
   if (job.tasksTotal) {
-    const skipped = job.skippedSeen ? ` · ${job.skippedSeen} already seen` : '';
-    ui.taskLine.textContent = `${job.tasksSettled} of ${job.tasksTotal} searches done${skipped}`;
+    const skipped = job.skippedSeen ? ` · ${job.skippedSeen} already downloaded` : '';
+    ui.taskLine.textContent = `Search ${Math.min(job.tasksSettled + (running ? 1 : 0), job.tasksTotal)} of ${job.tasksTotal}${skipped}`;
   }
 
   const ratio = progressFor(job);
@@ -362,10 +421,14 @@ function render(job) {
     ui.barFill.style.width = `${Math.round((job.status === 'done' ? 1 : ratio || 0) * 100)}%`;
   }
 
-  ui.statFound.textContent = job.count || job.found || 0;
-  ui.statPhones.textContent = job.phonesFound || 0;
-  ui.statEmails.textContent = job.emailsFound || 0;
-  ui.statSendable.textContent = job.sendable || 0;
+  // Counted by the worker over every record, not just the rows previewed here.
+  ui.statFound.textContent = (job.count || job.found || 0).toLocaleString();
+  ui.statPhones.textContent = (job.phonesFound || 0).toLocaleString();
+  ui.statEmails.textContent = (job.emailsFound || 0).toLocaleString();
+  ui.statSendable.textContent = (job.sendable || 0).toLocaleString();
+
+  ui.tabCount.hidden = !job.count;
+  ui.tabCount.textContent = (job.count || 0).toLocaleString();
 
   renderHealth(job.health);
   // A run can finish with nothing to show; the reason is the useful part.
@@ -398,7 +461,7 @@ function renderHealth(health) {
 }
 
 function renderSeen(count) {
-  ui.seenNote.textContent = count ? `(${count.toLocaleString()} remembered)` : '';
+  ui.seenNote.textContent = count ? `${count.toLocaleString()} remembered so far` : '';
 }
 
 /* ------------------------------------------------------------------ actions */
@@ -418,10 +481,9 @@ ui.form.addEventListener('submit', async (event) => {
     return;
   }
   if (batchMode ? !config.batch.trim() : !config.category) {
+    void conf;
     showError(
-      batchMode
-        ? 'Add at least one line to the batch list.'
-        : `Enter a ${conf.categoryLabel.toLowerCase()}.`
+      batchMode ? 'Add at least one line first.' : 'Type what you are looking for first.'
     );
     return;
   }
@@ -432,6 +494,14 @@ ui.form.addEventListener('submit', async (event) => {
 });
 
 ui.resume.addEventListener('click', () => chrome.runtime.sendMessage({ type: 'RESUME_JOB' }));
+
+// Back to the form without discarding what was collected.
+ui.again.addEventListener('click', () => {
+  ui.form.hidden = false;
+  ui.runView.hidden = true;
+});
+
+ui.goResults.addEventListener('click', () => setView(true));
 ui.stop.addEventListener('click', () => chrome.runtime.sendMessage({ type: 'CANCEL_JOB' }));
 
 ui.clear.addEventListener('click', async () => {
@@ -477,9 +547,8 @@ chrome.runtime.onMessage.addListener((msg) => {
 (async function init() {
   await restoreSettings();
   const res = await chrome.runtime.sendMessage({ type: 'GET_JOB' });
-  render((res && res.job) || { status: 'idle', count: 0 });
+  render((res && res.job) || { status: 'idle', count: 0, tasksTotal: 0 });
   renderSeen((res && res.seen) || 0);
-  if (current.count) setView(true);
 
   // The worker can sleep between broadcasts; a slow poll keeps the panel honest.
   setInterval(async () => {

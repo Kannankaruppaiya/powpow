@@ -51,13 +51,17 @@ function serve() {
 
 /** Stub the extension APIs and seed the database the panel reads. */
 const SETUP = (total) => {
-  const job = {
-    status: 'done', phase: 'done', jobId: 'job-1', message: `Finished — ${total} businesses.`,
-    count: total, phonesFound: total, emailsFound: Math.round(total * 0.4), sendable: 0,
-    tasksSettled: 10, tasksTotal: 10,
-    health: { ok: true, sample: total, rates: { name: 1, phone: 0.88, website: 0.41 } },
-    config: { category: 'dentists', city: 'Chennai' },
-  };
+  const job = total
+    ? {
+        status: 'done', phase: 'done', jobId: 'job-1',
+        message: `${total} businesses from 10 searches.`,
+        count: total, phonesFound: total, emailsFound: Math.round(total * 0.4), sendable: 0,
+        tasksSettled: 10, tasksTotal: 10,
+        health: { ok: true, sample: total, rates: { name: 1, phone: 0.88, website: 0.41 } },
+        config: { category: 'dentists', city: 'Chennai' },
+      }
+    // An untouched panel: the form is the view, nothing has run yet.
+    : { status: 'idle', count: 0, tasksTotal: 0, tasksSettled: 0 };
   const AREAS = ['Anna Nagar', 'Adyar', 'T Nagar', 'Velachery'];
   const RECORDS = Array.from({ length: total }, (_, i) => ({
     key: `fid:${String(i).padStart(5, '0')}`,
@@ -97,7 +101,7 @@ const SETUP = (total) => {
   });
 };
 
-async function openPanel(t) {
+async function openPanel(t, { idle = false } = {}) {
   let chromium;
   try {
     ({ chromium } = await import('playwright-core'));
@@ -114,7 +118,7 @@ async function openPanel(t) {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
 
-  await page.addInitScript(SETUP, TOTAL);
+  await page.addInitScript(SETUP, idle ? 0 : TOTAL);
   await page.goto(`http://localhost:${port}/src/panel/panel.html`);
   await page.evaluate(() => window.__seed);
   await page.waitForTimeout(700);
@@ -129,15 +133,22 @@ async function openPanel(t) {
   };
 }
 
-test('the panel opens on the results view and loads every record', async (t) => {
+test('the panel opens on Search, and Results loads every record', async (t) => {
   const ctx = await openPanel(t);
   if (!ctx) return;
   try {
     assert.deepEqual(ctx.errors, [], 'the panel must load without exceptions');
 
-    const note = await ctx.page.textContent('#rowNote');
-    assert.match(note, /2,400 rows/);
+    // Search is the entry point: a finished run should not hijack the view.
+    assert.equal(await ctx.page.isVisible('#paneSetup'), true);
+    assert.equal(await ctx.page.isVisible('#paneResults'), false);
+    // The count on the tab is how the results announce themselves.
+    assert.equal(await ctx.page.textContent('#tabCount'), '2,400');
 
+    await ctx.page.click('#viewResults');
+    await ctx.page.waitForTimeout(400);
+
+    assert.match(await ctx.page.textContent('#rowNote'), /2,400 rows/);
     // Exactly one pane visible — a class selector can silently beat [hidden].
     assert.equal(await ctx.page.isVisible('#paneResults'), true);
     assert.equal(await ctx.page.isVisible('#paneSetup'), false);
@@ -150,13 +161,16 @@ test('only a window of rows is in the DOM, not all 2,400', async (t) => {
   const ctx = await openPanel(t);
   if (!ctx) return;
   try {
+    await ctx.page.click('#viewResults');
+    await ctx.page.waitForTimeout(400);
+
     const rendered = await ctx.page.locator('#rowBody tr').count();
     assert.ok(rendered > 5, `expected some rows, got ${rendered}`);
     assert.ok(rendered < 60, `expected a small window, got ${rendered} of ${TOTAL} in the DOM`);
 
     // The scroll height must still reflect the whole set.
     const spacer = await ctx.page.evaluate(() => document.getElementById('spacer').offsetHeight);
-    assert.equal(spacer, TOTAL * 30, 'the spacer should size the scrollbar to every row');
+    assert.equal(spacer, TOTAL * 32, 'the spacer should size the scrollbar to every row');
   } finally {
     await ctx.close();
   }
@@ -166,11 +180,14 @@ test('scrolling swaps in later rows', async (t) => {
   const ctx = await openPanel(t);
   if (!ctx) return;
   try {
+    await ctx.page.click('#viewResults');
+    await ctx.page.waitForTimeout(400);
+
     const firstBefore = await ctx.page.textContent('#rowBody tr:first-child .c-name');
     assert.equal(firstBefore, 'Clinic 0');
 
     await ctx.page.evaluate(() => {
-      document.getElementById('viewport').scrollTop = 30 * 1000;
+      document.getElementById('viewport').scrollTop = 32 * 1000;
     });
     await ctx.page.waitForTimeout(300);
 
@@ -190,6 +207,9 @@ test('the filter narrows the set and the count follows', async (t) => {
   const ctx = await openPanel(t);
   if (!ctx) return;
   try {
+    await ctx.page.click('#viewResults');
+    await ctx.page.waitForTimeout(400);
+
     await ctx.page.fill('#filter', 'Adyar');
     await ctx.page.waitForTimeout(300);
 
@@ -201,7 +221,7 @@ test('the filter narrows the set and the count follows', async (t) => {
 
     await ctx.page.fill('#filter', 'nothing-matches-this');
     await ctx.page.waitForTimeout(200);
-    assert.match(await ctx.page.textContent('#rowNote'), /No rows match/);
+    assert.match(await ctx.page.textContent('#rowNote'), /Nothing matches/);
   } finally {
     await ctx.close();
   }
@@ -211,6 +231,9 @@ test('undeliverable emails are struck through', async (t) => {
   const ctx = await openPanel(t);
   if (!ctx) return;
   try {
+    await ctx.page.click('#viewResults');
+    await ctx.page.waitForTimeout(400);
+
     // Every 11th record is no-mx, so at least one is in the first window.
     const bad = await ctx.page.locator('#rowBody td.c-email.bad').count();
     assert.ok(bad > 0, 'a no-mx address should be flagged in the table');
@@ -219,45 +242,44 @@ test('undeliverable emails are struck through', async (t) => {
   }
 });
 
-test('switching to Setup hides the results and back again', async (t) => {
+test('the two views swap cleanly', async (t) => {
   const ctx = await openPanel(t);
   if (!ctx) return;
   try {
+    await ctx.page.click('#viewResults');
+    assert.equal(await ctx.page.isVisible('#paneResults'), true);
+    assert.equal(await ctx.page.isVisible('#paneSetup'), false);
+
     await ctx.page.click('#viewSetup');
     assert.equal(await ctx.page.isVisible('#paneSetup'), true);
     assert.equal(await ctx.page.isVisible('#paneResults'), false);
-    // The setup form should be populated and usable.
-    assert.equal(await ctx.page.isVisible('#category'), true);
-
-    await ctx.page.click('#viewResults');
-    assert.equal(await ctx.page.isVisible('#paneResults'), true);
   } finally {
     await ctx.close();
   }
 });
 
 test('switching source shows only the controls that apply', async (t) => {
-  const ctx = await openPanel(t);
+  const ctx = await openPanel(t, { idle: true });
   if (!ctx) return;
   try {
-    await ctx.page.click('#viewSetup');
+    // Open the disclosure so the per-source options are on screen at all.
+    await ctx.page.evaluate(() => {
+      document.querySelector('details.advanced').open = true;
+    });
 
     // Maps: geography and business websites both mean something.
     assert.equal(await ctx.page.isVisible('#coverageRow'), true);
     assert.equal(await ctx.page.isVisible('#optEmails'), true);
     assert.equal(await ctx.page.isVisible('#optDeep'), true);
-    assert.equal(await ctx.page.textContent('#categoryLabel'), 'Category');
 
-    await ctx.page.selectOption('#source', 'linkedin');
-    await ctx.page.waitForTimeout(150);
+    await ctx.page.click('label.seg:has(input[value="linkedin"])');
+    await ctx.page.waitForTimeout(200);
 
     // LinkedIn: no viewport to grid over, no website to read an email from.
     // These are display:flex containers, where [hidden] is easily overridden.
     assert.equal(await ctx.page.isVisible('#coverageRow'), false, 'no grid for a people search');
     assert.equal(await ctx.page.isVisible('#optEmails'), false, 'people have no site to scan');
     assert.equal(await ctx.page.isVisible('#optDeep'), false, 'there is no detail pass');
-    assert.equal(await ctx.page.textContent('#categoryLabel'), 'Keywords');
-    assert.equal(await ctx.page.textContent('#cityLabel'), 'Location');
 
     // Still useful for both, so it must survive the switch.
     assert.equal(await ctx.page.isVisible('#maxResults'), true);
@@ -266,8 +288,8 @@ test('switching source shows only the controls that apply', async (t) => {
     assert.equal(await ctx.page.isVisible('#sourceNote'), true);
     assert.match(await ctx.page.textContent('#sourceNote'), /restricts accounts/i);
 
-    await ctx.page.selectOption('#source', 'maps');
-    await ctx.page.waitForTimeout(150);
+    await ctx.page.click('label.seg:has(input[value="maps"])');
+    await ctx.page.waitForTimeout(200);
     assert.equal(await ctx.page.isVisible('#coverageRow'), true, 'switching back restores it');
     assert.equal(await ctx.page.isVisible('#sourceNote'), false);
   } finally {
@@ -276,16 +298,14 @@ test('switching source shows only the controls that apply', async (t) => {
 });
 
 test('current-tab mode replaces the typed search with the page’s own', async (t) => {
-  const ctx = await openPanel(t);
+  const ctx = await openPanel(t, { idle: true });
   if (!ctx) return;
   try {
-    await ctx.page.click('#viewSetup');
-
     // Maps drives the tab itself, so the option does not apply there.
     assert.equal(await ctx.page.isVisible('#optCurrentTab'), false);
 
-    await ctx.page.selectOption('#source', 'linkedin');
-    await ctx.page.waitForTimeout(150);
+    await ctx.page.click('label.seg:has(input[value="linkedin"])');
+    await ctx.page.waitForTimeout(200);
     assert.equal(await ctx.page.isVisible('#optCurrentTab'), true);
 
     // Off: the keyword and location inputs are how you search.
@@ -293,23 +313,63 @@ test('current-tab mode replaces the typed search with the page’s own', async (
     assert.equal(await ctx.page.isVisible('#currentTabHint'), false);
 
     await ctx.page.check('#useCurrentTab');
-    await ctx.page.waitForTimeout(150);
+    await ctx.page.waitForTimeout(200);
 
     // On: those inputs would be ignored, so they are hidden rather than lying.
     assert.equal(await ctx.page.isVisible('#modeSingle'), false);
     assert.equal(await ctx.page.isVisible('#currentTabHint'), true);
-    assert.match(await ctx.page.textContent('#currentTabHint'), /come from that page/i);
+    assert.match(await ctx.page.textContent('#currentTabHint'), /from that page/i);
 
     await ctx.page.uncheck('#useCurrentTab');
-    await ctx.page.waitForTimeout(150);
+    await ctx.page.waitForTimeout(200);
     assert.equal(await ctx.page.isVisible('#modeSingle'), true, 'unchecking restores the inputs');
 
     // Switching back to Maps must clear it, not leave a stale flag set.
     await ctx.page.check('#useCurrentTab');
-    await ctx.page.selectOption('#source', 'maps');
-    await ctx.page.waitForTimeout(150);
+    await ctx.page.click('label.seg:has(input[value="maps"])');
+    await ctx.page.waitForTimeout(200);
     assert.equal(await ctx.page.isChecked('#useCurrentTab'), false);
     assert.equal(await ctx.page.isVisible('#modeSingle'), true);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('the three coverage levels drive the underlying setting', async (t) => {
+  const ctx = await openPanel(t, { idle: true });
+  if (!ctx) return;
+  try {
+    // Five grid presets were three too many to choose between, so the panel
+    // offers three named outcomes and maps them onto the real values.
+    assert.equal(await ctx.page.inputValue('#grid'), 'balanced');
+
+    await ctx.page.click('label.choice:has(input[value="off"])');
+    await ctx.page.waitForTimeout(150);
+    assert.equal(await ctx.page.inputValue('#grid'), 'off');
+
+    await ctx.page.click('label.choice:has(input[value="exhaustive"])');
+    await ctx.page.waitForTimeout(150);
+    assert.equal(await ctx.page.inputValue('#grid'), 'exhaustive');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('advanced options stay out of the way until asked for', async (t) => {
+  const ctx = await openPanel(t, { idle: true });
+  if (!ctx) return;
+  try {
+    // The whole point of the disclosure: five checkboxes are not five
+    // decisions the user has to make before starting.
+    assert.equal(await ctx.page.isVisible('#verifyEmails'), false);
+    assert.equal(await ctx.page.isVisible('#skipSeen'), false);
+    // What is on screen is the search and one button.
+    assert.equal(await ctx.page.isVisible('#category'), true);
+    assert.equal(await ctx.page.isVisible('#start'), true);
+
+    await ctx.page.click('details.advanced summary');
+    await ctx.page.waitForTimeout(150);
+    assert.equal(await ctx.page.isVisible('#verifyEmails'), true);
   } finally {
     await ctx.close();
   }

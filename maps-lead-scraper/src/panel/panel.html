@@ -2,152 +2,199 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Maps Lead Scraper</title>
+    <title>Lead Scraper</title>
+    <link rel="stylesheet" href="tokens.css" />
     <link rel="stylesheet" href="panel.css" />
   </head>
   <body>
-    <header class="head">
-      <img src="../../icons/icon32.png" alt="" width="22" height="22" />
-      <h1>Maps Lead Scraper</h1>
-      <span id="statusPill" class="pill">Idle</span>
+    <header class="masthead">
+      <img src="../../icons/icon32.png" alt="" width="20" height="20" />
+      <h1>Lead Scraper</h1>
+      <span id="statusPill" class="pill" hidden>Idle</span>
     </header>
 
-    <nav class="viewtabs" role="tablist">
-      <button type="button" id="viewSetup" class="viewtab is-active" role="tab">Setup</button>
-      <button type="button" id="viewResults" class="viewtab" role="tab">Results</button>
+    <nav class="tabbar" role="tablist">
+      <button type="button" id="viewSetup" class="tab is-active" role="tab">Search</button>
+      <button type="button" id="viewResults" class="tab" role="tab">
+        Results <span id="tabCount" class="tab-count" hidden>0</span>
+      </button>
     </nav>
 
-    <!-- ------------------------------------------------------------ setup -->
+    <!-- ==================================================== search ===== -->
     <section id="paneSetup" class="pane">
-      <form id="form">
-        <label class="field">
-          <span>Source</span>
-          <select id="source">
-            <option value="maps" selected>Google Maps — businesses</option>
-            <option value="linkedin">LinkedIn — people search</option>
-          </select>
+      <!-- --- the form: one question at a time, top to bottom ---------- -->
+      <form id="form" class="stack">
+        <fieldset class="segmented" id="sourceGroup">
+          <legend class="sr-only">Where to search</legend>
+          <label class="seg">
+            <input type="radio" name="source" value="maps" checked />
+            <span>Google Maps</span>
+          </label>
+          <label class="seg">
+            <input type="radio" name="source" value="linkedin" />
+            <span>LinkedIn</span>
+          </label>
+        </fieldset>
+        <select id="source" class="sr-only" tabindex="-1" aria-hidden="true">
+          <option value="maps" selected>maps</option>
+          <option value="linkedin">linkedin</option>
+        </select>
+
+        <label class="check card" id="optCurrentTab" hidden>
+          <input type="checkbox" id="useCurrentTab" />
+          <span>
+            <strong>Use the tab I'm on</strong>
+            <em>Keeps the filters you set on LinkedIn yourself</em>
+          </span>
         </label>
 
-        <div class="tabs" role="tablist">
-          <button type="button" id="tabSingle" class="tab is-active" role="tab" aria-selected="true">
-            One search
-          </button>
-          <button type="button" id="tabBatch" class="tab" role="tab" aria-selected="false">Batch</button>
+        <p id="currentTabHint" class="callout" hidden>
+          Set up the search and filters in your LinkedIn tab, then press Start.
+          Everything comes from that page.
+        </p>
+
+        <div id="modeSingle" class="stack">
+          <label class="field">
+            <span class="label" id="categoryLabel">What are you looking for?</span>
+            <input id="category" class="input" placeholder="dentists" autocomplete="off" />
+          </label>
+
+          <label class="field">
+            <span class="label" id="cityLabel">Where?</span>
+            <input id="city" class="input" placeholder="Chennai" autocomplete="off" />
+          </label>
         </div>
 
-        <label class="check standalone" id="optCurrentTab" hidden>
-          <input type="checkbox" id="useCurrentTab" />
-          <span>Scrape the tab I'm on <em>(keeps the filters you set by hand)</em></span>
-        </label>
+        <div id="modeBatch" class="stack" hidden>
+          <label class="field">
+            <span class="label">One search per line</span>
+            <textarea id="batch" class="input" rows="4" spellcheck="false"
+              placeholder="dentists, Chennai&#10;gyms, Coimbatore"></textarea>
+          </label>
+        </div>
 
-        <div id="modeSingle">
-          <div class="row">
-            <label class="field">
-              <span id="categoryLabel">Category</span>
-              <input id="category" placeholder="e.g. dentists" autocomplete="off" />
+        <button type="button" id="toggleBatch" class="linkish">Search several at once</button>
+
+        <!-- Three named outcomes, not five settings with jargon. -->
+        <div class="field" id="coverageRow">
+          <span class="label">How thorough?</span>
+          <div class="choices" id="coverage" role="radiogroup" aria-label="How thorough">
+            <label class="choice">
+              <input type="radio" name="coverage" value="off" />
+              <span class="choice-body">
+                <strong>Quick</strong>
+                <em>~120 results · a few minutes</em>
+              </span>
             </label>
-            <label class="field">
-              <span id="cityLabel">City</span>
-              <input id="city" placeholder="e.g. Chennai" autocomplete="off" />
+            <label class="choice">
+              <input type="radio" name="coverage" value="balanced" checked />
+              <span class="choice-body">
+                <strong>Balanced</strong>
+                <em>~600 results · about 25 minutes</em>
+              </span>
+            </label>
+            <label class="choice">
+              <input type="radio" name="coverage" value="exhaustive" />
+              <span class="choice-body">
+                <strong>Deep</strong>
+                <em>~1,500 results · an hour or more</em>
+              </span>
             </label>
           </div>
         </div>
+        <select id="grid" class="sr-only" tabindex="-1" aria-hidden="true">
+          <option value="off">off</option>
+          <option value="light">light</option>
+          <option value="balanced" selected>balanced</option>
+          <option value="thorough">thorough</option>
+          <option value="exhaustive">exhaustive</option>
+        </select>
 
-        <p id="currentTabHint" class="hint" hidden>
-          Set up the search and filters in your LinkedIn tab, then press Start.
-          The keywords, the location and every filter come from that page.
-        </p>
+        <!-- Everything below has a sensible default. Hidden until wanted. -->
+        <details class="advanced">
+          <summary>More options</summary>
+          <div class="stack advanced-body">
+            <label class="check" id="optDeep">
+              <input type="checkbox" id="deep" checked />
+              <span>Open each listing for the full address and phone</span>
+            </label>
+            <label class="check" id="optEmails">
+              <input type="checkbox" id="fetchEmails" checked />
+              <span>Find emails on business websites</span>
+            </label>
+            <label class="check" id="optContact">
+              <input type="checkbox" id="followContactPage" checked />
+              <span>Also check each site's contact page</span>
+            </label>
+            <label class="check" id="optVerify">
+              <input type="checkbox" id="verifyEmails" checked />
+              <span>Check the emails are real</span>
+            </label>
+            <label class="check">
+              <input type="checkbox" id="skipSeen" />
+              <span>Skip ones I've already downloaded <em id="seenNote"></em></span>
+            </label>
+            <label class="field">
+              <span class="label">Stop after this many per search</span>
+              <input id="maxResults" class="input" type="number" min="0" max="5000" step="10" value="0" />
+              <span class="help">0 means no limit</span>
+            </label>
+          </div>
+        </details>
 
-        <div id="modeBatch" hidden>
-          <label class="field">
-            <span>One search per line <em>(“dentists, Chennai”)</em></span>
-            <textarea id="batch" rows="4" spellcheck="false"
-              placeholder="dentists, Chennai&#10;dental clinics, Chennai&#10;orthodontists in Coimbatore"></textarea>
-          </label>
-        </div>
+        <p id="sourceNote" class="callout callout--warn" hidden></p>
 
-        <div class="row">
-          <label class="field" id="coverageRow">
-            <span>Coverage</span>
-            <select id="grid">
-              <option value="off">Off — 1 search (~120)</option>
-              <option value="light">Light — 4 cells</option>
-              <option value="balanced" selected>Balanced — 9 cells</option>
-              <option value="thorough">Thorough — 16 cells</option>
-              <option value="exhaustive">Exhaustive — 25 cells</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>Max per search <em>(0 = all)</em></span>
-            <input id="maxResults" type="number" min="0" max="5000" step="10" value="0" />
-          </label>
-        </div>
-
-        <fieldset class="opts">
-          <legend>Options</legend>
-          <label class="check" id="optDeep">
-            <input type="checkbox" id="deep" checked />
-            <span>Open each listing for phone &amp; address <em>(slower, much better data)</em></span>
-          </label>
-          <label class="check" id="optEmails">
-            <input type="checkbox" id="fetchEmails" checked />
-            <span>Find emails &amp; social links from business websites</span>
-          </label>
-          <label class="check" id="optContact">
-            <input type="checkbox" id="followContactPage" checked />
-            <span>Also check each site's contact page</span>
-          </label>
-          <label class="check" id="optVerify">
-            <input type="checkbox" id="verifyEmails" checked />
-            <span>Verify emails <em>(MX lookup — drops dead domains)</em></span>
-          </label>
-          <label class="check">
-            <input type="checkbox" id="skipSeen" />
-            <span>Skip businesses from earlier runs <em class="seen" id="seenNote"></em></span>
-          </label>
-        </fieldset>
-
-        <p id="sourceNote" class="sourcenote" hidden></p>
-
-        <div class="actions">
-          <button type="submit" id="start" class="primary">Start scraping</button>
-          <button type="button" id="resume" class="primary" hidden>Resume</button>
-          <button type="button" id="stop" class="ghost" hidden>Stop</button>
-        </div>
+        <button type="submit" id="start" class="btn btn--primary btn--lg">Start</button>
+        <button type="button" id="resume" class="btn btn--primary btn--lg" hidden>Resume</button>
       </form>
 
-      <section id="status" class="status" hidden>
+      <!-- --- the run: replaces the form, because nothing else matters -->
+      <div id="runView" class="stack" hidden>
+        <div class="runhead">
+          <div id="spinner" class="spinner" hidden></div>
+          <div>
+            <p id="runTitle" class="runtitle">Working…</p>
+            <p id="message" class="muted"></p>
+          </div>
+        </div>
+
         <div class="bar"><div id="barFill" class="bar-fill"></div></div>
-        <p id="message" class="message"></p>
-        <p id="taskLine" class="tasks"></p>
-        <ul class="stats">
-          <li><strong id="statFound">0</strong><span>businesses</span></li>
+        <p id="taskLine" class="muted small"></p>
+
+        <ul class="figures">
+          <li><strong id="statFound">0</strong><span id="statFoundLabel">businesses</span></li>
           <li><strong id="statPhones">0</strong><span>phones</span></li>
           <li><strong id="statEmails">0</strong><span>emails</span></li>
-          <li><strong id="statSendable">0</strong><span>sendable</span></li>
+          <li><strong id="statSendable">0</strong><span>usable</span></li>
         </ul>
-        <details id="healthBox" class="health" hidden>
-          <summary>Extraction health</summary>
-          <ul id="healthList" class="healthlist"></ul>
+
+        <div class="row">
+          <button type="button" id="stop" class="btn" hidden>Stop</button>
+          <button type="button" id="again" class="btn" hidden>New search</button>
+          <button type="button" id="goResults" class="btn btn--primary" hidden>See results</button>
+        </div>
+
+        <details id="healthBox" class="advanced" hidden>
+          <summary>What was found on each listing</summary>
+          <ul id="healthList" class="ratelist"></ul>
         </details>
-      </section>
-
-      <p id="error" class="error" hidden></p>
-    </section>
-
-    <!-- ---------------------------------------------------------- results -->
-    <section id="paneResults" class="pane" hidden>
-      <div class="export">
-        <select id="format" aria-label="Download format">
-          <option value="csv">CSV (.csv)</option>
-          <option value="xlsx">Excel (.xlsx)</option>
-          <option value="json">JSON (.json)</option>
-        </select>
-        <button type="button" id="download" class="primary">Download</button>
-        <button type="button" id="clear" class="ghost" title="Discard these results">Clear</button>
       </div>
 
-      <input id="filter" class="filter" type="search" placeholder="Filter by name, area, category…" />
+      <p id="error" class="callout callout--danger" hidden></p>
+    </section>
+
+    <!-- =================================================== results ===== -->
+    <section id="paneResults" class="pane" hidden>
+      <div class="row">
+        <select id="format" class="input" aria-label="File type">
+          <option value="xlsx">Excel (.xlsx)</option>
+          <option value="csv">CSV (.csv)</option>
+          <option value="json">JSON (.json)</option>
+        </select>
+        <button type="button" id="download" class="btn btn--primary">Download</button>
+      </div>
+
+      <input id="filter" class="input" type="search" placeholder="Filter these results…" />
 
       <div id="scroller" class="scroller">
         <table class="grid">
@@ -169,12 +216,15 @@
           <table class="grid rows"><tbody id="rowBody"></tbody></table>
         </div>
       </div>
-      <p id="rowNote" class="note"></p>
+
+      <div class="row">
+        <p id="rowNote" class="muted small grow"></p>
+        <button type="button" id="clear" class="linkish">Clear</button>
+      </div>
     </section>
 
-    <footer class="foot" id="foot">
-      Keep the search tab open while it runs. Scrape responsibly and respect
-      each site's Terms of Service.
+    <footer class="footnote" id="footnote" hidden>
+      Keep the search tab open while it runs.
     </footer>
 
     <script type="module" src="panel.js"></script>

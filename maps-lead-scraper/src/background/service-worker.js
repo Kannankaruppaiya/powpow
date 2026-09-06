@@ -437,8 +437,9 @@ async function finishRun(config) {
     found: records.length,
     error: firstError,
     message:
-      `Finished — ${records.length} ${source.noun}` +
-      (failedTasks.length ? `, ${failedTasks.length} searches failed` : '') +
+      `${records.length} ${source.noun} from ${job.tasks.length} ` +
+      `${job.tasks.length === 1 ? 'search' : 'searches'}` +
+      (failedTasks.length ? `, ${failedTasks.length} of them failed` : '') +
       '.',
     finishedAt: Date.now(),
   });
