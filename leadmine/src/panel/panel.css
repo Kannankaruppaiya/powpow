@@ -20,6 +20,9 @@ html, body { height: 100%; }
 body {
   min-width: 320px;
   margin: 0;
+  /* The pane is the only thing that scrolls. Without this the page behind it
+     can scroll too, and the panel shows two scrollbars side by side. */
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   font: var(--w-regular) var(--t-body) / 1.5 var(--font);
@@ -106,6 +109,15 @@ body {
   gap: var(--s-4);
   padding: var(--s-4);
   overflow: auto;
+  /*
+   * A containing block for the visually-hidden inputs inside.
+   *
+   * `position: absolute` with no positioned ancestor resolves against the
+   * initial containing block, so those inputs sat at their static position
+   * *outside* this scroller — stretching the page behind it to the height of
+   * the whole form and giving the panel a second scrollbar.
+   */
+  position: relative;
 }
 #paneResults { overflow: hidden; gap: var(--s-3); }
 
@@ -178,7 +190,7 @@ select.input { appearance: auto; }
   border-radius: var(--r-md);
   background: var(--surface);
 }
-.seg { flex: 1; }
+.seg { flex: 1; position: relative; }
 .seg input { position: absolute; opacity: 0; pointer-events: none; }
 .seg span {
   display: block;
@@ -201,7 +213,7 @@ select.input { appearance: auto; }
 /* --- choice cards (one decision, three named outcomes) ----------------- */
 
 .choices { display: flex; flex-direction: column; gap: var(--s-2); }
-.choice { display: block; cursor: pointer; }
+.choice { display: block; cursor: pointer; position: relative; }
 .choice input { position: absolute; opacity: 0; pointer-events: none; }
 .choice-body {
   display: block;

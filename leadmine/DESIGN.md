@@ -228,6 +228,22 @@ The running state says what it is doing in words — "Opening each listing…",
 | Invalid API key (401) | That API key was rejected. Check it in More options. |
 | 1 searches failed | *the actual reason the search failed* |
 
+## One scroller per view
+
+The panel is a flex column: masthead, tabs, then the pane, which is the only
+thing that scrolls. Two scrollbars appeared once and the cause is worth
+recording, because the CSS looked correct: the visually-hidden inputs behind
+the segmented control and the choice cards are `position: absolute`, and with
+no positioned ancestor they resolve against the *initial containing block* —
+so they sat outside the pane's scroller, at their static position near the foot
+of the form, and stretched the page behind it to the form's full height.
+
+Any control that hides a real input under a styled label must be
+`position: relative`, and the pane is too. A test asserts exactly one
+scrollable element per view.
+
+---
+
 ## Accessibility
 
 - Every field keeps a visible, persistent label — a placeholder is never the

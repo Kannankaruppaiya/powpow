@@ -781,3 +781,59 @@ test('a key pasted under the wrong provider says which one it is', async (t) => 
     await ctx.close();
   }
 });
+
+/** Every element that can actually be scrolled, by id/class. */
+const SCROLLERS = () => {
+  const found = [];
+  const walk = (el) => {
+    const style = getComputedStyle(el);
+    const scrolls =
+      el === document.documentElement
+        ? el.scrollHeight - el.clientHeight > 1
+        : ['auto', 'scroll'].includes(style.overflowY) && el.scrollHeight - el.clientHeight > 1;
+    if (scrolls) {
+      found.push(el.tagName + (el.id ? `#${el.id}` : ''));
+    }
+    for (const child of el.children) walk(child);
+  };
+  walk(document.documentElement);
+  return found;
+};
+
+test('the panel has one scrollbar, not two', async (t) => {
+  // Two appeared because the visually-hidden radio inputs are absolutely
+  // positioned: with no positioned ancestor they resolved against the initial
+  // containing block, sat outside the pane's scroller at their static position,
+  // and stretched the page behind it to the height of the whole form.
+  const ctx = await openPanel(t, { idle: true });
+  if (!ctx) return;
+  try {
+    await openAdvanced(ctx);
+    await ctx.page.waitForTimeout(200);
+
+    const scrollers = await ctx.page.evaluate(SCROLLERS);
+    assert.deepEqual(scrollers, ['SECTION#paneSetup'], 'only the pane may scroll');
+
+    const page = await ctx.page.evaluate(() => ({
+      client: document.documentElement.clientHeight,
+      scroll: document.documentElement.scrollHeight,
+    }));
+    assert.equal(page.scroll, page.client, 'the page behind the pane must not extend');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('the results view scrolls in the table, not the page', async (t) => {
+  const ctx = await openPanel(t);
+  if (!ctx) return;
+  try {
+    await ctx.page.click('#viewResults');
+    await ctx.page.waitForTimeout(400);
+
+    const scrollers = await ctx.page.evaluate(SCROLLERS);
+    assert.deepEqual(scrollers, ['DIV#viewport'], 'the virtualised table is the only scroller');
+  } finally {
+    await ctx.close();
+  }
+});
