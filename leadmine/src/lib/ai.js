@@ -33,6 +33,7 @@ export const PROVIDERS = {
     defaultModel: 'gemini-2.5-flash',
     keyUrl: 'https://aistudio.google.com/apikey',
     keyHint: 'Starts with AIza',
+    keyLooks: /^AIza/,
 
     request(model, key, system, user) {
       return {
@@ -66,6 +67,7 @@ export const PROVIDERS = {
     defaultModel: 'llama-3.3-70b-versatile',
     keyUrl: 'https://console.groq.com/keys',
     keyHint: 'Starts with gsk_',
+    keyLooks: /^gsk_/,
 
     request(model, key, system, user) {
       return {
@@ -107,6 +109,44 @@ export function providerFor(id) {
 /* --------------------------------------------------------------- helpers */
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * The model id to actually send.
+ *
+ * A model box sitting under a key box collects things that are not model
+ * names. Rather than pass whatever is in it to the API and relay
+ * "unexpected model name format" back, anything that cannot be a model id is
+ * ignored and the provider's default is used — which is what the user wanted
+ * from a box they never meant to fill.
+ */
+export function cleanModel(name, fallback) {
+  const value = String(name || '')
+    .trim()
+    // "models/gemini-2.5-flash" is how the docs write it; the path adds its own.
+    .replace(/^models\//, '');
+  if (!value || value.length > 80) return fallback;
+  // An API key pasted into the model box is the case this exists for, and it
+  // is the one thing no model id can be.
+  if (wrongProviderFor(value)) return fallback;
+  // Model ids are one token: letters, digits and separators. Groq namespaces
+  // some of its own with a slash, so that is allowed too.
+  return /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(value) ? value : fallback;
+}
+
+/**
+ * A key that plainly belongs to the other provider.
+ *
+ * Both keys are opaque strings in a password box, so pasting one under the
+ * wrong provider is easy and the API's own answer for it ("invalid argument")
+ * says nothing about the actual mistake.
+ */
+export function wrongProviderFor(key) {
+  const value = String(key || '').trim();
+  for (const conf of Object.values(PROVIDERS)) {
+    if (conf.keyLooks.test(value)) return conf;
+  }
+  return null;
+}
 
 /**
  * Pull the JSON object out of whatever came back.
@@ -228,15 +268,17 @@ export function planToBatch(searches) {
 /* ------------------------------------------------------------ the request */
 
 /** What went wrong, in words that say what to do about it. */
-function httpError(status, body) {
+function httpError(status, body, model) {
   if (status === 400 && /api key not valid/i.test(body)) {
     return new Error('That API key was rejected. Check it in More options.');
   }
   if (status === 401 || status === 403) {
     return new Error('That API key was rejected. Check it in More options.');
   }
-  if (status === 404) {
-    return new Error('That model name does not exist for this provider. Check it in More options.');
+  if (status === 404 || /model/i.test(body)) {
+    return new Error(
+      `The provider rejected the model "${model}". Clear the Model box under More options to use the default.`
+    );
   }
   if (status === 429) {
     return new Error('The provider is rate-limiting this key. Wait a minute, or switch provider.');
@@ -272,9 +314,19 @@ export async function planSearches({
   if (!fetchImpl) throw new Error('This browser cannot reach the planner.');
 
   const conf = providerFor(provider);
+  const key = String(apiKey).trim();
+
+  const belongsTo = wrongProviderFor(key);
+  if (belongsTo && belongsTo.id !== conf.id) {
+    throw new Error(
+      `That looks like a ${belongsTo.label} key, but ${conf.label} is selected. Switch provider, or paste a ${conf.label} key.`
+    );
+  }
+
+  const wanted = cleanModel(model, conf.defaultModel);
   const req = conf.request(
-    String(model).trim() || conf.defaultModel,
-    String(apiKey).trim(),
+    wanted,
+    key,
     SYSTEM_PROMPT,
     buildUserPrompt({ brief: text, source, city, depth })
   );
@@ -307,7 +359,7 @@ export async function planSearches({
 
     if (!response.ok) {
       const body = await response.text().catch(() => '');
-      lastError = httpError(response.status, body);
+      lastError = httpError(response.status, body, wanted);
       // Only a transient status is worth a second attempt; a rejected key
       // will be rejected just as fast the second time.
       if (response.status === 429 || response.status >= 500) continue;

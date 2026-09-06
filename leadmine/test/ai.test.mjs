@@ -17,6 +17,8 @@ import {
   searchKey,
   planToBatch,
   providerFor,
+  cleanModel,
+  wrongProviderFor,
   PROVIDERS,
 } from '../src/lib/ai.js';
 import { buildUserPrompt, DEPTH_LIMITS } from '../src/lib/plan-prompt.js';
@@ -287,7 +289,7 @@ test('a rejected key says so, and does not retry', async () => {
 
 test('a wrong model name points at the setting that is wrong', async () => {
   const fetchImpl = fakeFetch(() => ({ status: 404, json: {}, text: 'not found' }));
-  await assert.rejects(planSearches({ ...base, fetchImpl }), /model name does not exist/i);
+  await assert.rejects(planSearches({ ...base, fetchImpl }), /rejected the model/i);
 });
 
 test('a rate limit is retried once, then reported', async () => {
@@ -345,4 +347,63 @@ test('no key and no brief are caught before any request is made', async () => {
 test('an unknown provider falls back rather than throwing on a typo', () => {
   assert.equal(providerFor('nope').id, 'gemini');
   assert.equal(providerFor('groq').id, 'groq');
+});
+
+/* ------------------------------------------------------ model and key shape */
+
+test('a model name that cannot be one falls back to the default', () => {
+  // The live failure: something that was not a model name reached the API and
+  // came back as "unexpected model name format", which explains nothing.
+  assert.equal(cleanModel('gsk_abc123DEF', 'gemini-2.5-flash'), 'gemini-2.5-flash');
+  assert.equal(cleanModel('', 'gemini-2.5-flash'), 'gemini-2.5-flash');
+  assert.equal(cleanModel('   ', 'gemini-2.5-flash'), 'gemini-2.5-flash');
+  assert.equal(cleanModel('a model with spaces', 'gemini-2.5-flash'), 'gemini-2.5-flash');
+  assert.equal(cleanModel('x'.repeat(200), 'gemini-2.5-flash'), 'gemini-2.5-flash');
+});
+
+test('a real model name is kept, however the docs write it', () => {
+  assert.equal(cleanModel('gemini-2.5-pro', 'x'), 'gemini-2.5-pro');
+  assert.equal(cleanModel('  llama-3.3-70b-versatile  ', 'x'), 'llama-3.3-70b-versatile');
+  // The docs write "models/gemini-2.5-flash"; the URL adds that prefix itself.
+  assert.equal(cleanModel('models/gemini-2.5-flash', 'x'), 'gemini-2.5-flash');
+});
+
+test('junk in the model box never reaches the request', async () => {
+  const fetchImpl = fakeFetch(() => geminiReply(READY));
+  await planSearches({ ...base, apiKey: 'AIza-test', model: 'not a model!!', fetchImpl });
+  assert.match(fetchImpl.calls[0].url, /models\/gemini-2\.5-flash:generateContent/);
+});
+
+test('a key belonging to the other provider is named as such', async () => {
+  const fetchImpl = fakeFetch(() => geminiReply(READY));
+  // Both keys are opaque strings in a password box; pasting the wrong one is
+  // easy, and the provider's own reply for it explains nothing.
+  await assert.rejects(
+    planSearches({ ...base, provider: 'gemini', apiKey: 'gsk_abc', fetchImpl }),
+    /looks like a Groq key.*Google Gemini is selected/i
+  );
+  await assert.rejects(
+    planSearches({ ...base, provider: 'groq', apiKey: 'AIzaSyAbc', fetchImpl }),
+    /looks like a Google Gemini key.*Groq is selected/i
+  );
+  assert.equal(fetchImpl.calls.length, 0, 'caught before spending a request');
+});
+
+test('the matching key is not mistaken for the wrong provider’s', async () => {
+  const fetchImpl = fakeFetch(() => geminiReply(READY));
+  await planSearches({ ...base, provider: 'gemini', apiKey: 'AIzaSyAbc', fetchImpl });
+  assert.equal(fetchImpl.calls.length, 1);
+  assert.equal(wrongProviderFor('some-other-format'), null, 'an unknown shape is not blocked');
+});
+
+test('a model the provider rejects points at the box to clear', async () => {
+  const fetchImpl = fakeFetch(() => ({
+    status: 400,
+    json: {},
+    text: '{"error":{"message":"* GenerateContentRequest.model: unexpected model name format"}}',
+  }));
+  await assert.rejects(
+    planSearches({ ...base, apiKey: 'AIza-test', model: 'gemini-9-turbo', fetchImpl }),
+    /rejected the model "gemini-9-turbo".*Clear the Model box/is
+  );
 });

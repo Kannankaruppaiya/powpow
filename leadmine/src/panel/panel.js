@@ -57,7 +57,8 @@ const ui = Object.fromEntries(
     'emptyResults', 'emptyGoSearch',
     'assist', 'assistSub', 'aiBrief', 'aiPlan', 'aiStatus', 'aiKeyHint', 'aiOpenSettings',
     'aiResult', 'aiUnderstood', 'aiList', 'aiApply', 'aiDiscard',
-    'aiSettings', 'aiProvider', 'aiProviderName', 'aiKey', 'aiModel', 'aiKeyLink',
+    'aiSettings', 'aiProvider', 'aiProviderName', 'aiKey', 'aiKeyLink',
+    'aiModel', 'aiModelRow', 'aiModelToggle',
   ].map((id) => [id, el(id)])
 );
 
@@ -294,39 +295,60 @@ const saveSettings = () => chrome.storage.local.set({ [SETTINGS_KEY]: readConfig
  * the second, and shows its reasoning so the user stays the one deciding.
  */
 
-let ai = { provider: DEFAULT_PROVIDER, key: '', model: '' };
+/*
+ * Keys and models are kept per provider. One shared slot meant switching from
+ * Gemini to Groq carried Gemini's model across with it, and the request failed
+ * on a model the user had never chosen for that provider.
+ */
+let ai = { provider: DEFAULT_PROVIDER, keys: {}, models: {} };
 let plan = null;
 
 async function restoreAi() {
   const stored = await chrome.storage.local.get(AI_KEY);
-  ai = { provider: DEFAULT_PROVIDER, key: '', model: '', ...(stored[AI_KEY] || {}) };
+  const saved = stored[AI_KEY] || {};
+  ai = {
+    provider: saved.provider || DEFAULT_PROVIDER,
+    keys: { ...(saved.keys || {}) },
+    models: { ...(saved.models || {}) },
+  };
+  // An earlier build stored one key and one model, with no provider attached;
+  // they belonged to whichever provider was selected at the time.
+  if (saved.key) ai.keys[ai.provider] = ai.keys[ai.provider] || saved.key;
+  if (saved.model) ai.models[ai.provider] = ai.models[ai.provider] || saved.model;
+
   ui.aiProvider.value = ai.provider;
   syncRadios('aiProvider', ai.provider);
-  ui.aiKey.value = ai.key;
-  ui.aiModel.value = ai.model;
   applyProvider();
 }
 
-const saveAi = () =>
-  chrome.storage.local.set({
-    [AI_KEY]: {
-      provider: ui.aiProvider.value,
-      key: ui.aiKey.value.trim(),
-      model: ui.aiModel.value.trim(),
-    },
-  });
+const saveAi = () => {
+  ai.provider = ui.aiProvider.value;
+  ai.keys[ai.provider] = ui.aiKey.value.trim();
+  ai.models[ai.provider] = ui.aiModel.value.trim();
+  return chrome.storage.local.set({ [AI_KEY]: ai });
+};
 
 /** Everything that changes when you switch between Gemini and Groq. */
 function applyProvider() {
   const conf = providerFor(ui.aiProvider.value);
+  ui.aiKey.value = ai.keys[conf.id] || '';
+  ui.aiModel.value = ai.models[conf.id] || '';
   ui.aiProviderName.textContent = conf.label;
   ui.aiKeyLink.href = conf.keyUrl;
-  // The model box shows the default as a placeholder rather than a value, so
-  // leaving it blank keeps following the default when it changes.
+  // The default is a placeholder rather than a value, so a blank box keeps
+  // following the default as it changes.
   ui.aiModel.placeholder = conf.defaultModel;
-  ui.aiKey.placeholder = `API key — ${conf.keyHint}`;
-  ui.aiKeyHint.hidden = Boolean(ui.aiKey.value.trim());
-  ui.aiPlan.disabled = !ui.aiKey.value.trim();
+  ui.aiKey.placeholder = `${conf.label} key — ${conf.keyHint}`;
+  ui.aiModelRow.hidden = !ui.aiModel.value;
+  ui.aiModelToggle.hidden = Boolean(ui.aiModel.value);
+  applyKeyState();
+}
+
+/** The one thing that gates the button: is there a key for this provider? */
+function applyKeyState() {
+  const has = Boolean(ui.aiKey.value.trim());
+  ui.aiKeyHint.hidden = has;
+  ui.aiPlan.disabled = !has;
 }
 
 function setAiStatus(text, kind = '') {
@@ -442,17 +464,27 @@ ui.aiOpenSettings.addEventListener('click', () => {
 
 bindRadios('aiProvider', ui.aiProvider);
 ui.aiProvider.addEventListener('change', () => {
+  // Save the boxes as they stand before repainting them for the new provider,
+  // or switching away would discard the key just typed.
+  ai.keys[ai.provider] = ui.aiKey.value.trim();
+  ai.models[ai.provider] = ui.aiModel.value.trim();
   applyProvider();
   saveAi();
 });
 for (const field of [ui.aiKey, ui.aiModel]) {
   field.addEventListener('change', () => {
-    applyProvider();
+    applyKeyState();
     saveAi();
   });
 }
 // The Plan button unlocks as soon as a key is typed, without waiting for blur.
-ui.aiKey.addEventListener('input', applyProvider);
+ui.aiKey.addEventListener('input', applyKeyState);
+
+ui.aiModelToggle.addEventListener('click', () => {
+  ui.aiModelRow.hidden = false;
+  ui.aiModelToggle.hidden = true;
+  ui.aiModel.focus();
+});
 
 /* ---------------------------------------------------------- virtual table */
 

@@ -159,7 +159,12 @@ plan is a single request of about a thousand tokens.
 
 Paste it under **More options → Search planner**. Two providers are offered
 because they run out differently — Gemini's free tier caps per day, Groq's per
-minute — so there is always the other one to switch to.
+minute — so there is always the other one to switch to. Each provider keeps its
+own key, so switching does not lose the other.
+
+Leave **Model** alone. It is behind a toggle and blank means "use the
+recommended one", which is what you want; it exists only for trying a different
+model deliberately.
 
 **Where the key goes:** into `chrome.storage.local` on this machine, and out in
 a request header to the provider you picked. It is deliberately kept out of the

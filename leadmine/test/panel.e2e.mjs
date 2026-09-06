@@ -154,6 +154,8 @@ async function openPanel(t, { idle = false, paused = false, aiKey = '' } = {}) {
 
   if (paused) await page.addInitScript(() => { window.__paused = true; });
   if (aiKey) {
+    // Deliberately the shape an older build wrote — one key, no provider — so
+    // the migration path is exercised on every planner test.
     await page.addInitScript((key) => {
       window.__storage = { 'mls.ai': { provider: 'gemini', key, model: '' } };
     }, aiKey);
@@ -560,6 +562,13 @@ const PLAN = {
   ],
 };
 
+/** The planner's settings live behind More options; open it without a click. */
+async function openAdvanced(ctx) {
+  await ctx.page.evaluate(() => {
+    document.getElementById('aiSettings').closest('details').open = true;
+  });
+}
+
 async function runPlanner(ctx, { brief, reply, status = 200 }) {
   await ctx.page.evaluate(
     ([body, code]) => {
@@ -709,6 +718,65 @@ test('reading the user’s own tab hides the planner, which has nothing to fill'
     await ctx.page.check('#useCurrentTab');
     await ctx.page.waitForTimeout(150);
     assert.equal(await ctx.page.isVisible('#assist'), false);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('each provider keeps its own key and model', async (t) => {
+  const ctx = await openPanel(t, { idle: true, aiKey: 'AIza-gemini' });
+  if (!ctx) return;
+  try {
+    await openAdvanced(ctx);
+    assert.equal(await ctx.page.inputValue('#aiKey'), 'AIza-gemini');
+
+    await ctx.page.click('label.seg:has(input[value="groq"])');
+    await ctx.page.waitForTimeout(150);
+    // Switching must not hand Gemini's key — or its model — to Groq.
+    assert.equal(await ctx.page.inputValue('#aiKey'), '');
+    assert.equal(await ctx.page.isDisabled('#aiPlan'), true);
+
+    await ctx.page.fill('#aiKey', 'gsk_groq');
+    await ctx.page.click('label.seg:has(input[value="gemini"])');
+    await ctx.page.waitForTimeout(150);
+    assert.equal(await ctx.page.inputValue('#aiKey'), 'AIza-gemini', 'the first key survives');
+
+    await ctx.page.click('label.seg:has(input[value="groq"])');
+    await ctx.page.waitForTimeout(150);
+    assert.equal(await ctx.page.inputValue('#aiKey'), 'gsk_groq', 'and so does the second');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('the model box is out of the way until it is asked for', async (t) => {
+  const ctx = await openPanel(t, { idle: true, aiKey: 'AIza-test' });
+  if (!ctx) return;
+  try {
+    await openAdvanced(ctx);
+    // An unlabelled box under the key box is a box people paste keys into.
+    assert.equal(await ctx.page.isVisible('#aiModel'), false);
+    assert.equal(await ctx.page.isVisible('#aiModelToggle'), true);
+
+    await ctx.page.click('#aiModelToggle');
+    assert.equal(await ctx.page.isVisible('#aiModel'), true);
+    assert.equal(await ctx.page.getAttribute('#aiModel', 'placeholder'), 'gemini-2.5-flash');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('a key pasted under the wrong provider says which one it is', async (t) => {
+  const ctx = await openPanel(t, { idle: true });
+  if (!ctx) return;
+  try {
+    await openAdvanced(ctx);
+    await ctx.page.fill('#aiKey', 'gsk_a_groq_key');
+    await runPlanner(ctx, { brief: 'dentists in Chennai', reply: {} });
+
+    assert.match(await ctx.page.textContent('#aiStatus'), /looks like a Groq key/i);
+    // Nothing was spent finding that out.
+    assert.equal(await ctx.page.evaluate(() => window.__aiCalls.length), 0);
   } finally {
     await ctx.close();
   }

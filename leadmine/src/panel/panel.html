@@ -206,13 +206,20 @@
               </select>
               <input id="aiKey" class="input" type="password" autocomplete="off"
                      spellcheck="false" placeholder="API key" aria-label="API key" />
-              <input id="aiModel" class="input" autocomplete="off" spellcheck="false"
-                     aria-label="Model" />
               <span class="help">
                 The key stays in this browser — it is never sent anywhere but
                 <span id="aiProviderName">Google</span>, and never written into an export.
                 <a id="aiKeyLink" href="#" target="_blank" rel="noreferrer">Get a free key</a>.
               </span>
+
+              <!-- Behind a toggle: an unlabelled box under the key box is a box
+                   people type their key into. Nobody needs this by default. -->
+              <button type="button" id="aiModelToggle" class="linkish">Use a different model</button>
+              <label class="field" id="aiModelRow" hidden>
+                <span class="label">Model <em class="optional">optional</em></span>
+                <input id="aiModel" class="input" autocomplete="off" spellcheck="false" />
+                <span class="help">Leave blank to use the recommended one.</span>
+              </label>
             </div>
 
             <label class="field">
