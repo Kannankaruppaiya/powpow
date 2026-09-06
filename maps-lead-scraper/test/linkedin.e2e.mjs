@@ -295,3 +295,63 @@ test('a profile link in the navigation is not scraped as a result', async (t) =>
   if (!result) return;
   assert.ok(!result.records.some((r) => r.profileUrl.includes('kannan-the-viewer')));
 });
+
+test('when detection fails it reports what it actually saw', async (t) => {
+  // A page with no results at all. "No results found" is useless to whoever
+  // has to fix it; the counts are what make the next fix a one-shot.
+  const result = await run(t, {
+    mutate: async (page) => {
+      await page.evaluate(() => {
+        document.querySelector('ul[role="list"]').remove();
+      });
+    },
+  });
+  if (!result) return;
+
+  assert.equal(result.ok, false);
+  assert.match(result.error, /Could not find the results/i);
+  assert.match(result.error, /links=\d+/, 'how many profile links were on the page');
+  assert.match(result.error, /usable=\d+/, 'how many survived filtering');
+  assert.match(result.error, /biggest=\d+/, 'the largest group of sibling cards');
+  assert.match(result.error, /main=(yes|no)/);
+});
+
+test('results are found even when they sit outside <main>', async (t) => {
+  // Scoping the search to <main> was a guess about LinkedIn's layout, and a
+  // wrong guess looked exactly like "no results".
+  const result = await run(t, {
+    mutate: async (page) => {
+      await page.evaluate(() => {
+        const main = document.querySelector('main');
+        const holder = document.createElement('div');
+        while (main.firstChild) holder.appendChild(main.firstChild);
+        main.replaceWith(holder);
+      });
+    },
+  });
+  if (!result) return;
+  assert.equal(result.ok, true, result.error);
+  assert.equal(result.records.length, 3);
+});
+
+test('cards that are not list items are still grouped correctly', async (t) => {
+  // If LinkedIn drops <li>, the walk-up has to find the card by its siblings.
+  const result = await run(t, {
+    mutate: async (page) => {
+      await page.evaluate(() => {
+        const list = document.querySelector('ul[role="list"]');
+        const div = document.createElement('div');
+        for (const li of [...list.children]) {
+          const card = document.createElement('div');
+          card.innerHTML = li.innerHTML;
+          div.appendChild(card);
+        }
+        list.replaceWith(div);
+      });
+    },
+  });
+  if (!result) return;
+  assert.equal(result.ok, true, result.error);
+  assert.equal(result.records.length, 2, 'the two hydrated cards are found without <li>');
+  assert.ok(!result.records.some((r) => r.profileUrl.includes('mutual-friend')));
+});

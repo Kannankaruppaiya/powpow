@@ -44,37 +44,90 @@
    *
    * Naming it was the original approach and it failed on the live site within
    * weeks: LinkedIn's classes are build output. What does not change is the
-   * shape — a container whose children each hold a link to a profile. So count
-   * how many sibling items under each candidate container carry a profile
-   * link, and take the container with the most.
-   *
-   * This also steps around the promo cards LinkedIn injects mid-list, which
-   * simply contribute no profile link and are ignored.
+   * shape — a container whose children each hold a link to a profile.
    */
   function findResultList() {
-    const scope = document.querySelector('main') || document.body;
-    const links = [...scope.querySelectorAll(SEL.profileLink)].filter((a) => profileUrl(a));
-    if (links.length < 2) return null;
+    return groupResults().list;
+  }
+
+  /**
+   * Group the page's profile links into result cards and their container.
+   *
+   * Every ancestor is a candidate container, not just the first one with two
+   * link-bearing children. Stopping at the first meant a card's own inner
+   * wrapper won — grouping the person with the "is a mutual connection" link
+   * beneath them, instead of grouping the cards with each other.
+   *
+   * Returns the counts alongside the result, because when this finds nothing
+   * the counts are the only way to tell why.
+   */
+  function groupResults() {
+    // Search the whole document. Scoping to <main> was a guess about where
+    // LinkedIn puts its results, and a wrong one is indistinguishable from
+    // "no results" — sibling cards are evidence enough wherever they sit.
+    const anchors = [...document.querySelectorAll(SEL.profileLink)];
+    const links = anchors.filter((a) => profileUrl(a) && !a.closest('nav, header'));
 
     const byContainer = new Map();
     for (const link of links) {
-      const item = link.closest('li') || link.parentElement;
-      const container = item && item.parentElement;
-      if (!container) continue;
-      if (!byContainer.has(container)) byContainer.set(container, new Set());
-      byContainer.get(container).add(item);
-    }
-
-    let best = null;
-    let bestCount = 0;
-    for (const [container, items] of byContainer) {
-      if (items.size > bestCount) {
-        best = container;
-        bestCount = items.size;
+      let node = link;
+      for (let up = 0; up < 10 && node.parentElement; up += 1) {
+        const container = node.parentElement;
+        if (!byContainer.has(container)) byContainer.set(container, new Set());
+        byContainer.get(container).add(node);
+        node = container;
       }
     }
-    // Two is enough to be a list; one is just a link somewhere on the page.
-    return bestCount >= 2 ? best : null;
+
+    let list = null;
+    let best = { size: 0, depth: Infinity };
+    for (const [container, items] of byContainer) {
+      const size = items.size;
+      const depth = ancestorDepth(container);
+      // The most cards wins. On a tie the shallower container wins, because
+      // that is the list itself rather than something inside one card.
+      if (size > best.size || (size === best.size && depth < best.depth)) {
+        list = container;
+        best = { size, depth };
+      }
+    }
+
+    return {
+      // Two sibling cards is a list; one is just a link somewhere on the page.
+      list: best.size >= 2 ? list : null,
+      anchors: anchors.length,
+      links: links.length,
+      containers: byContainer.size,
+      items: best.size,
+    };
+  }
+
+  function ancestorDepth(node) {
+    let depth = 0;
+    for (let el = node; el; el = el.parentElement) depth += 1;
+    return depth;
+  }
+
+
+  /**
+   * What the page actually looks like, for when detection fails.
+   * A user can paste this; "no results found" on a page full of results cannot
+   * be acted on by anyone.
+   */
+  function describeDom() {
+    const g = groupResults();
+    const sample = [...document.querySelectorAll(SEL.profileLink)]
+      .slice(0, 3)
+      .map((a) => {
+        const raw = a.getAttribute('href') || '';
+        return `${raw.slice(0, 60)}${a.closest('li') ? ' [in li]' : ' [no li]'}`;
+      });
+    return (
+      `links=${g.anchors} usable=${g.links} groups=${g.containers} biggest=${g.items}` +
+      `; lists=${document.querySelectorAll('ul').length}` +
+      `; main=${document.querySelector('main') ? 'yes' : 'no'}` +
+      (sample.length ? `; samples: ${sample.join(' | ')}` : '')
+    );
   }
 
   /** The result cards inside a list, whatever element type they happen to be. */
@@ -276,7 +329,14 @@
     async waitForResults() {
       const { waitFor } = globalThis.MLSEngine;
       // Wait for real content, not the skeletons LinkedIn paints first.
-      return waitFor(() => findResultList(), { timeout: 20000 });
+      const list = await waitFor(() => findResultList(), { timeout: 20000 });
+      if (list) return list;
+
+      // LinkedIn's markup changes often enough that "not found" has to carry
+      // evidence, or every breakage costs a guessing round.
+      throw new Error(
+        `Could not find the results on this LinkedIn page. Details for a bug report — ${describeDom()}`
+      );
     },
 
     getResultIds(list) {
