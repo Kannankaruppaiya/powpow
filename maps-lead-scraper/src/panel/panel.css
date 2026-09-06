@@ -134,6 +134,14 @@ body {
 }
 .help { font-size: var(--t-small); color: var(--ink-3); }
 
+/* Says "you can skip this" without shouting it. */
+.optional {
+  margin-left: var(--s-1);
+  font-style: normal;
+  font-weight: var(--w-regular);
+  color: var(--ink-3);
+}
+
 .input {
   width: 100%;
   padding: 10px var(--s-3);

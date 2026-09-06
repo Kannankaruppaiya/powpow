@@ -23,6 +23,7 @@ import { verifyEmail, isSendable } from '../lib/verify.js';
 import { parseMapUrl } from '../lib/geo.js';
 import { absorbInto, recordKey } from '../lib/dedupe.js';
 import { assessHealth, gatesFor } from '../lib/health.js';
+import { filterByCategory } from '../lib/categories.js';
 import { sourceFor, buildUrl, DEFAULT_SOURCE } from '../lib/sources.js';
 import * as store from '../lib/store.js';
 import { buildTaskList, expandGridTasks, insertAfter, nextPending, taskProgress } from '../lib/tasks.js';
@@ -45,6 +46,7 @@ const DEFAULT_JOB = {
   verified: 0,
   sendable: 0,
   skippedSeen: 0,
+  filteredOut: 0,
   health: null,
   tabId: null,
   startedAt: null,
@@ -399,6 +401,23 @@ async function finishRun(config) {
     return;
   }
 
+  // Narrowing happens before enrichment for the same reason as the dedupe
+  // below: there is no point fetching a website for a listing the user has
+  // already said they do not want.
+  const source = sourceFor(config.source);
+  if (config.categoryFilter && String(config.categoryFilter).trim()) {
+    const { kept, dropped } = filterByCategory(records, config.categoryFilter, source.filterField);
+    if (dropped.length) {
+      await store.deleteRecords(dropped.map((r) => r.key));
+      records = kept;
+      await save({
+        filteredOut: dropped.length,
+        found: records.length,
+        message: `${dropped.length} listings set aside — ${source.filterLabel.toLowerCase()} did not match.`,
+      });
+    }
+  }
+
   // Cross-run dedupe happens before enrichment so we never spend fetches on
   // businesses the user already exported.
   if (config.skipSeen) {
@@ -416,7 +435,6 @@ async function finishRun(config) {
     }
   }
 
-  const source = sourceFor(config.source);
   if (source.supportsEmails && config.fetchEmails !== false) await enrichEmails(records, config);
   if (source.supportsEmails && config.verifyEmails !== false && !cancelRequested) {
     await verifyEmails(records, config);

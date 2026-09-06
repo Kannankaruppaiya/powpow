@@ -13,6 +13,7 @@
 
 import { buildFile } from '../lib/export.js';
 import { summariseRates } from '../lib/health.js';
+import { suggestionsFor } from '../lib/categories.js';
 import * as store from '../lib/store.js';
 
 const SETTINGS_KEY = 'mls.settings';
@@ -36,6 +37,7 @@ const ui = Object.fromEntries(
     'optEmails', 'optContact', 'optVerify', 'optDeep',
     'optCurrentTab', 'useCurrentTab', 'currentTabHint',
     'category', 'city', 'batch', 'grid', 'maxResults',
+    'categoryFilter', 'categoryFilterRow', 'categoryOptions', 'filterLabel', 'filterHint',
     'deep', 'fetchEmails', 'followContactPage', 'verifyEmails', 'skipSeen', 'seenNote',
     'start', 'resume', 'stop', 'again', 'goResults',
     'runView', 'spinner', 'runTitle', 'barFill', 'message', 'taskLine',
@@ -92,6 +94,8 @@ const SOURCE_UI = {
     categoryPlaceholder: 'dentists',
     cityPlaceholder: 'Chennai',
     noun: 'businesses',
+    filterLabel: 'Category',
+    filterHint: 'Pick one, or type your own. Separate several with commas.',
     grid: true,
     emails: true,
     // The grid needs to drive the tab itself, so this is off for Maps.
@@ -104,6 +108,8 @@ const SOURCE_UI = {
     categoryPlaceholder: 'java developer',
     cityPlaceholder: 'London',
     noun: 'people',
+    filterLabel: 'Headline contains',
+    filterHint: 'A person has no category, so this matches their headline.',
     grid: false,
     emails: false,
     // Navigating to our own URL would throw away any filter the user applied,
@@ -119,6 +125,9 @@ function applySource() {
   const conf = SOURCE_UI[ui.source.value] || SOURCE_UI.maps;
   syncRadios('source', ui.source.value);
   ui.statFoundLabel.textContent = conf.noun;
+  ui.filterLabel.textContent = conf.filterLabel;
+  ui.filterHint.textContent = conf.filterHint;
+  refreshCategoryOptions();
   ui.optCurrentTab.hidden = !conf.currentTab;
   if (!conf.currentTab) ui.useCurrentTab.checked = false;
   applyCurrentTab();
@@ -203,6 +212,7 @@ async function restoreSettings() {
   ui.verifyEmails.checked = s.verifyEmails !== false;
   ui.skipSeen.checked = Boolean(s.skipSeen);
   ui.useCurrentTab.checked = Boolean(s.useCurrentTab);
+  ui.categoryFilter.value = s.categoryFilter ?? '';
   // An older build stored "xls"; the exporter only writes real xlsx now.
   ui.format.value = s.format === 'xls' ? 'xlsx' : s.format || 'xlsx';
   ui.source.value = s.source || 'maps';
@@ -216,6 +226,7 @@ async function restoreSettings() {
 function readConfig() {
   return {
     source: ui.source.value,
+    categoryFilter: ui.categoryFilter.value.trim(),
     useCurrentTab: ui.useCurrentTab.checked && !ui.optCurrentTab.hidden,
     category: ui.category.value.trim(),
     city: ui.city.value.trim(),
@@ -251,7 +262,28 @@ async function refreshRows() {
   const jobId = current && current.jobId;
   rows = jobId ? await store.getRecords(jobId) : [];
   relabelColumns();
+  refreshCategoryOptions();
   applyFilter();
+}
+
+/**
+ * Offer the categories this run actually produced, ahead of the standing list.
+ *
+ * A curated list can only guess; "wholesale store" comes back labelled
+ * Wholesale market, Furniture wholesaler and Produce market, and those are the
+ * three the user wants to choose between.
+ */
+function refreshCategoryOptions() {
+  const field = (SOURCE_UI[ui.source.value] || SOURCE_UI.maps) === SOURCE_UI.linkedin
+    ? 'headline'
+    : 'category';
+  ui.categoryOptions.replaceChildren(
+    ...suggestionsFor(rows, field).slice(0, 60).map((value) => {
+      const option = document.createElement('option');
+      option.value = value;
+      return option;
+    })
+  );
 }
 
 /** A LinkedIn run fills different columns; say so in the header. */
@@ -408,8 +440,13 @@ function render(job) {
 
   ui.taskLine.hidden = !job.tasksTotal;
   if (job.tasksTotal) {
-    const skipped = job.skippedSeen ? ` · ${job.skippedSeen} already downloaded` : '';
-    ui.taskLine.textContent = `Search ${Math.min(job.tasksSettled + (running ? 1 : 0), job.tasksTotal)} of ${job.tasksTotal}${skipped}`;
+    const notes = [
+      job.filteredOut ? `${job.filteredOut} set aside by ${(SOURCE_UI[job.config && job.config.source] || SOURCE_UI.maps).filterLabel.toLowerCase()}` : '',
+      job.skippedSeen ? `${job.skippedSeen} already downloaded` : '',
+    ].filter(Boolean);
+    ui.taskLine.textContent =
+      `Search ${Math.min(job.tasksSettled + (running ? 1 : 0), job.tasksTotal)} of ${job.tasksTotal}` +
+      (notes.length ? ` · ${notes.join(' · ')}` : '');
   }
 
   const ratio = progressFor(job);
@@ -511,6 +548,7 @@ ui.clear.addEventListener('click', async () => {
   applyFilter();
 });
 
+ui.categoryFilter.addEventListener('change', saveSettings);
 ui.format.addEventListener('change', saveSettings);
 
 ui.download.addEventListener('click', async () => {

@@ -20,6 +20,10 @@ export const SOURCES = {
     supportsGrid: true,
     // Business websites are what the email pass reads.
     supportsEmails: true,
+    // A business is labelled with a category; that is what narrowing filters on.
+    filterField: 'category',
+    filterLabel: 'Category',
+    filterHint: 'Only keep listings whose category matches',
     urlPart: '/maps/',
     buildUrl: (term, point) => mapsSearchUrl(term, point),
     // "dentists in Chennai" is exactly how a person phrases a Maps search.
@@ -37,6 +41,10 @@ export const SOURCES = {
     supportsGrid: false,
     // People have no website to read an address off, so the email pass is moot.
     supportsEmails: false,
+    // A person has no category, but their headline says what they do.
+    filterField: 'headline',
+    filterLabel: 'Headline contains',
+    filterHint: 'Only keep people whose headline matches',
     urlPart: '/search/results/',
     buildUrl: (term) =>
       `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(String(term).trim())}`,

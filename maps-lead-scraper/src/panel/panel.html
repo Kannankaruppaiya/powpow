@@ -65,6 +65,20 @@
           </label>
         </div>
 
+        <!-- Optional throughout: blank keeps everything, exactly as before. -->
+        <label class="field" id="categoryFilterRow">
+          <span class="label">
+            <span id="filterLabel">Category</span>
+            <em class="optional">optional</em>
+          </span>
+          <input id="categoryFilter" class="input" list="categoryOptions"
+                 placeholder="Any — leave blank for everything" autocomplete="off" />
+          <datalist id="categoryOptions"></datalist>
+          <span class="help" id="filterHint">
+            Pick one, or type your own. Separate several with commas.
+          </span>
+        </label>
+
         <div id="modeBatch" class="stack" hidden>
           <label class="field">
             <span class="label">One search per line</span>

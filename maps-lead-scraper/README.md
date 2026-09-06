@@ -89,9 +89,19 @@ npm run package     # -> dist/maps-lead-scraper-v1.0.0.zip
    orthodontists in Coimbatore
    ```
 
-3. Pick a **Coverage** level (see below) and leave **Max per search** at `0`.
-4. Press **Start scraping**. A Google Maps tab opens and drives itself.
-5. When it finishes, choose CSV / Excel / JSON and press **Download**.
+3. Optionally narrow by **Category**. A search like `wholesale store` comes
+   back as furniture wholesalers, produce markets and phone-accessory shops;
+   typing `wholesale` keeps only the ones you meant. Pick from the list or
+   type your own, separate several with commas, and **leave it blank to keep
+   everything** — which is exactly how the run behaved before this existed.
+
+   The list offers the categories your last run actually produced, ahead of a
+   standing list — a guess at category names is far less useful than the ones
+   Google really used.
+
+4. Pick a **Coverage** level (see below) and leave **Max per search** at `0`.
+5. Press **Start**. A Google Maps tab opens and drives itself.
+6. When it finishes, choose Excel / CSV / JSON and press **Download**.
 
 The panel can be closed while it runs — the job lives in the extension's
 background worker, so reopening it shows live progress. **Leave the Google Maps
@@ -201,6 +211,7 @@ popup  ──START_JOB──▶  service worker  ──RUN_SCRAPE──▶  cont
 | `src/lib/verify.js` | Email verification over DNS-over-HTTPS |
 | `src/lib/store.js` | IndexedDB: job metadata, records, the cross-run seen index |
 | `src/lib/health.js` | Extraction fill rates and the gate that stops a broken run |
+| `src/lib/categories.js` | Optional category narrowing, and the suggestions behind the picker |
 | `src/lib/export.js` | CSV / JSON serialisation and file naming |
 | `src/lib/xlsx.js` | A real .xlsx writer — OOXML in a ZIP, no dependencies |
 | `src/content/engine.js` | The source-agnostic half: harvest loop, detail pass, progress, cancellation |

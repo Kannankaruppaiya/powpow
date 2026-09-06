@@ -374,3 +374,54 @@ test('advanced options stay out of the way until asked for', async (t) => {
     await ctx.close();
   }
 });
+
+test('the category field is optional and offers what the run found', async (t) => {
+  // A finished job hides the form, so this one starts from the search view.
+  const ctx = await openPanel(t);
+  if (!ctx) return;
+  try {
+    // Load the results so the suggestions can learn from them, then return to
+    // the form — "New search" is how a user gets back to it after a run.
+    await ctx.page.click('#viewResults');
+    await ctx.page.waitForTimeout(400);
+    await ctx.page.click('#viewSetup');
+    await ctx.page.click('#again');
+    await ctx.page.waitForTimeout(200);
+
+    // Optional: blank by default, and blank is a valid way to leave it.
+    assert.equal(await ctx.page.isVisible('#categoryFilter'), true);
+    assert.equal(await ctx.page.inputValue('#categoryFilter'), '');
+    assert.match(await ctx.page.textContent('#categoryFilterRow'), /optional/i);
+
+    // Choose-or-type: a text input backed by a datalist, so a value outside
+    // the list is still accepted.
+    assert.equal(await ctx.page.getAttribute('#categoryFilter', 'list'), 'categoryOptions');
+
+    // The suggestions are the categories this run produced, not a fixed guess.
+    const options = await ctx.page.$$eval('#categoryOptions option', (els) => els.map((e) => e.value));
+    assert.ok(options.includes('Dental clinic'), 'the fixture’s own category is offered');
+    assert.ok(options.length > 1, 'the standing list is offered too');
+
+    await ctx.page.fill('#categoryFilter', 'anything at all');
+    assert.equal(await ctx.page.inputValue('#categoryFilter'), 'anything at all');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('the category field relabels itself for LinkedIn', async (t) => {
+  const ctx = await openPanel(t, { idle: true });
+  if (!ctx) return;
+  try {
+    assert.equal(await ctx.page.textContent('#filterLabel'), 'Category');
+
+    await ctx.page.click('label.seg:has(input[value="linkedin"])');
+    await ctx.page.waitForTimeout(200);
+
+    // People have no category, so it narrows on the headline instead.
+    assert.equal(await ctx.page.textContent('#filterLabel'), 'Headline contains');
+    assert.equal(await ctx.page.isVisible('#categoryFilter'), true);
+  } finally {
+    await ctx.close();
+  }
+});
