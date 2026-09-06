@@ -1,0 +1,50 @@
+{
+  "manifest_version": 3,
+  "name": "Maps Lead Scraper",
+  "version": "1.0.0",
+  "description": "Scrape every Google Maps business listing for a city + category — name, phone, email, area, rating — into one downloadable CSV/Excel/JSON file.",
+  "minimum_chrome_version": "116",
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "tabs",
+    "scripting",
+    "downloads"
+  ],
+  "host_permissions": [
+    "https://www.google.com/maps/*",
+    "https://www.google.co.in/maps/*",
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "src/background/service-worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.google.com/maps/*",
+        "https://www.google.co.in/maps/*"
+      ],
+      "js": ["src/lib/parse.js", "src/content/scraper.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "action": {
+    "default_title": "Maps Lead Scraper",
+    "default_popup": "src/popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "maps-lead-scraper",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Chrome extension that scrapes Google Maps business listings for a city + category into one downloadable file.",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test --test-reporter=spec test/*.test.mjs",
+    "icons": "node scripts/make-icons.mjs",
+    "package": "node scripts/package.mjs",
+    "test:dom": "node --test --test-reporter=spec test/dom.e2e.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

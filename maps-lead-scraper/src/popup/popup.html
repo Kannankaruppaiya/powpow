@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Maps Lead Scraper</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header class="head">
+      <img src="../../icons/icon32.png" alt="" width="24" height="24" />
+      <h1>Maps Lead Scraper</h1>
+    </header>
+
+    <form id="form" class="panel">
+      <div class="row">
+        <label class="field">
+          <span>Category</span>
+          <input id="category" name="category" placeholder="e.g. dentists" required autocomplete="off" />
+        </label>
+        <label class="field">
+          <span>City</span>
+          <input id="city" name="city" placeholder="e.g. Chennai" required autocomplete="off" />
+        </label>
+      </div>
+
+      <label class="field">
+        <span>Max results <em>(0 = every listing)</em></span>
+        <input id="maxResults" name="maxResults" type="number" min="0" max="5000" step="10" value="0" />
+      </label>
+
+      <fieldset class="opts">
+        <legend>Options</legend>
+        <label class="check">
+          <input type="checkbox" id="deep" checked />
+          <span>Open each listing for phone &amp; address <em>(slower, much better data)</em></span>
+        </label>
+        <label class="check">
+          <input type="checkbox" id="fetchEmails" checked />
+          <span>Find emails from business websites</span>
+        </label>
+        <label class="check">
+          <input type="checkbox" id="followContactPage" checked />
+          <span>Also check each site's contact page</span>
+        </label>
+      </fieldset>
+
+      <div class="actions">
+        <button type="submit" id="start" class="primary">Start scraping</button>
+        <button type="button" id="stop" class="ghost" hidden>Stop</button>
+      </div>
+    </form>
+
+    <section id="status" class="status" hidden>
+      <div class="bar"><div id="barFill" class="bar-fill"></div></div>
+      <p id="message" class="message"></p>
+      <ul class="stats">
+        <li><strong id="statFound">0</strong><span>listings</span></li>
+        <li><strong id="statPhones">0</strong><span>phones</span></li>
+        <li><strong id="statEmails">0</strong><span>emails</span></li>
+      </ul>
+    </section>
+
+    <section id="results" class="results" hidden>
+      <div class="export">
+        <select id="format" aria-label="Download format">
+          <option value="csv">CSV (.csv)</option>
+          <option value="xls">Excel (.xls)</option>
+          <option value="json">JSON (.json)</option>
+        </select>
+        <button type="button" id="download" class="primary">Download</button>
+        <button type="button" id="clear" class="ghost" title="Discard these results">Clear</button>
+      </div>
+      <div class="preview-wrap">
+        <table class="preview">
+          <thead>
+            <tr><th>Name</th><th>Phone</th><th>Email</th><th>Area</th><th>★</th></tr>
+          </thead>
+          <tbody id="previewBody"></tbody>
+        </table>
+      </div>
+      <p id="previewNote" class="note"></p>
+    </section>
+
+    <p id="error" class="error" hidden></p>
+
+    <footer class="foot">
+      Keep the Maps tab open while it runs. Scrape responsibly and respect
+      Google's Terms of Service.
+    </footer>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
