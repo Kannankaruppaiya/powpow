@@ -22,6 +22,8 @@ export const SOURCES = {
     supportsEmails: true,
     urlPart: '/maps/',
     buildUrl: (term, point) => mapsSearchUrl(term, point),
+    // "dentists in Chennai" is exactly how a person phrases a Maps search.
+    buildTerm: (category, city) => (city ? `${category} in ${city}` : category).trim(),
     noun: 'businesses',
   },
 
@@ -38,6 +40,9 @@ export const SOURCES = {
     urlPart: '/search/results/',
     buildUrl: (term) =>
       `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(String(term).trim())}`,
+    // LinkedIn matches keywords literally, so "java developer in London" makes
+    // it hunt for the word "in" across profiles. Space-join instead.
+    buildTerm: (category, city) => [category, city].filter(Boolean).join(' ').trim(),
     noun: 'people',
   },
 };
@@ -51,6 +56,12 @@ export function sourceFor(id) {
 /** Whether this source should have a grid laid over it at all. */
 export function supportsGrid(id) {
   return sourceFor(id).supportsGrid;
+}
+
+/** How this source phrases "category + city" as one search string. */
+export function buildTerm(id, category, city) {
+  const source = sourceFor(id);
+  return source.buildTerm(String(category || '').trim(), String(city || '').trim());
 }
 
 export function buildUrl(id, term, point) {

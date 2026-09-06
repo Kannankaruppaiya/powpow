@@ -126,3 +126,8 @@ test('a Maps search still grids as before', async () => {
     9
   );
 });
+
+test('the batch box phrases each line for its source', async () => {
+  assert.equal(parseBatch('java developer, London', 'linkedin')[0].term, 'java developer London');
+  assert.equal(parseBatch('dentists, Chennai', 'maps')[0].term, 'dentists in Chennai');
+});

@@ -13,7 +13,7 @@
  */
 
 import { buildGrid, gridSteps, viewportSpanMetres } from './geo.js';
-import { supportsGrid } from './sources.js';
+import { supportsGrid, buildTerm } from './sources.js';
 
 /**
  * Parse the batch box into search pairs. Accepts either separator people
@@ -23,7 +23,7 @@ import { supportsGrid } from './sources.js';
  *   gyms in Coimbatore
  *   # comments and blank lines are ignored
  */
-export function parseBatch(text) {
+export function parseBatch(text, source) {
   const searches = [];
 
   for (const rawLine of String(text || '').split(/\r?\n/)) {
@@ -47,7 +47,7 @@ export function parseBatch(text) {
     }
 
     if (!category) continue;
-    searches.push({ category, city, term: city ? `${category} in ${city}` : category });
+    searches.push({ category, city, term: buildTerm(source, category, city) });
   }
 
   return searches;
@@ -55,13 +55,13 @@ export function parseBatch(text) {
 
 /** The searches a config asks for, whether typed as one pair or as a batch. */
 export function searchesFromConfig(config = {}) {
-  const batch = parseBatch(config.batch);
+  const batch = parseBatch(config.batch, config.source);
   if (batch.length) return batch;
 
   const category = String(config.category || '').trim();
   const city = String(config.city || '').trim();
   if (!category && !city) return [];
-  return [{ category, city, term: city ? `${category} in ${city}` : category }];
+  return [{ category, city, term: buildTerm(config.source, category, city) }];
 }
 
 /**

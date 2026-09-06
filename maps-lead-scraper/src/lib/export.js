@@ -48,6 +48,7 @@ export const LINKEDIN_COLUMNS = [
   { key: 'openToWork', label: 'Open To Work' },
   { key: 'summary', label: 'Match Context' },
   { key: 'profileUrl', label: 'Profile URL' },
+  { key: 'photoUrl', label: 'Photo URL' },
   { key: 'searchCategory', label: 'Search' },
 ];
 

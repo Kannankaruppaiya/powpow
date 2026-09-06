@@ -52,3 +52,13 @@ test('gatesFor falls back to sane defaults for an unknown source', () => {
   assert.ok(out.gates.name > 0);
   assert.ok(Array.isArray(out.watched) && out.watched.length);
 });
+
+test('each source phrases a search the way that site expects', async () => {
+  const { buildTerm } = await import('../src/lib/sources.js');
+  // Maps reads "in" as natural language and does the right thing.
+  assert.equal(buildTerm('maps', 'dentists', 'Chennai'), 'dentists in Chennai');
+  // LinkedIn matches keywords literally, so "in" would be hunted for as a word.
+  assert.equal(buildTerm('linkedin', 'java developer', 'London'), 'java developer London');
+  assert.equal(buildTerm('linkedin', 'java developer', ''), 'java developer');
+  assert.equal(buildTerm('maps', 'cafes', ''), 'cafes');
+});
