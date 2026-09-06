@@ -47,6 +47,17 @@
   }
 
   const STATUS_RE = /^(open|clos|temporarily|permanently|24 hours|opens|closes)/i;
+
+  /**
+   * A fragment that is only a rating and/or a review count.
+   *
+   * Live Maps renders these as adjacent spans with no separator, so the card's
+   * text comes through glued: "5.0(139)". Matching the two halves separately
+   * was not enough — the joined form slipped past every filter and took the
+   * category slot, which then pushed the real category into the address and
+   * the real address out entirely.
+   */
+  const RATING_ONLY = /^[\d.,]*\s*(\([\d,]+\))?$/;
   const ADDRESS_HINT =
     /\d|street|st\b|road|rd\b|ave|avenue|lane|ln\b|nagar|colony|block|sector|floor|plaza|highway|cross|main\b/i;
 
@@ -69,8 +80,7 @@
         continue;
       }
       if (STATUS_RE.test(p)) continue;
-      if (/^[\d.,]+$/.test(p)) continue; // stray rating / review counts
-      if (/^\(\d+\)$/.test(p)) continue;
+      if (RATING_ONLY.test(p)) continue; // stray rating / review counts
 
       if (!out.category) out.category = p;
       else if (!out.address && ADDRESS_HINT.test(p)) out.address = p;

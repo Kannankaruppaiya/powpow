@@ -124,6 +124,9 @@ function publicJob() {
     websitesFound: records.filter((r) => r.website).length,
     tasksSettled: settled,
     tasksTotal: total,
+    // "1 searches failed" with no reason is not a report. Carry the first
+    // failure's message so the panel can say what actually went wrong.
+    taskError: (tasks.find((t) => t.status === 'failed' && t.error) || {}).error || '',
     canResume: job.status === 'paused' && tasks.some((t) => t.status === 'pending'),
     // A preview only — the side panel pages the full set out of IndexedDB.
     preview: records.slice(0, 60),
@@ -426,12 +429,17 @@ async function finishRun(config) {
     await store.addSeen(records.map((r) => r.key || recordKey(r)).filter(Boolean));
   }
 
-  const failed = job.tasks.filter((t) => t.status === 'failed').length;
+  const failedTasks = job.tasks.filter((t) => t.status === 'failed');
+  const firstError = (failedTasks.find((t) => t.error) || {}).error || '';
   await save({
     status: 'done',
     phase: 'done',
     found: records.length,
-    message: `Finished — ${records.length} ${source.noun}${failed ? `, ${failed} searches failed` : ''}.`,
+    error: firstError,
+    message:
+      `Finished — ${records.length} ${source.noun}` +
+      (failedTasks.length ? `, ${failedTasks.length} searches failed` : '') +
+      '.',
     finishedAt: Date.now(),
   });
 }

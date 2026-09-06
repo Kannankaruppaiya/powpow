@@ -85,3 +85,25 @@ test('phoneFromItemId unwraps the call button attribute', () => {
   assert.equal(P.phoneFromItemId('address'), '');
   assert.equal(P.phoneFromItemId(null), '');
 });
+
+test('a glued rating and review count never becomes the category', () => {
+  // Live Maps renders the rating and the review count as adjacent spans with
+  // no separator, so the card text arrives as "5.0(139)".
+  assert.deepEqual(P.parseCardParts(['5.0(139)', 'Software company', 'Anna Nagar']), {
+    category: 'Software company',
+    address: 'Anna Nagar',
+    phone: '',
+  });
+});
+
+test('every shape of stray rating fragment is rejected', () => {
+  for (const junk of ['5.0(139)', '4.7(26)', '5.0', '(139)', '4.2(1,328)', '5']) {
+    const out = P.parseCardParts([junk, 'Dental clinic']);
+    assert.equal(out.category, 'Dental clinic', `"${junk}" leaked into the category`);
+  }
+});
+
+test('a real category that merely contains digits still survives', () => {
+  assert.equal(P.parseCardParts(['24/7 Pharmacy']).category, '24/7 Pharmacy');
+  assert.equal(P.parseCardParts(['G4S Security']).category, 'G4S Security');
+});

@@ -241,12 +241,13 @@
     },
 
     needsDetail(record) {
-      // Skip records that already carry everything the detail pass would add.
-      if (record.phone && record.website && record.address) {
-        record.detailScraped = true;
-        return false;
-      }
-      return true;
+      // Only a sighting that has already been through the detail panel can be
+      // skipped. Judging by which card fields look filled was wrong: a card's
+      // address is a snippet at best, and when the card parser mistook a
+      // category for one, every listing that also showed a phone and a website
+      // was skipped — so the run quietly returned card data for most rows and
+      // full data for the few without both.
+      return !record.detailScraped;
     },
 
     async openDetail(record, config, { waitFor, sleep }) {

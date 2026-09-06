@@ -368,7 +368,10 @@ function render(job) {
   ui.statSendable.textContent = job.sendable || 0;
 
   renderHealth(job.health);
-  showError(job.status === 'error' || job.status === 'paused' ? job.error : '');
+  // A run can finish with nothing to show; the reason is the useful part.
+  showError(
+    job.status === 'error' || job.status === 'paused' ? job.error : job.taskError || ''
+  );
 
   // Reload the table when the result count moved or a new job started.
   if (job.count !== previousCount || job.jobId !== previousJobId) {

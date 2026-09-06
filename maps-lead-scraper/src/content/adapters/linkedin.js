@@ -24,14 +24,6 @@
   const { norm, nameKey } = globalThis.MLSParse;
 
   const SEL = {
-    // The list itself: role first, LinkedIn's own containers as fallbacks.
-    list: [
-      'ul[role="list"].reusable-search__entity-result-list',
-      '.search-results-container ul[role="list"]',
-      'div.search-results-container ul',
-      'main ul[role="list"]',
-    ].join(', '),
-    item: 'li',
     profileLink: 'a[href*="/in/"]',
     // Filter controls in the bar above the results.
     filterPills: 'button[aria-label*="filter" i], .search-reusables__filter-pill-button',
@@ -46,6 +38,65 @@
   // character, so the boundary never fires and the match silently degrades to
   // "3rd". A negative lookahead for a word character is the correct edge here.
   const DEGREE_RE = /\b(1st|2nd|3rd\+?)(?!\w)/i;
+
+  /**
+   * Find the results list by shape, not by class name.
+   *
+   * Naming it was the original approach and it failed on the live site within
+   * weeks: LinkedIn's classes are build output. What does not change is the
+   * shape — a container whose children each hold a link to a profile. So count
+   * how many sibling items under each candidate container carry a profile
+   * link, and take the container with the most.
+   *
+   * This also steps around the promo cards LinkedIn injects mid-list, which
+   * simply contribute no profile link and are ignored.
+   */
+  function findResultList() {
+    const scope = document.querySelector('main') || document.body;
+    const links = [...scope.querySelectorAll(SEL.profileLink)].filter((a) => profileUrl(a));
+    if (links.length < 2) return null;
+
+    const byContainer = new Map();
+    for (const link of links) {
+      const item = link.closest('li') || link.parentElement;
+      const container = item && item.parentElement;
+      if (!container) continue;
+      if (!byContainer.has(container)) byContainer.set(container, new Set());
+      byContainer.get(container).add(item);
+    }
+
+    let best = null;
+    let bestCount = 0;
+    for (const [container, items] of byContainer) {
+      if (items.size > bestCount) {
+        best = container;
+        bestCount = items.size;
+      }
+    }
+    // Two is enough to be a list; one is just a link somewhere on the page.
+    return bestCount >= 2 ? best : null;
+  }
+
+  /** The result cards inside a list, whatever element type they happen to be. */
+  function resultItems(list) {
+    if (!list) return [];
+    const lis = [...list.children].filter((el) => el.tagName === 'LI');
+    return lis.length ? lis : [...list.children];
+  }
+
+  /**
+   * The profile a card is *about*.
+   *
+   * Cards carry more than one profile link — "Suranjith Prasad is a mutual
+   * connection" is one too — so the first is taken, which is the name.
+   */
+  function itemProfileUrl(item) {
+    for (const link of item.querySelectorAll(SEL.profileLink)) {
+      const url = profileUrl(link);
+      if (url) return url;
+    }
+    return '';
+  }
 
   /** The profile URL without tracking noise — the identity of a person. */
   function profileUrl(anchor) {
@@ -96,11 +147,11 @@
   }
 
   function extractItem(item) {
-    const anchor = item.querySelector(SEL.profileLink);
-    const url = profileUrl(anchor);
+    const url = itemProfileUrl(item);
     // No profile link means the skeleton has not hydrated yet.
     if (!url) return null;
 
+    const anchor = [...item.querySelectorAll(SEL.profileLink)].find((a) => profileUrl(a) === url);
     const name = extractName(item, anchor);
     if (!name) return null;
 
@@ -224,26 +275,16 @@
 
     async waitForResults() {
       const { waitFor } = globalThis.MLSEngine;
-      return waitFor(
-        () => {
-          const list = document.querySelector(SEL.list);
-          // Wait for real content, not the skeleton LinkedIn paints first.
-          return list && list.querySelector(SEL.profileLink) ? list : null;
-        },
-        { timeout: 20000 }
-      );
+      // Wait for real content, not the skeletons LinkedIn paints first.
+      return waitFor(() => findResultList(), { timeout: 20000 });
     },
 
     getResultIds(list) {
-      return [...list.querySelectorAll(SEL.item)]
-        .map((item) => profileUrl(item.querySelector(SEL.profileLink)))
-        .filter(Boolean);
+      return resultItems(list).map(itemProfileUrl).filter(Boolean);
     },
 
     extractResult(id, list) {
-      const item = [...list.querySelectorAll(SEL.item)].find(
-        (li) => profileUrl(li.querySelector(SEL.profileLink)) === id
-      );
+      const item = resultItems(list).find((el) => itemProfileUrl(el) === id);
       return item ? extractItem(item) : null;
     },
 
@@ -262,11 +303,16 @@
       const { sleep } = globalThis.MLSEngine;
 
       // LinkedIn hydrates on scroll, so walk the window down first.
-      const before = list.querySelectorAll(SEL.profileLink).length;
+      //
+      // Count *usable* results, not raw children: the skeleton <li>s exist
+      // from the start and hydrating one fills it in without adding an
+      // element, so counting children would never register progress.
+      const rendered = () => resultItems(list).filter(itemProfileUrl).length;
+      const before = rendered();
       window.scrollTo({ top: document.body.scrollHeight, behavior: 'auto' });
       await sleep(600);
 
-      if (list.querySelectorAll(SEL.profileLink).length > before) return true;
+      if (rendered() > before) return true;
 
       // Page is exhausted — take the next one if there is one.
       const next = document.querySelector(SEL.paginationNext);

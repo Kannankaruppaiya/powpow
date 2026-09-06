@@ -55,20 +55,34 @@ const PEOPLE = [
   },
 ];
 
-/** A page that hydrates its list in pages of two, the way LinkedIn does. */
+/**
+ * A page that hydrates its list in pages of two, the way LinkedIn does.
+ *
+ * Deliberately shaped like the live site rather than like the adapter:
+ *   - no `reusable-search__entity-result-list` or other nameable hooks, since
+ *     those are build output that changed under us on the real site;
+ *   - a second profile link per card ("X is a mutual connection"), which must
+ *     not be mistaken for the person the card is about;
+ *   - a promo card injected mid-list, which has no profile link at all;
+ *   - a profile link in the top navigation, outside the results.
+ */
 function fixture() {
   return `<!doctype html><html><head><meta charset="utf-8"><style>
     body { height: 3000px; margin: 0; }
   </style></head><body>
-  <div class="search-results-container">
-    <div class="search-reusables__filter-list">
-      <button class="search-reusables__filter-pill-button" aria-pressed="true"
+  <nav>
+    <a href="https://www.linkedin.com/in/kannan-the-viewer/">Me</a>
+  </nav>
+  <main>
+    <div>
+      <button aria-pressed="true"
               aria-label="Locations filter. Clicking this button displays all Locations options.">Locations</button>
-      <button class="search-reusables__filter-pill-button" aria-pressed="false"
-              aria-label="Current company filter.">Current company</button>
+      <button aria-pressed="false" aria-label="Current company filter.">Current company</button>
     </div>
-    <ul role="list" class="reusable-search__entity-result-list"></ul>
-  </div>
+    <div class="AbC123">
+      <ul role="list"></ul>
+    </div>
+  </main>
   <script>
     const DATA = ${JSON.stringify(PEOPLE)};
     const list = document.querySelector('ul[role="list"]');
@@ -77,15 +91,22 @@ function fixture() {
     // Skeletons exist up front; content arrives later, as on the real site.
     for (let i = 0; i < DATA.length; i += 1) list.appendChild(document.createElement('li'));
 
+    // A promo card LinkedIn injects between results.
+    const promo = document.createElement('li');
+    promo.innerHTML = '<div><h2>Easily find people who are actively hiring</h2>' +
+      '<a href="/premium">Get Premium now</a></div>';
+    list.insertBefore(promo, list.children[2] || null);
+
     function hydrate(n) {
+      const cards = [...list.children].filter((li) => !li.querySelector('a[href="/premium"]'));
       for (let i = hydrated; i < Math.min(hydrated + n, DATA.length); i += 1) {
         const p = DATA[i];
-        list.children[i].innerHTML = \`
-          <div class="entity-result__item">
+        cards[i].innerHTML = \`
+          <div class="XyZ789">
             <img src="https://media.licdn.com/photo\${i}.jpg"
                  alt="\${p.openToWork ? p.name + ', #OPEN_TO_WORK' : p.name}">
-            <span class="entity-result__title-text">
-              <a class="app-aware-link" href="https://www.linkedin.com/in/\${p.slug}?miniProfileUrn=xyz">
+            <span>
+              <a href="https://www.linkedin.com/in/\${p.slug}?miniProfileUrn=xyz">
                 <span aria-hidden="true">\${p.name}</span>
                 <span class="visually-hidden">View \${p.name}'s profile</span>
               </a>
@@ -94,6 +115,10 @@ function fixture() {
             <div class="entity-result__primary-subtitle">\${p.headline}</div>
             <div class="entity-result__secondary-subtitle">\${p.location}</div>
             <p class="entity-result__summary">Current: \${p.headline}</p>
+            <div>
+              <a href="https://www.linkedin.com/in/mutual-friend-\${i}/">Deepa Maurya</a>
+              is a mutual connection
+            </div>
           </div>\`;
       }
       hydrated = Math.min(hydrated + n, DATA.length);
@@ -240,4 +265,33 @@ test('a Maps URL does not select the LinkedIn adapter', async (t) => {
   if (!result) return;
   assert.equal(result.ok, false);
   assert.match(result.error, /not a supported search results page/i);
+});
+
+test('the results list is found by shape, without relying on class names', async (t) => {
+  // The fixture carries none of the class hooks the adapter used to name; if
+  // this passes, a LinkedIn rename cannot silently return zero results again.
+  const result = await run(t);
+  if (!result) return;
+  assert.equal(result.ok, true, result.error);
+  assert.equal(result.records.length, 3);
+});
+
+test('a mutual-connection link is not mistaken for the result', async (t) => {
+  const result = await run(t);
+  if (!result) return;
+  const urls = result.records.map((r) => r.profileUrl);
+  assert.ok(!urls.some((u) => u.includes('mutual-friend')), 'mutual connections must not become rows');
+  assert.ok(urls.includes('https://www.linkedin.com/in/priya-sharma'));
+});
+
+test('a promo card in the middle of the list is skipped', async (t) => {
+  const result = await run(t);
+  if (!result) return;
+  assert.ok(!result.records.some((r) => /Premium|actively hiring/i.test(r.name)));
+});
+
+test('a profile link in the navigation is not scraped as a result', async (t) => {
+  const result = await run(t);
+  if (!result) return;
+  assert.ok(!result.records.some((r) => r.profileUrl.includes('kannan-the-viewer')));
 });
