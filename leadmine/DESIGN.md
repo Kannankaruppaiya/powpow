@@ -60,24 +60,34 @@ something there.
 
 ## Colour
 
-A single chromatic accent; everything else neutral. Colour carries state and
-nothing else — no decorative fills, no coloured section headings.
+Colour has three jobs here and only three. It took a rewrite to get to that.
 
-| Token | Light | Role |
+The first version painted the accent on everything with a job — the primary
+button, the progress bar, the selected card, the count badge, the active tab.
+An accent used everywhere is not an accent. Raycast's primary button is plain
+white; Linear's colour lives on the mark, the focus ring and almost nothing
+else.
+
+| Job | What does it | Why |
 | --- | --- | --- |
-| `--accent` | `#5e6ad2` | The one action that matters, focus rings, selected state |
-| `--ink` | `#16181d` | Primary text |
-| `--ink-2` | `#4a4f5c` | Labels, secondary copy |
-| `--ink-3` | `#767c8a` | Helper text, placeholders, captions |
-| `--bg` | `#ffffff` | Page |
-| `--surface` | `#f7f8f9` | Stat tiles, table header, callouts |
-| `--line` | `#e2e5ea` | Dividers |
-| `--line-strong` | `#cdd2da` | Input and card borders |
-| `--ok` | `#157f43` | Finished |
-| `--warn` | `#9a5b00` | Account-risk notice |
-| `--danger` | `#c0362c` | Failures, undeliverable emails |
+| **The primary action** | `--action`: near-black on light, white on dark | Prominence comes from contrast, not hue. There is one per view, so it does not need a colour to be found |
+| **Selection and identity** | `--accent`, at 10–14% as a tint | The mark, the focus ring, the chosen coverage card, the checked option |
+| **Status** | `--ok` `--warn` `--danger`, each with a soft tint | The only place a hue carries meaning, so it is the only place a hue appears |
 
-Dark mode redefines the same tokens; no component knows which is active.
+Surfaces are layered — `--canvas`, `--surface`, `--surface-2`, `--elevated` —
+rather than two flat greys, and hairlines are alpha rather than a fixed grey,
+so a border sits correctly on whatever is beneath it in either theme.
+
+| Token | Light | Dark | Role |
+| --- | --- | --- | --- |
+| `--canvas` | `#ffffff` | `#0b0c0e` | The page |
+| `--surface` | `#fafafb` | `#121316` | Table headers, callouts |
+| `--action` | `#14161c` | `#f4f5f7` | The one button that matters |
+| `--accent` | `#5460d8` | `#8b95ff` | Mark, focus, selection |
+| `--hairline` | `rgba(12,14,20,.09)` | `rgba(255,255,255,.08)` | Dividers |
+
+Stat tiles are outlined rather than filled: four grey blocks read heavier than
+the numbers they carry, which is backwards.
 
 ## Type
 
@@ -93,8 +103,12 @@ everywhere.
 | `--t-label` | 13px | 500 | Field labels, disclosure summaries |
 | `--t-small` | 12px | 400 | Helper text, captions, table cells |
 
-Numbers that change use `font-variant-numeric: tabular-nums` so they do not
-jitter as a run progresses.
+Two faces, not one. The UI face carries labels, prose and business names —
+things that get read. A mono face carries phone numbers, emails, ratings and
+counts, because those are machine values and a column of them set in a
+proportional face cannot be scanned down. Everything numeric also sets
+`font-variant-numeric: tabular-nums`, so figures do not jitter as a run
+progresses.
 
 ## Motion
 

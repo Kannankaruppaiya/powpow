@@ -463,6 +463,10 @@ function render(job) {
       (notes.length ? ` · ${notes.join(' · ')}` : '');
   }
 
+  // Progress belongs to a run in progress. Once it has settled, the title and
+  // the status chip say everything, and a full-width bar is just weight.
+  ui.barFill.parentElement.hidden = !running;
+
   const ratio = progressFor(job);
   if (running && ratio === null) {
     ui.barFill.classList.add('indeterminate');
