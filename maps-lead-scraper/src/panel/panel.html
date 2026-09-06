@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Maps Lead Scraper</title>
+    <link rel="stylesheet" href="panel.css" />
+  </head>
+  <body>
+    <header class="head">
+      <img src="../../icons/icon32.png" alt="" width="22" height="22" />
+      <h1>Maps Lead Scraper</h1>
+      <span id="statusPill" class="pill">Idle</span>
+    </header>
+
+    <nav class="viewtabs" role="tablist">
+      <button type="button" id="viewSetup" class="viewtab is-active" role="tab">Setup</button>
+      <button type="button" id="viewResults" class="viewtab" role="tab">Results</button>
+    </nav>
+
+    <!-- ------------------------------------------------------------ setup -->
+    <section id="paneSetup" class="pane">
+      <form id="form">
+        <div class="tabs" role="tablist">
+          <button type="button" id="tabSingle" class="tab is-active" role="tab" aria-selected="true">
+            One search
+          </button>
+          <button type="button" id="tabBatch" class="tab" role="tab" aria-selected="false">Batch</button>
+        </div>
+
+        <div id="modeSingle">
+          <div class="row">
+            <label class="field">
+              <span>Category</span>
+              <input id="category" placeholder="e.g. dentists" autocomplete="off" />
+            </label>
+            <label class="field">
+              <span>City</span>
+              <input id="city" placeholder="e.g. Chennai" autocomplete="off" />
+            </label>
+          </div>
+        </div>
+
+        <div id="modeBatch" hidden>
+          <label class="field">
+            <span>One search per line <em>(“dentists, Chennai”)</em></span>
+            <textarea id="batch" rows="4" spellcheck="false"
+              placeholder="dentists, Chennai&#10;dental clinics, Chennai&#10;orthodontists in Coimbatore"></textarea>
+          </label>
+        </div>
+
+        <div class="row">
+          <label class="field">
+            <span>Coverage</span>
+            <select id="grid">
+              <option value="off">Off — 1 search (~120)</option>
+              <option value="light">Light — 4 cells</option>
+              <option value="balanced" selected>Balanced — 9 cells</option>
+              <option value="thorough">Thorough — 16 cells</option>
+              <option value="exhaustive">Exhaustive — 25 cells</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Max per search <em>(0 = all)</em></span>
+            <input id="maxResults" type="number" min="0" max="5000" step="10" value="0" />
+          </label>
+        </div>
+
+        <fieldset class="opts">
+          <legend>Options</legend>
+          <label class="check">
+            <input type="checkbox" id="deep" checked />
+            <span>Open each listing for phone &amp; address <em>(slower, much better data)</em></span>
+          </label>
+          <label class="check">
+            <input type="checkbox" id="fetchEmails" checked />
+            <span>Find emails &amp; social links from business websites</span>
+          </label>
+          <label class="check">
+            <input type="checkbox" id="followContactPage" checked />
+            <span>Also check each site's contact page</span>
+          </label>
+          <label class="check">
+            <input type="checkbox" id="verifyEmails" checked />
+            <span>Verify emails <em>(MX lookup — drops dead domains)</em></span>
+          </label>
+          <label class="check">
+            <input type="checkbox" id="skipSeen" />
+            <span>Skip businesses from earlier runs <em class="seen" id="seenNote"></em></span>
+          </label>
+        </fieldset>
+
+        <div class="actions">
+          <button type="submit" id="start" class="primary">Start scraping</button>
+          <button type="button" id="resume" class="primary" hidden>Resume</button>
+          <button type="button" id="stop" class="ghost" hidden>Stop</button>
+        </div>
+      </form>
+
+      <section id="status" class="status" hidden>
+        <div class="bar"><div id="barFill" class="bar-fill"></div></div>
+        <p id="message" class="message"></p>
+        <p id="taskLine" class="tasks"></p>
+        <ul class="stats">
+          <li><strong id="statFound">0</strong><span>businesses</span></li>
+          <li><strong id="statPhones">0</strong><span>phones</span></li>
+          <li><strong id="statEmails">0</strong><span>emails</span></li>
+          <li><strong id="statSendable">0</strong><span>sendable</span></li>
+        </ul>
+        <details id="healthBox" class="health" hidden>
+          <summary>Extraction health</summary>
+          <ul id="healthList" class="healthlist"></ul>
+        </details>
+      </section>
+
+      <p id="error" class="error" hidden></p>
+    </section>
+
+    <!-- ---------------------------------------------------------- results -->
+    <section id="paneResults" class="pane" hidden>
+      <div class="export">
+        <select id="format" aria-label="Download format">
+          <option value="csv">CSV (.csv)</option>
+          <option value="xlsx">Excel (.xlsx)</option>
+          <option value="json">JSON (.json)</option>
+        </select>
+        <button type="button" id="download" class="primary">Download</button>
+        <button type="button" id="clear" class="ghost" title="Discard these results">Clear</button>
+      </div>
+
+      <input id="filter" class="filter" type="search" placeholder="Filter by name, area, category…" />
+
+      <div id="scroller" class="scroller">
+        <table class="grid">
+          <thead>
+            <tr>
+              <th class="c-name">Name</th>
+              <th class="c-phone">Phone</th>
+              <th class="c-email">Email</th>
+              <th class="c-area">Area</th>
+              <th class="c-cat">Category</th>
+              <th class="c-rating">★</th>
+            </tr>
+          </thead>
+        </table>
+        <!-- Virtualised body: a spacer sized to the whole set, with only the
+             visible window of rows actually in the DOM. -->
+        <div id="viewport" class="viewport">
+          <div id="spacer" class="spacer"></div>
+          <table class="grid rows"><tbody id="rowBody"></tbody></table>
+        </div>
+      </div>
+      <p id="rowNote" class="note"></p>
+    </section>
+
+    <footer class="foot">
+      Keep the Maps tab open while it runs. Scrape responsibly and respect
+      Google's Terms of Service.
+    </footer>
+
+    <script type="module" src="panel.js"></script>
+  </body>
+</html>

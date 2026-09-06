@@ -27,10 +27,16 @@
 
 * { box-sizing: border-box; }
 
+html, body { height: 100%; }
+
 body {
-  width: 400px;
+  /* The side panel is user-resizable, so the layout is fluid rather than a
+     fixed popup width. */
+  min-width: 320px;
   margin: 0;
-  padding: 0 0 10px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
   font: 13px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   background: var(--bg);
   color: var(--text);
@@ -40,12 +46,51 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 14px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--border);
+  flex: none;
 }
-.head h1 { margin: 0; font-size: 14px; font-weight: 650; letter-spacing: -0.01em; }
+.head h1 { margin: 0; font-size: 14px; font-weight: 650; letter-spacing: -0.01em; flex: 1; }
 
-.panel { padding: 12px 14px 4px; }
+.pill {
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 99px;
+}
+.pill[data-state="running"] { color: #fff; background: var(--brand); border-color: transparent; }
+.pill[data-state="done"] { color: #fff; background: var(--ok); border-color: transparent; }
+.pill[data-state="error"], .pill[data-state="paused"] { color: #fff; background: var(--danger); border-color: transparent; }
+@media (prefers-color-scheme: dark) { .pill[data-state] { color: #0b1220; } }
+
+/* --- top-level views --------------------------------------------------- */
+.viewtabs { display: flex; flex: none; border-bottom: 1px solid var(--border); }
+.viewtab {
+  flex: 1;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+.viewtab.is-active { color: var(--brand); border-bottom-color: var(--brand); }
+
+.pane { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: auto; padding: 12px; }
+/* A class selector beats the UA rule for [hidden], so display must be reset
+   explicitly or both panes render at once. */
+.pane[hidden] { display: none; }
+#paneResults { overflow: hidden; }
+
+
 
 .row { display: flex; gap: 8px; }
 .row .field { flex: 1; min-width: 0; }
@@ -89,7 +134,7 @@ button.ghost { background: transparent; color: var(--text); border-color: var(--
 button.ghost:hover:not(:disabled) { background: var(--surface); }
 button:disabled { opacity: 0.5; cursor: default; }
 
-.status { padding: 4px 14px 10px; }
+.status { padding: 4px 0 0; flex: none; }
 .bar { height: 5px; border-radius: 99px; background: var(--surface); overflow: hidden; }
 .bar-fill { height: 100%; width: 0; border-radius: 99px; background: var(--brand); transition: width 0.25s ease; }
 .bar-fill.indeterminate { width: 40%; animation: slide 1.3s ease-in-out infinite; }
@@ -147,36 +192,16 @@ textarea:focus { outline: 2px solid var(--brand); outline-offset: -1px; border-c
 .stats strong { display: block; font-size: 15px; }
 .stats span { font-size: 9px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); }
 
-.results { padding: 4px 14px 0; }
+
 .export { display: flex; gap: 8px; margin-bottom: 8px; }
 .export select { flex: 1.2; }
 .export #download { flex: 1; }
 .export #clear { flex: 0.6; }
 
-.preview-wrap { max-height: 190px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
-/* Fixed layout so all five columns fit the 400px popup instead of
-   overflowing; each cell ellipsises and carries the full text as a tooltip. */
-.preview { width: 100%; border-collapse: collapse; font-size: 11px; table-layout: fixed; }
-.preview th, .preview td {
-  padding: 5px 6px;
-  text-align: left;
-  border-bottom: 1px solid var(--border);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.preview th:nth-child(1), .preview td:nth-child(1) { width: 29%; }
-.preview th:nth-child(2), .preview td:nth-child(2) { width: 25%; }
-.preview th:nth-child(3), .preview td:nth-child(3) { width: 22%; }
-.preview th:nth-child(4), .preview td:nth-child(4) { width: 15%; }
-.preview th:nth-child(5), .preview td:nth-child(5) { width: 9%; }
-.preview th { position: sticky; top: 0; background: var(--surface); font-weight: 600; color: var(--muted); }
-.preview tr:last-child td { border-bottom: 0; }
-
 .note { margin: 6px 0 0; font-size: 11px; color: var(--muted); }
 
 .error {
-  margin: 8px 14px 0;
+  margin: 8px 0 0;
   padding: 8px 10px;
   font-size: 12px;
   color: var(--danger);
@@ -184,4 +209,72 @@ textarea:focus { outline: 2px solid var(--brand); outline-offset: -1px; border-c
   border-radius: 8px;
 }
 
-.foot { margin: 10px 14px 0; font-size: 10.5px; line-height: 1.4; color: var(--muted); }
+.foot { flex: none; margin: 0; padding: 8px 12px;
+  border-top: 1px solid var(--border); font-size: 10.5px; line-height: 1.4; color: var(--muted); }
+
+/* --- results: virtualised grid ---------------------------------------- */
+.export { display: flex; gap: 8px; flex: none; margin-bottom: 8px; }
+.export select { flex: 1.2; }
+.export #download { flex: 1; }
+.export #clear { flex: 0.6; }
+
+.filter { flex: none; margin-bottom: 8px; }
+
+.scroller {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.viewport { flex: 1; min-height: 0; overflow: auto; position: relative; }
+/* Sized to the full row count so the scrollbar reflects the whole set, while
+   only the visible window is actually in the DOM. */
+.spacer { width: 100%; }
+.rows { position: absolute; top: 0; left: 0; will-change: transform; }
+
+.grid { width: 100%; border-collapse: collapse; font-size: 11px; table-layout: fixed; }
+.grid th, .grid td {
+  padding: 0 7px;
+  height: 30px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+}
+.grid th {
+  height: 28px;
+  background: var(--surface);
+  font-weight: 600;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+.c-name { width: 26%; }
+.c-phone { width: 18%; }
+.c-email { width: 20%; }
+.c-area { width: 15%; }
+.c-cat { width: 15%; }
+.c-rating { width: 6%; }
+
+/* An email verification says will bounce. */
+.grid td.bad { color: var(--danger); text-decoration: line-through; }
+
+/* --- extraction health ------------------------------------------------ */
+.health { margin-top: 8px; font-size: 11px; }
+.health summary { color: var(--muted); cursor: pointer; }
+.health.is-bad summary { color: var(--danger); font-weight: 600; }
+.healthlist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+}
+.healthlist li { padding: 1px 6px; background: var(--surface); border-radius: 5px; }
+.healthlist li.low { color: var(--danger); }

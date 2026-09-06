@@ -548,6 +548,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 });
 
+/**
+ * Clicking the toolbar icon opens the side panel. Without this the action has
+ * no popup and would do nothing at all.
+ */
 chrome.runtime.onInstalled.addListener(() => {
   ready.catch(() => {});
+  chrome.sidePanel
+    .setPanelBehavior({ openPanelOnActionClick: true })
+    .catch((err) => console.warn('[maps-lead-scraper] side panel behaviour', err));
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
 });

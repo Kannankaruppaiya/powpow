@@ -44,6 +44,8 @@ into a single deduplicated list.
 4. Click **Load unpacked** and pick this folder (the one with `manifest.json`).
 5. Pin the extension so its icon is visible in the toolbar.
 
+Needs Chrome (or Edge) **116 or newer** — the UI is a side panel.
+
 To build a `.zip` for the Chrome Web Store:
 
 ```bash
@@ -52,7 +54,9 @@ npm run package     # -> dist/maps-lead-scraper-v1.0.0.zip
 
 ## Use it
 
-1. Click the extension icon.
+1. Click the extension icon. The **side panel** opens on the right and stays
+   there while you work — unlike a popup, it does not close when you click into
+   the Maps tab the run is driving.
 2. On the **One search** tab, enter a **Category** (`dentists`, `gyms`,
    `IT training institutes`) and a **City** (`Chennai`, `Austin, TX`).
    Or switch to **Batch** and paste one search per line:
@@ -67,9 +71,13 @@ npm run package     # -> dist/maps-lead-scraper-v1.0.0.zip
 4. Press **Start scraping**. A Google Maps tab opens and drives itself.
 5. When it finishes, choose CSV / Excel / JSON and press **Download**.
 
-The popup can be closed while it runs — the job lives in the extension's
-background worker, so reopening the popup shows live progress. **Leave the
-Google Maps tab open**, though; that tab is doing the work.
+The panel can be closed while it runs — the job lives in the extension's
+background worker, so reopening it shows live progress. **Leave the Google Maps
+tab open**, though; that tab is doing the work.
+
+Switch to the **Results** tab at any point to watch rows arrive, filter them,
+and download. The table is virtualised, so twenty thousand rows scroll as
+smoothly as twenty.
 
 If a run is interrupted — you press Stop, Chrome evicts the worker, the browser
 restarts — the queue and everything collected so far are already on disk. Open
@@ -84,6 +92,12 @@ the popup and press **Resume** to carry on from the search it stopped at.
 | **Also check each site's contact page** | When the homepage has no email, follows the site's contact link. |
 | **Verify emails** | Looks up the domain's MX records over DNS-over-HTTPS and labels each address. |
 | **Skip businesses from earlier runs** | Remembers what you have already exported and leaves it out of the next run. |
+
+The extension also watches itself: it measures how often each field actually
+comes back, and if something Maps shows for every listing (a name, a place
+link) is suddenly mostly missing, the run **pauses** rather than filling a
+spreadsheet with blank columns. Expand **Extraction health** in the panel to
+see the per-field rates.
 
 ---
 
@@ -163,8 +177,11 @@ popup  ──START_JOB──▶  service worker  ──RUN_SCRAPE──▶  cont
 | `src/lib/dedupe.js` | Stable business identity, record merging, the cross-run seen index |
 | `src/lib/email.js` | Fetches business websites, extracts/ranks emails, finds social links |
 | `src/lib/verify.js` | Email verification over DNS-over-HTTPS |
-| `src/lib/export.js` | CSV / Excel / JSON serialisation |
-| `src/popup/` | The UI |
+| `src/lib/store.js` | IndexedDB: job metadata, records, the cross-run seen index |
+| `src/lib/health.js` | Extraction fill rates and the gate that stops a broken run |
+| `src/lib/export.js` | CSV / JSON serialisation and file naming |
+| `src/lib/xlsx.js` | A real .xlsx writer — OOXML in a ZIP, no dependencies |
+| `src/panel/` | The side panel UI |
 
 Three design notes worth knowing:
 
@@ -175,7 +192,13 @@ Three design notes worth knowing:
 - **The job lives in the service worker, not the popup.** Chrome kills a popup
   the moment it loses focus, so a popup-owned scrape would die every time you
   clicked away. A keepalive ping stops MV3 evicting the worker mid-run.
-- **The file is built in the popup, not the worker.** Blob URLs need a
+- **Records live in IndexedDB, not in the job object.** They used to share
+  one blob in `chrome.storage.local`, which meant every progress update
+  re-serialised the whole result set — about 5.3 GB of writes over a
+  5,000-row run. Now only the rows a task touched are written, and the panel
+  reads the database directly instead of pulling everything through a
+  message.
+- **The file is built in the panel, not the worker.** Blob URLs need a
   document, and service workers do not have one.
 
 ---
@@ -183,16 +206,17 @@ Three design notes worth knowing:
 ## Development
 
 ```bash
-npm test          # 98 unit tests — geo, queue, dedupe, parsing, email, verify, export
+npm test          # 130 unit tests — geo, queue, dedupe, parsing, email, verify, health, xlsx, export
 npm run test:dom  # browser tests of the DOM wiring (see below)
 npm run icons     # regenerate the PNG icons
 npm run package   # build the distributable zip
 ```
 
-`npm run test:dom` drives the real content script inside Chromium against a
-synthetic page shaped like Google Maps search results — it verifies the
-selectors, the scroll loop, the click-into-detail-and-back cycle and the final
-record shape. It needs a browser:
+`npm run test:dom` runs everything that needs a real browser: the content
+script against a synthetic Maps-shaped page (selectors, scroll loop, the
+click-into-detail-and-back cycle), the IndexedDB layer against a real database,
+and the side panel's virtualised table — including a check that only a window
+of rows is ever in the DOM. It needs a browser:
 
 ```bash
 npm i -D playwright-core     # then either set PLAYWRIGHT_BROWSERS_PATH
@@ -223,6 +247,8 @@ Common problems:
 | A run stopped halfway | Press **Resume** — the queue and results are on disk. |
 | Every email says `unknown` | A network or firewall is blocking DNS-over-HTTPS. Verification degrades to unverified; the emails themselves are still fine. |
 | Nothing happens | Reload the extension at `chrome://extensions`, then reopen the Maps tab. |
+| The run paused itself | The extraction health gate fired: a field Maps always shows came back mostly empty, which means a selector broke. See `docs/SELECTORS.md`. Your partial results are kept. |
+| The panel does not open | Chrome 116+ is required. Check `chrome://extensions` for a manifest error. |
 
 ---
 
