@@ -66,6 +66,18 @@ const PEOPLE = [
     headline: 'Independent Consultant',
     location: 'Bengaluru, Karnataka, India', degree: '3rd+', openToWork: false,
   },
+  {
+    // Copied from a real card in the user's export. The headline is full of
+    // commas and pipes, so anything matching "a location is comma-separated"
+    // naively puts a job title in the Location column.
+    slug: 'anubha-goel', name: 'Anubha Goel',
+    // The other shape of the duplicate: link text for assistive tech rather
+    // than a second copy of the bare name.
+    sr: "View Anubha Goel's profile",
+    headline: 'Technical Corporate Trainer|C,C++,Java FSD,Python FSD,DSA',
+    current: 'Technical Trainer at Oracle',
+    location: 'Delhi, India', degree: '2nd', openToWork: false,
+  },
 ];
 
 /**
@@ -74,6 +86,10 @@ const PEOPLE = [
  * Deliberately shaped like the live site rather than like the adapter:
  *   - no `reusable-search__entity-result-list` or other nameable hooks, since
  *     those are build output that changed under us on the real site;
+ *   - the whole card wrapped inside the /in/ profile link, and the name
+ *     printed twice inside it (visible, then for screen readers) — this is
+ *     what the user's export caught, and it is why reading the anchor's text
+ *     put the entire card, name doubled, into the Name column;
  *   - a second profile link per card ("X is a mutual connection"), which must
  *     not be mistaken for the person the card is about;
  *   - a promo card injected mid-list, which has no profile link at all;
@@ -120,31 +136,34 @@ function fixture() {
       const cards = [...list.children].filter((li) => !li.querySelector('a[href="/premium"]'));
       for (let i = hydrated; i < Math.min(hydrated + n, DATA.length); i += 1) {
         const p = DATA[i];
+        // The anchor wraps the entire card, and carries no class the scraper
+        // could name — exactly the markup the live export revealed.
         cards[i].innerHTML = \`
           <div class="XyZ789">
-            <img src="https://media.licdn.com/photo\${i}.jpg"
-                 alt="\${p.openToWork ? p.name + ', #OPEN_TO_WORK' : p.name}">
-            <span>
-              <a href="https://www.linkedin.com/in/\${p.slug}?miniProfileUrn=xyz">
-                <span aria-hidden="true">\${p.name}</span>
-                <span class="visually-hidden">View \${p.name}'s profile</span>
-              </a>
-            </span>
-            <span class="entity-result__badge-text">· \${p.degree}</span>
-            <div class="entity-result__primary-subtitle">\${p.headline}</div>
-            <div class="entity-result__secondary-subtitle">\${p.location}</div>
-            <p class="entity-result__summary">Current: \${p.headline}</p>
+            <a href="https://www.linkedin.com/in/\${p.slug}?miniProfileUrn=xyz">
+              <div><img src="https://media.licdn.com/photo\${i}.jpg"
+                        alt="\${p.openToWork ? p.name + ', #OPEN_TO_WORK' : p.name}"></div>
+              <div><span aria-hidden="true">\${p.name}</span><span>\${
+                p.sr || p.name}</span><span> • \${p.degree}</span></div>
+              <div>\${p.headline}</div>
+              <div>\${p.location}</div>
+              <div>Current: \${p.current || p.headline}</div>
+            </a>
             <div>
               <a href="https://www.linkedin.com/in/mutual-friend-\${i}/">Deepa Maurya</a>
               is a mutual connection
             </div>
+            <button>Connect</button>
           </div>\`;
       }
       hydrated = Math.min(hydrated + n, DATA.length);
     }
 
     hydrate(2);                       // first page renders immediately
-    window.addEventListener('scroll', () => hydrate(1), { passive: true });
+    // Scrolling to the foot of the page brings a screenful into view, not one
+    // card. Hydrating a single card per event would mean the run only ever
+    // completes if it scrolls once per remaining result.
+    window.addEventListener('scroll', () => hydrate(2), { passive: true });
 
     // Paging replaces the results wholesale, exactly as LinkedIn does — which
     // detaches whatever node the scraper was holding.
@@ -221,9 +240,9 @@ test('the LinkedIn adapter is chosen for a People search URL', async (t) => {
 test('lazily hydrated results are all collected', async (t) => {
   const result = await run(t);
   if (!result) return;
-  // Two of three render at load, the third arrives on scroll, and paging
+  // Two of four render at load, the rest arrive on scroll, and paging
   // brings two more.
-  assert.equal(result.records.length, 5, 'the scroll loop must pick up late arrivals');
+  assert.equal(result.records.length, 6, 'the scroll loop must pick up late arrivals');
 });
 
 test('each person’s fields are read off the card', async (t) => {
@@ -231,13 +250,38 @@ test('each person’s fields are read off the card', async (t) => {
   if (!result) return;
 
   const priya = result.records.find((r) => r.name === 'Priya Sharma');
-  assert.ok(priya, 'name should come from the aria-hidden span, not the screen-reader copy');
+  assert.ok(priya, 'the name must not carry the screen-reader copy of itself');
   assert.equal(priya.headline, 'Staff Software Engineer at Acme Corp');
   assert.equal(priya.company, 'Acme Corp', 'company is split off the headline');
   assert.equal(priya.location, 'Chennai, Tamil Nadu, India');
   assert.equal(priya.degree, '2nd');
   assert.equal(priya.openToWork, 'Yes');
   assert.equal(priya.profileUrl, 'https://www.linkedin.com/in/priya-sharma', 'tracking params stripped');
+});
+
+test('the whole card being inside the profile link does not swallow every field', async (t) => {
+  // This is the export the user sent back: Name held the entire card with the
+  // person's name printed twice, and Headline/Company/Location/Connection were
+  // all empty. LinkedIn now wraps the card in the /in/ anchor, so reading the
+  // anchor's text returns the card. Fields come off the rendered lines instead.
+  const result = await run(t);
+  if (!result) return;
+
+  const anubha = result.records.find((r) => r.name === 'Anubha Goel');
+  assert.ok(anubha, 'the doubled name must be collapsed, not exported twice');
+  assert.equal(anubha.headline, 'Technical Corporate Trainer|C,C++,Java FSD,Python FSD,DSA');
+  assert.equal(anubha.location, 'Delhi, India', 'the comma-heavy headline is not a location');
+  assert.equal(anubha.company, 'Oracle', 'read off "Current:", which the headline does not carry');
+  assert.equal(anubha.degree, '2nd');
+  assert.equal(anubha.profileUrl, 'https://www.linkedin.com/in/anubha-goel');
+
+  for (const r of result.records) {
+    assert.ok(r.name.length < 60, `Name column holds a whole card: ${r.name}`);
+    assert.ok(!/mutual connection|Connect$/i.test(r.name), `chrome leaked into Name: ${r.name}`);
+    assert.ok(r.headline, `Headline is empty for ${r.name}`);
+    assert.ok(r.location, `Location is empty for ${r.name}`);
+    assert.ok(r.degree, `Connection degree is empty for ${r.name}`);
+  }
 });
 
 test('a headline with no company leaves the column empty rather than guessing', async (t) => {
@@ -309,7 +353,7 @@ test('the results list is found by shape, without relying on class names', async
   const result = await run(t);
   if (!result) return;
   assert.equal(result.ok, true, result.error);
-  assert.equal(result.records.length, 5);
+  assert.equal(result.records.length, 6);
 });
 
 test('a mutual-connection link is not mistaken for the result', async (t) => {
@@ -367,7 +411,7 @@ test('results are found even when they sit outside <main>', async (t) => {
   });
   if (!result) return;
   assert.equal(result.ok, true, result.error);
-  assert.equal(result.records.length, 5);
+  assert.equal(result.records.length, 6);
 });
 
 test('cards that are not list items are still grouped correctly', async (t) => {
@@ -404,7 +448,7 @@ test('it pages past the first ten instead of stopping there', async (t) => {
   assert.ok(names.includes('Priya Sharma'), 'page one');
   assert.ok(names.includes('Vikram S'), 'page two');
   assert.ok(names.includes('Meera T'), 'page two');
-  assert.equal(result.records.length, 5, 'both pages, deduplicated');
+  assert.equal(result.records.length, 6, 'both pages, deduplicated');
 });
 
 test('paging stops when there is no next page', async (t) => {
@@ -415,7 +459,7 @@ test('paging stops when there is no next page', async (t) => {
   });
   if (!result) return;
   assert.equal(result.ok, true, result.error);
-  assert.equal(result.records.length, 3, 'page one only, and no error');
+  assert.equal(result.records.length, 4, 'page one only, and no error');
 });
 
 test('maxResults still stops a paging run early', async (t) => {

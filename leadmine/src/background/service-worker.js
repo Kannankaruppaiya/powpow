@@ -129,6 +129,10 @@ function publicJob() {
     // "1 searches failed" with no reason is not a report. Carry the first
     // failure's message so the panel can say what actually went wrong.
     taskError: (tasks.find((t) => t.status === 'failed' && t.error) || {}).error || '',
+    // Why collection ended, from the last search that ran.
+    stoppedBecause:
+      [...tasks].reverse().find((t) => t.stoppedBecause) &&
+      [...tasks].reverse().find((t) => t.stoppedBecause).stoppedBecause,
     canResume: job.status === 'paused' && tasks.some((t) => t.status === 'pending'),
     // A preview only — the side panel pages the full set out of IndexedDB.
     preview: records.slice(0, 60),
@@ -241,6 +245,7 @@ async function runTask(task, config, tabId) {
   // The page knows what it is searching for; on a current-tab run that is the
   // only place the query and the user's filters exist.
   if (response.context) task.context = response.context;
+  if (response.stoppedBecause) task.stoppedBecause = response.stoppedBecause;
   return response.records || [];
 }
 

@@ -33,7 +33,7 @@ const ui = Object.fromEntries(
     'form', 'statusPill', 'viewSetup', 'viewResults', 'paneSetup', 'paneResults', 'tabCount',
     'modeSingle', 'modeBatch', 'toggleBatch',
     'source', 'sourceGroup', 'sourceNote', 'coverageRow', 'coverage',
-    'categoryLabel', 'cityLabel',
+    'categoryLabel', 'cityLabel', 'limitLabel',
     'optEmails', 'optContact', 'optVerify', 'optDeep',
     'optCurrentTab', 'useCurrentTab', 'currentTabHint',
     'category', 'city', 'batch', 'grid', 'maxResults',
@@ -95,6 +95,7 @@ const SOURCE_UI = {
     categoryPlaceholder: 'dentists',
     cityPlaceholder: 'Chennai',
     noun: 'businesses',
+    limitLabel: 'Stop after this many per search',
     filterLabel: 'Category',
     filterHint: 'Pick one, or type your own. Separate several with commas.',
     grid: true,
@@ -108,7 +109,10 @@ const SOURCE_UI = {
     cityLabel: 'Where?',
     categoryPlaceholder: 'java developer',
     cityPlaceholder: 'London',
+    // One LinkedIn search is the whole run, so "per search" read as a
+    // per-page cap and made a limit of 100 look like it had been ignored.
     noun: 'people',
+    limitLabel: 'Stop after this many profiles',
     filterLabel: 'Headline contains',
     filterHint: 'A person has no category, so this matches their headline.',
     grid: false,
@@ -127,6 +131,7 @@ function applySource() {
   syncRadios('source', ui.source.value);
   ui.statFoundLabel.textContent = conf.noun;
   ui.filterLabel.textContent = conf.filterLabel;
+  ui.limitLabel.textContent = conf.limitLabel;
   ui.filterHint.textContent = conf.filterHint;
   refreshCategoryOptions();
   ui.optCurrentTab.hidden = !conf.currentTab;
@@ -460,7 +465,8 @@ function render(job) {
     ].filter(Boolean);
     ui.taskLine.textContent =
       `Search ${Math.min(job.tasksSettled + (running ? 1 : 0), job.tasksTotal)} of ${job.tasksTotal}` +
-      (notes.length ? ` · ${notes.join(' · ')}` : '');
+      (notes.length ? ` · ${notes.join(' · ')}` : '') +
+      (!running && job.stoppedBecause ? ` · stopped because ${job.stoppedBecause}` : '');
   }
 
   // Progress belongs to a run in progress. Once it has settled, the title and

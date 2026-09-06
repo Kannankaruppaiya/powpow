@@ -118,12 +118,39 @@ Ranked by stability:
 
 | Selector | Field | Why |
 | --- | --- | --- |
-| `a[href*="/in/"]` | Identity + name | The profile URL is the one thing that cannot change shape |
-| `span[aria-hidden="true"]` inside that link | Display name | LinkedIn renders the name twice; this is the visible copy, the other is "View X's profile" |
-| `.entity-result__primary-subtitle` | Headline | Hashed-adjacent, so `[class*="primary-subtitle"]` backs it up |
-| `.entity-result__secondary-subtitle` | Location | Same |
-| `.entity-result__badge-text`, `span.dist-value` | Connection degree | Also recoverable from the card text |
+| `a[href*="/in/"]` | Identity | The profile URL is the one thing that cannot change shape |
+| `item.innerText` lines | Name, headline, location, degree, "Current:" | See below — every class-named extractor written for this card has been broken by LinkedIn within weeks |
 | `[class*="open-to-work"]`, `img[alt*="open to work"]` | Open to work | Best effort — it is a photo frame, not text |
+| `img[src*="licdn"]` | Photo | The CDN host outlives any class name |
+
+### Why the fields come off innerText, not selectors
+
+**The whole card now sits inside the `/in/` anchor.** A user's export caught
+this: the Name column held the entire card with the person's name printed
+twice, and Headline, Company, Location and Connection were all empty. Two
+faults, one cause — every `.entity-result__*` selector missed, so extraction
+fell through to reading the anchor's text, and the anchor *is* the card.
+
+So fields are read from the card's rendered lines and their order:
+
+- The **name** is the first line. LinkedIn prints it twice — once visible, once
+  for assistive tech — in adjacent inline spans, which `innerText` joins into
+  one line with *no separator*: `Priya SharmaPriya Sharma`. The second copy is
+  sometimes link text instead (`View Anubha Goel's profile`). Both are undone
+  before the line is used, and dropping repeated *lines* does not catch either.
+- The **location** is recognised by shape, not position: short, two to four
+  comma-separated parts, none longer than 32 characters, no `| @ : /`. That
+  test is what keeps `Technical Corporate Trainer|C,C++,Java FSD,Python FSD,DSA`
+  out of the Location column despite its commas.
+- The **headline** is the first remaining line that is not the degree badge,
+  the location, a `Current:`/`Past:` context line or the mutual-connection
+  footer.
+- The **company** comes from the `Current:` line first and the headline second,
+  because a headline often has no employer in it at all. If neither yields one,
+  the column stays empty rather than guessing.
+
+Buttons (`Connect`, `Message`, `Follow`) and follower counts are dropped as
+chrome before any of this runs.
 
 `readFilters()` deliberately reads two sources and merges them: the pills in
 the filter bar (via `aria-pressed` and `aria-label`) and the URL's own facet
@@ -157,6 +184,12 @@ what it says — `aria-label` or text starting with "next" — scoped to a
 pagination container when one exists. After clicking it the adapter waits for
 the *first result to change* rather than sleeping, because a fixed delay is
 either too short on a slow connection or wasted on a fast one.
+
+**A run that stops early now says why.** The engine records which of its four
+exits it took — the row limit, the source reporting no more, four rounds adding
+nothing, or no next page — and the panel prints it under the search line
+("stopped because there was no next page"). A LinkedIn run that ends at 20 rows
+with a limit of 100 is not self-explanatory otherwise.
 
 Exhaustion is `loadMore`'s decision alone. `reachedEnd()` deliberately returns
 false except when the search fingerprint changes: the absence of a Next button

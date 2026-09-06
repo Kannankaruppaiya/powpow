@@ -434,6 +434,13 @@ test('the category field relabels itself for LinkedIn', async (t) => {
     // People have no category, so it narrows on the headline instead.
     assert.equal(await ctx.page.textContent('#filterLabel'), 'Headline contains');
     assert.equal(await ctx.page.isVisible('#categoryFilter'), true);
+
+    // "per search" made a limit of 100 look ignored: one LinkedIn search is
+    // the whole run, not one page of it.
+    assert.equal(
+      await ctx.page.textContent('#limitLabel'),
+      'Stop after this many profiles'
+    );
   } finally {
     await ctx.close();
   }

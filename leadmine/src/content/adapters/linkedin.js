@@ -187,67 +187,118 @@
   }
 
   /**
-   * The person's name.
+   * The card's visible text, one entry per rendered line.
    *
-   * LinkedIn renders it twice inside the link — once visible, once for screen
-   * readers ("Priya Sharma" plus "Priya Sharma’s profile") — so prefer the
-   * aria-hidden span, which holds exactly the display name.
+   * innerText is the right tool here and querySelector is not: it returns what
+   * a person actually sees, in reading order, and it does not care what any of
+   * it is called. Every class-based extractor written for this page has been
+   * broken by LinkedIn within weeks; line order has not changed in years.
    */
-  function extractName(item, anchor) {
-    const hidden = anchor && anchor.querySelector('span[aria-hidden="true"]');
-    const name = norm(hidden && hidden.textContent);
-    if (name) return name;
-
-    const titled = item.querySelector('.entity-result__title-text a, .app-aware-link span[dir="ltr"]');
-    const fromTitle = norm(titled && titled.textContent).split('\n')[0];
-    if (fromTitle) return fromTitle;
-
-    return norm(anchor && anchor.textContent).split('View')[0].trim();
-  }
-
-  /** "Software Engineer at Acme" → { headline, company }. */
-  function splitHeadline(headline) {
-    const text = norm(headline);
-    const at = text.match(/^(.*?)\s+(?:at|@)\s+(.+)$/i);
-    return at ? { headline: text, company: norm(at[2]) } : { headline: text, company: '' };
-  }
-
-  function firstText(item, selectors) {
-    for (const selector of selectors) {
-      const el = item.querySelector(selector);
-      const text = norm(el && el.textContent);
-      if (text) return text;
+  function cardLines(item) {
+    const lines = [];
+    for (const raw of String(item.innerText || '').split('\n')) {
+      const line = undouble(norm(stripScreenReader(raw)));
+      // The doubling is sometimes across lines rather than within one.
+      if (!line || line === lines[lines.length - 1]) continue;
+      lines.push(line);
     }
-    return '';
+    return lines;
   }
 
+  /**
+   * Drop the link text LinkedIn renders for screen readers.
+   *
+   * It sits inline next to the visible name, so it lands on the same line and
+   * would otherwise be read as part of the person's name.
+   */
+  function stripScreenReader(text) {
+    // No leading word boundary: the copy sits flush against the visible name,
+    // so the text can read "Anubha GoelView Anubha Goel's profile".
+    return String(text).replace(/view\s+.{1,60}?['’]s\s+profile/gi, ' ');
+  }
+
+  /**
+   * "Priya Sharma Priya Sharma • 2nd" -> "Priya Sharma • 2nd".
+   *
+   * LinkedIn prints the name twice — once visible, once for assistive tech —
+   * in two inline spans, which innerText joins into a single line. Dropping
+   * repeated *lines* misses this; the repeat has to be undone within the line.
+   */
+  function undouble(line) {
+    // The two spans sit flush against each other, so there may be no space
+    // between the copies at all: "Priya SharmaPriya Sharma".
+    return norm(line.replace(/^(.{4,60}?)\s*\1(?=$|[\s•·,|])/, '$1'));
+  }
+
+  /** Buttons and affordances that are chrome, not information. */
+  const NOISE =
+    /^(connect|message|follow|following|view full profile|invite|pending|\d+(\.\d+)?k? followers?)$/i;
+
+  const DEGREE_ONLY = /^[•·]?\s*(1st|2nd|3rd\+?)\s*(degree)?\s*(connection)?$/i;
+  const CONTEXT_LINE = /^(current|past|about|summary)\s*:/i;
+  const MUTUAL_LINE = /\bmutual connections?\b/i;
+
+  /**
+   * Does this line look like a place rather than a job title?
+   *
+   * Locations are short, comma-separated and free of the punctuation people
+   * pack headlines with. "Indore, Madhya Pradesh, India" passes;
+   * "Technical Trainer|C,C++,Java FSD" does not, despite the commas.
+   */
+  function looksLikeLocation(line) {
+    if (!line || line.length > 70) return false;
+    if (/[|@:/]/.test(line)) return false;
+    if (MUTUAL_LINE.test(line) || CONTEXT_LINE.test(line)) return false;
+    const parts = line.split(',').map((p) => p.trim()).filter(Boolean);
+    if (parts.length < 2 || parts.length > 4) return false;
+    // A headline fragment is usually long; place names are not.
+    return parts.every((p) => p.length <= 32);
+  }
+
+  /** "Current: Technical Trainer at Oracle" -> "Oracle". Also handles "@Acme". */
+  function companyFrom(text) {
+    const value = norm(text).replace(CONTEXT_LINE, '');
+    const at = value.match(/\s+at\s+([^|·•]+)$/i) || value.match(/@\s*([^|·•(]+)/);
+    return at ? norm(at[1]).replace(/[.,]$/, '') : '';
+  }
+
+  /**
+   * Read one result card.
+   *
+   * Everything below the profile URL comes from the card's lines and their
+   * order, not from any class name. LinkedIn now wraps the whole card in the
+   * profile link, so reading the anchor's text gets the entire card and the
+   * name twice — which is exactly what the previous version exported.
+   */
   function extractItem(item) {
     const url = itemProfileUrl(item);
     // No profile link means the skeleton has not hydrated yet.
     if (!url) return null;
 
-    const anchor = [...item.querySelectorAll(SEL.profileLink)].find((a) => profileUrl(a) === url);
-    const name = extractName(item, anchor);
+    const lines = cardLines(item).filter((line) => !NOISE.test(line));
+    if (!lines.length) return null;
+
+    // The name is the first line, minus any degree badge sharing it.
+    const name = norm(lines[0].replace(/\s*[•·]\s*(1st|2nd|3rd\+?)\s*$/i, ''));
     if (!name) return null;
 
-    const rawHeadline = firstText(item, [
-      '.entity-result__primary-subtitle',
-      '[class*="primary-subtitle"]',
-      'div.t-14.t-black.t-normal',
-    ]);
-    const { headline, company } = splitHeadline(rawHeadline);
+    const rest = lines.slice(1);
+    const degreeMatch = lines.slice(0, 3).join(' ').match(DEGREE_RE);
+    const contextLine = rest.find((line) => CONTEXT_LINE.test(line)) || '';
+    const locationLine = rest.find(looksLikeLocation) || '';
 
-    const location = firstText(item, [
-      '.entity-result__secondary-subtitle',
-      '[class*="secondary-subtitle"]',
-      'div.t-14.t-normal.t-black--light',
-    ]);
+    // The headline is the first line that is not the degree, the location,
+    // the "Current:" context or the mutual-connection footer.
+    const headline =
+      rest.find(
+        (line) =>
+          !DEGREE_ONLY.test(line) &&
+          line !== locationLine &&
+          !CONTEXT_LINE.test(line) &&
+          !MUTUAL_LINE.test(line)
+      ) || '';
 
-    const badge = firstText(item, ['.entity-result__badge-text', 'span.dist-value', '[class*="badge-text"]']);
-    const degreeMatch = `${badge} ${norm(item.textContent).slice(0, 200)}`.match(DEGREE_RE);
-
-    // "Open to work" is a photo frame, not text, so this is best effort: the
-    // frame carries it in an image alt or a class name.
+    // "Open to work" is a photo frame, not text, so this is best effort.
     const openToWork = Boolean(
       item.querySelector('[class*="open-to-work" i]') ||
         [...item.querySelectorAll('img[alt]')].some((img) => /open.?to.?work/i.test(img.alt))
@@ -256,11 +307,11 @@
     return {
       name,
       headline,
-      company,
-      location,
+      company: companyFrom(contextLine) || companyFrom(headline),
+      location: locationLine,
       degree: degreeMatch ? degreeMatch[1].toLowerCase() : '',
       openToWork: openToWork ? 'Yes' : '',
-      summary: firstText(item, ['.entity-result__summary', '[class*="entity-result__summary"]']),
+      summary: contextLine,
       profileUrl: url,
       photoUrl: (item.querySelector('img[src*="licdn"]') || {}).src || '',
       email: '',

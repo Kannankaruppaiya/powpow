@@ -105,6 +105,9 @@
     const maxResults = config.maxResults || 0;
     const scrollDelay = config.scrollDelay || 900;
     let stagnantRounds = 0;
+    // "It stopped at 20" is not something anyone can act on without knowing
+    // which of the four exits it took.
+    let stopped = 'round limit';
 
     report({ phase: 'listing' });
 
@@ -139,18 +142,31 @@
       const before = state.found;
       report({ found: byId.size, total: byId.size });
 
-      if (maxResults && byId.size >= maxResults) break;
-      if (adapter.reachedEnd(container)) break;
+      if (maxResults && byId.size >= maxResults) {
+        stopped = `the limit of ${maxResults}`;
+        break;
+      }
+      if (adapter.reachedEnd(container)) {
+        stopped = 'the source said there are no more';
+        break;
+      }
 
       stagnantRounds = byId.size > before ? 0 : stagnantRounds + 1;
-      if (stagnantRounds >= 4) break;
+      if (stagnantRounds >= 4) {
+        stopped = 'four rounds in a row added nothing';
+        break;
+      }
 
       const more = await adapter.loadMore(container);
-      if (more === false) break;
+      if (more === false) {
+        stopped = 'there was no next page';
+        break;
+      }
       await sleep(scrollDelay);
     }
 
     const records = [...byId.values()];
+    harvest.stoppedBecause = stopped;
     return maxResults ? records.slice(0, maxResults) : records;
   }
 
@@ -224,7 +240,7 @@
     for (const record of records) record.source = adapter.id;
 
     report({ phase: 'done' });
-    return { records, context };
+    return { records, context, stoppedBecause: harvest.stoppedBecause || '' };
   }
 
   // Exposed so adapters can share the engine's helpers.
@@ -258,8 +274,8 @@
       state.detailed = 0;
 
       run(msg.config || {})
-        .then(({ records, context }) =>
-          sendResponse({ ok: true, records, context, cancelled: state.cancelled })
+        .then(({ records, context, stoppedBecause }) =>
+          sendResponse({ ok: true, records, context, stoppedBecause, cancelled: state.cancelled })
         )
         .catch((err) => sendResponse({ ok: false, error: String((err && err.message) || err) }))
         .finally(() => {
