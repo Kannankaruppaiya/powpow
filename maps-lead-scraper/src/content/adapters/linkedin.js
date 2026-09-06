@@ -28,8 +28,6 @@
     // Filter controls in the bar above the results.
     filterPills: 'button[aria-label*="filter" i], .search-reusables__filter-pill-button',
     filterBar: '.search-reusables__filter-list, [class*="filter-list"]',
-    paginationNext: 'button[aria-label="Next"]',
-    endMarker: '.artdeco-pagination__indicator--number:last-child',
     authWall: 'form.login__form, .authwall, [data-test-id="auth-wall"]',
     captcha: '#captcha-internal, iframe[title*="captcha" i], .challenge-dialog',
   };
@@ -128,6 +126,30 @@
       `; main=${document.querySelector('main') ? 'yes' : 'no'}` +
       (sample.length ? `; samples: ${sample.join(' | ')}` : '')
     );
+  }
+
+  /**
+   * The list as it exists right now.
+   *
+   * LinkedIn replaces the results wholesale when you page, so a node captured
+   * on page 1 is detached by page 2 and reports nothing.
+   */
+  function liveList(list) {
+    return list && list.isConnected ? list : findResultList();
+  }
+
+  /**
+   * The pagination control, found by what it says rather than by an exact
+   * aria-label. `button[aria-label="Next"]` matched nothing on the live site.
+   */
+  function findNextButton() {
+    const scope = document.querySelector('[class*="pagination" i]') || document;
+    for (const el of scope.querySelectorAll('button, a[role="button"]')) {
+      if (el.disabled || el.getAttribute('aria-disabled') === 'true') continue;
+      const label = norm(`${el.getAttribute('aria-label') || ''} ${el.textContent || ''}`);
+      if (/^next\b|next page/i.test(label)) return el;
+    }
+    return null;
   }
 
   /** The result cards inside a list, whatever element type they happen to be. */
@@ -340,11 +362,13 @@
     },
 
     getResultIds(list) {
-      return resultItems(list).map(itemProfileUrl).filter(Boolean);
+      const live = liveList(list);
+      return live ? resultItems(live).map(itemProfileUrl).filter(Boolean) : [];
     },
 
     extractResult(id, list) {
-      const item = resultItems(list).find((el) => itemProfileUrl(el) === id);
+      const live = liveList(list);
+      const item = live && resultItems(live).find((el) => itemProfileUrl(el) === id);
       return item ? extractItem(item) : null;
     },
 
@@ -355,34 +379,45 @@
         console.warn('[maps-lead-scraper] LinkedIn search changed mid-run; stopping.');
         return true;
       }
-      const next = document.querySelector(SEL.paginationNext);
-      return Boolean(next && next.disabled);
+      // Exhaustion is loadMore's call: no Next button does not mean this page
+      // has finished hydrating, and treating it that way cut the last cards
+      // off every final page.
+      return false;
     },
 
     async loadMore(list) {
-      const { sleep } = globalThis.MLSEngine;
+      const { sleep, waitFor } = globalThis.MLSEngine;
 
-      // LinkedIn hydrates on scroll, so walk the window down first.
-      //
-      // Count *usable* results, not raw children: the skeleton <li>s exist
-      // from the start and hydrating one fills it in without adding an
-      // element, so counting children would never register progress.
-      const rendered = () => resultItems(list).filter(itemProfileUrl).length;
-      const before = rendered();
+      const idsNow = () => {
+        const live = liveList(list);
+        return live ? resultItems(live).map(itemProfileUrl).filter(Boolean) : [];
+      };
+
+      // Scroll first: it hydrates lazily-rendered cards, and it is also what
+      // brings the pagination control into the DOM at the foot of the page.
+      const before = idsNow();
       window.scrollTo({ top: document.body.scrollHeight, behavior: 'auto' });
-      await sleep(600);
+      await sleep(700);
 
-      if (rendered() > before) return true;
+      // Count *usable* results, not raw children: skeleton items exist from
+      // the start and hydrating one fills it in without adding an element.
+      if (idsNow().length > before.length) return true;
 
-      // Page is exhausted — take the next one if there is one.
-      const next = document.querySelector(SEL.paginationNext);
-      if (next && !next.disabled) {
-        next.click();
-        await sleep(1200);
-        window.scrollTo({ top: 0, behavior: 'auto' });
-        return true;
-      }
-      return false;
+      const next = findNextButton();
+      if (!next) return false;
+
+      next.click();
+      // Wait for the list to actually turn over rather than guessing at a
+      // delay — the first result changing is the signal the page has moved.
+      const turned = await waitFor(
+        () => {
+          const ids = idsNow();
+          return ids.length && ids[0] !== before[0] ? ids : null;
+        },
+        { timeout: 15000 }
+      );
+      window.scrollTo({ top: 0, behavior: 'auto' });
+      return Boolean(turned);
     },
 
     // Everything worth having is on the card; opening each profile would

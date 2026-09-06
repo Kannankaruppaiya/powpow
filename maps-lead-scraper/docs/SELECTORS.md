@@ -138,3 +138,27 @@ going. `fingerprint()` hashes the query plus the applied filters and is checked
 every round; if it changes, the run stops rather than blending two different
 searches into one export. If you see a LinkedIn run ending early, check that
 first — it is usually correct behaviour, not a bug.
+
+
+## LinkedIn pagination
+
+Two things broke a live run here, and both are worth knowing before touching
+this code.
+
+**The list node does not survive paging.** LinkedIn replaces the results
+wholesale, so a container captured on page one is detached on page two and
+reports zero results — which looks exactly like reaching the end. The engine
+re-resolves a detached container each round (`container.isConnected === false`),
+and the adapter's `liveList()` does the same for any node handed to it. If a
+run stops at exactly one page, suspect this first.
+
+**`button[aria-label="Next"]` matched nothing.** The control is now found by
+what it says — `aria-label` or text starting with "next" — scoped to a
+pagination container when one exists. After clicking it the adapter waits for
+the *first result to change* rather than sleeping, because a fixed delay is
+either too short on a slow connection or wasted on a fast one.
+
+Exhaustion is `loadMore`'s decision alone. `reachedEnd()` deliberately returns
+false except when the search fingerprint changes: the absence of a Next button
+does not mean the current page has finished hydrating, and treating it that way
+truncated the last cards of every final page.

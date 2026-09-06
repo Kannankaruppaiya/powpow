@@ -36,6 +36,19 @@ function findChromium() {
   return undefined;
 }
 
+const PAGE_TWO = [
+  {
+    slug: 'vikram-s', name: 'Vikram S',
+    headline: 'Backend Engineer at Initech',
+    location: 'Hyderabad, Telangana, India', degree: '2nd', openToWork: false,
+  },
+  {
+    slug: 'meera-t', name: 'Meera T',
+    headline: 'Platform Engineer at Umbrella',
+    location: 'Pune, Maharashtra, India', degree: '3rd+', openToWork: true,
+  },
+];
+
 const PEOPLE = [
   {
     slug: 'priya-sharma', name: 'Priya Sharma',
@@ -82,10 +95,16 @@ function fixture() {
     <div class="AbC123">
       <ul role="list"></ul>
     </div>
+    <div class="artdeco-pagination">
+      <button id="prev" aria-label="Previous" disabled>Previous</button>
+      <button id="next" aria-label="Next">Next</button>
+    </div>
   </main>
   <script>
-    const DATA = ${JSON.stringify(PEOPLE)};
-    const list = document.querySelector('ul[role="list"]');
+    const PAGES = [${JSON.stringify(PEOPLE)}, ${JSON.stringify(PAGE_TWO)}];
+    let page = 0;
+    let DATA = PAGES[0];
+    let list = document.querySelector('ul[role="list"]');
     let hydrated = 0;
 
     // Skeletons exist up front; content arrives later, as on the real site.
@@ -126,6 +145,22 @@ function fixture() {
 
     hydrate(2);                       // first page renders immediately
     window.addEventListener('scroll', () => hydrate(1), { passive: true });
+
+    // Paging replaces the results wholesale, exactly as LinkedIn does — which
+    // detaches whatever node the scraper was holding.
+    document.getElementById('next').addEventListener('click', () => {
+      if (page >= PAGES.length - 1) return;
+      page += 1;
+      DATA = PAGES[page];
+      hydrated = 0;
+      const fresh = document.createElement('ul');
+      fresh.setAttribute('role', 'list');
+      for (let i = 0; i < DATA.length; i += 1) fresh.appendChild(document.createElement('li'));
+      list.replaceWith(fresh);
+      list = fresh;
+      hydrate(DATA.length);
+      if (page >= PAGES.length - 1) document.getElementById('next').remove();
+    });
   </script>
   </body></html>`;
 }
@@ -186,8 +221,9 @@ test('the LinkedIn adapter is chosen for a People search URL', async (t) => {
 test('lazily hydrated results are all collected', async (t) => {
   const result = await run(t);
   if (!result) return;
-  // Only two of three are rendered at load; the third arrives on scroll.
-  assert.equal(result.records.length, 3, 'the scroll loop must pick up late arrivals');
+  // Two of three render at load, the third arrives on scroll, and paging
+  // brings two more.
+  assert.equal(result.records.length, 5, 'the scroll loop must pick up late arrivals');
 });
 
 test('each person’s fields are read off the card', async (t) => {
@@ -273,7 +309,7 @@ test('the results list is found by shape, without relying on class names', async
   const result = await run(t);
   if (!result) return;
   assert.equal(result.ok, true, result.error);
-  assert.equal(result.records.length, 3);
+  assert.equal(result.records.length, 5);
 });
 
 test('a mutual-connection link is not mistaken for the result', async (t) => {
@@ -331,7 +367,7 @@ test('results are found even when they sit outside <main>', async (t) => {
   });
   if (!result) return;
   assert.equal(result.ok, true, result.error);
-  assert.equal(result.records.length, 3);
+  assert.equal(result.records.length, 5);
 });
 
 test('cards that are not list items are still grouped correctly', async (t) => {
@@ -339,7 +375,7 @@ test('cards that are not list items are still grouped correctly', async (t) => {
   const result = await run(t, {
     mutate: async (page) => {
       await page.evaluate(() => {
-        const list = document.querySelector('ul[role="list"]');
+        let list = document.querySelector('ul[role="list"]');
         const div = document.createElement('div');
         for (const li of [...list.children]) {
           const card = document.createElement('div');
@@ -354,4 +390,36 @@ test('cards that are not list items are still grouped correctly', async (t) => {
   assert.equal(result.ok, true, result.error);
   assert.equal(result.records.length, 2, 'the two hydrated cards are found without <li>');
   assert.ok(!result.records.some((r) => r.profileUrl.includes('mutual-friend')));
+});
+
+test('it pages past the first ten instead of stopping there', async (t) => {
+  // The live run stopped at exactly one page. Two faults did it: the engine
+  // held the list node from page one, which paging detaches, and the Next
+  // button was matched by an exact aria-label that did not exist.
+  const result = await run(t);
+  if (!result) return;
+
+  assert.equal(result.ok, true, result.error);
+  const names = result.records.map((r) => r.name);
+  assert.ok(names.includes('Priya Sharma'), 'page one');
+  assert.ok(names.includes('Vikram S'), 'page two');
+  assert.ok(names.includes('Meera T'), 'page two');
+  assert.equal(result.records.length, 5, 'both pages, deduplicated');
+});
+
+test('paging stops when there is no next page', async (t) => {
+  const result = await run(t, {
+    mutate: async (page) => {
+      await page.evaluate(() => document.getElementById('next').remove());
+    },
+  });
+  if (!result) return;
+  assert.equal(result.ok, true, result.error);
+  assert.equal(result.records.length, 3, 'page one only, and no error');
+});
+
+test('maxResults still stops a paging run early', async (t) => {
+  const result = await run(t, { config: { maxResults: 4 } });
+  if (!result) return;
+  assert.equal(result.records.length, 4);
 });

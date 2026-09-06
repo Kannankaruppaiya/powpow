@@ -98,7 +98,7 @@
    * appending the next page, so one empty round is not the end.
    */
   async function harvest(adapter, config) {
-    const container = await adapter.waitForResults();
+    let container = await adapter.waitForResults();
     if (!container) return null;
 
     const byId = new Map();
@@ -110,6 +110,20 @@
 
     for (let round = 0; round < 500; round += 1) {
       if (state.cancelled) break;
+
+      // A single-page app replaces its list on pagination or a filter change.
+      // The old node is then detached and yields nothing — which is
+      // indistinguishable from having reached the end unless it is re-found.
+      if (container.isConnected === false) {
+        let fresh = null;
+        try {
+          fresh = await adapter.waitForResults();
+        } catch {
+          fresh = null;
+        }
+        if (!fresh) break;
+        container = fresh;
+      }
 
       for (const id of adapter.getResultIds(container)) {
         if (byId.has(id)) continue;
