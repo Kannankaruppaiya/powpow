@@ -83,6 +83,7 @@ body {
   border-bottom: 2px solid transparent;
   cursor: pointer;
 }
+.tab { transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease); }
 .tab:hover { color: var(--ink-2); }
 .tab.is-active { color: var(--ink); border-bottom-color: var(--accent); }
 .tab-count {
@@ -152,6 +153,7 @@ body {
   border-radius: var(--r-md);
 }
 .input::placeholder { color: var(--ink-3); }
+.input { transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease); }
 .input:hover:not(:disabled) { border-color: var(--ink-3); }
 .input:focus-visible {
   outline: none;
@@ -186,6 +188,7 @@ select.input { appearance: auto; }
   border-radius: var(--r-sm);
   cursor: pointer;
 }
+.seg span { transition: background-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease); }
 .seg input:checked + span {
   color: var(--ink);
   background: var(--bg);
@@ -215,6 +218,9 @@ select.input { appearance: auto; }
   font-style: normal;
   font-size: var(--t-small);
   color: var(--ink-3);
+}
+.choice-body {
+  transition: border-color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease);
 }
 .choice:hover .choice-body { border-color: var(--ink-3); }
 .choice input:checked + .choice-body {
@@ -288,7 +294,16 @@ select.input { appearance: auto; }
   border-radius: var(--r-md);
   cursor: pointer;
 }
+.btn {
+  transition:
+    background-color var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease),
+    transform var(--t-fast) var(--ease),
+    box-shadow var(--t-fast) var(--ease);
+}
 .btn:hover:not(:disabled) { background: var(--surface); }
+/* A press should be felt, not just seen. */
+.btn:active:not(:disabled) { transform: translateY(1px); }
 .btn:focus-visible { outline: none; box-shadow: var(--ring); }
 .btn:disabled { opacity: 0.55; cursor: default; }
 
@@ -341,7 +356,7 @@ select.input { appearance: auto; }
   border: 2px solid var(--surface-2);
   border-top-color: var(--accent);
   border-radius: 50%;
-  animation: spin 0.7s linear infinite;
+  animation: spin 0.7s var(--ease-linear) infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -351,9 +366,9 @@ select.input { appearance: auto; }
   width: 0;
   border-radius: var(--r-pill);
   background: var(--accent);
-  transition: width 0.3s ease;
+  transition: width var(--t-slow) var(--ease);
 }
-.bar-fill.indeterminate { width: 35%; animation: slide 1.4s ease-in-out infinite; }
+.bar-fill.indeterminate { width: 35%; animation: slide 1.4s var(--ease) infinite; }
 @keyframes slide { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
 
 .figures {
@@ -438,3 +453,19 @@ select.input { appearance: auto; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before { animation: none !important; transition: none !important; }
 }
+
+/* --- empty state ------------------------------------------------------- */
+
+.empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  padding: var(--s-6) var(--s-4);
+  text-align: center;
+}
+.empty img { opacity: 0.35; margin-bottom: var(--s-1); }
+.empty-title { margin: 0; font-size: var(--t-title); font-weight: var(--w-semi); }
+.empty-body { margin: 0 0 var(--s-2); font-size: var(--t-small); color: var(--ink-3); max-width: 34ch; }

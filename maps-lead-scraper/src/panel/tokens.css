@@ -62,6 +62,16 @@
   /* Read by the virtualised table in panel.js — the two must not drift. */
   --row-h: 32px;
 
+  /* --- motion -----------------------------------------------------------
+     Four durations and three curves is enough for this surface. Anything
+     that needs a fifth is probably doing too much. */
+  --t-fast: 120ms;     /* hover, focus, press */
+  --t-normal: 200ms;   /* showing and hiding */
+  --t-slow: 320ms;     /* progress, layout-affecting change */
+  --ease: cubic-bezier(0.2, 0, 0, 1);        /* most transitions */
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);    /* entering */
+  --ease-linear: linear;                     /* loops only */
+
   --ring: 0 0 0 3px var(--accent-soft);
   --lift: 0 1px 2px rgba(16, 20, 30, 0.06), 0 1px 3px rgba(16, 20, 30, 0.04);
 

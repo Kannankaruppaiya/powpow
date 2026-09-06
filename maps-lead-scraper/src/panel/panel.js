@@ -45,6 +45,7 @@ const ui = Object.fromEntries(
     'healthBox', 'healthList', 'error',
     'format', 'download', 'clear', 'filter',
     'scroller', 'viewport', 'spacer', 'rowBody', 'rowNote', 'footnote',
+    'emptyResults', 'emptyGoSearch',
   ].map((id) => [id, el(id)])
 );
 
@@ -306,6 +307,12 @@ function applyFilter() {
           .some((v) => String(v || '').toLowerCase().includes(needle))
       );
 
+  // An empty results view gets a designed state, not a bare sentence.
+  const bare = !rows.length;
+  ui.emptyResults.hidden = !bare;
+  ui.scroller.hidden = bare;
+  ui.rowNote.hidden = bare;
+
   ui.spacer.style.height = `${visibleRows.length * ROW_HEIGHT}px`;
   ui.rowNote.textContent = visibleRows.length
     ? `${visibleRows.length.toLocaleString()}${needle ? ` of ${rows.length.toLocaleString()}` : ''} rows`
@@ -430,6 +437,13 @@ function render(job) {
   ui.again.hidden = running;
   ui.goResults.hidden = running || !job.count;
   ui.spinner.hidden = !running;
+
+  // One primary action per view. A paused run wants resuming; a finished one
+  // wants reading. Two indigo buttons side by side answer neither question.
+  const primary = job.canResume ? ui.resume : ui.goResults;
+  for (const btn of [ui.resume, ui.goResults]) {
+    btn.classList.toggle('btn--primary', btn === primary);
+  }
   ui.footnote.hidden = !running;
 
   ui.runTitle.textContent = running
@@ -539,6 +553,7 @@ ui.again.addEventListener('click', () => {
 });
 
 ui.goResults.addEventListener('click', () => setView(true));
+ui.emptyGoSearch.addEventListener('click', () => setView(false));
 ui.stop.addEventListener('click', () => chrome.runtime.sendMessage({ type: 'CANCEL_JOB' }));
 
 ui.clear.addEventListener('click', async () => {
@@ -570,6 +585,10 @@ ui.download.addEventListener('click', async () => {
     const url = URL.createObjectURL(new Blob([content], { type: mime }));
     await chrome.downloads.download({ url, filename, saveAs: true });
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
+
+    // Confirm it happened; a dialog that closes with no trace reads as a
+    // failure to anyone who was not watching the download shelf.
+    ui.rowNote.textContent = `Saved ${filename}`;
   } catch (err) {
     showError(String((err && err.message) || err));
   } finally {

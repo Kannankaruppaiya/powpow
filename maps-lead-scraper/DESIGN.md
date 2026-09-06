@@ -26,6 +26,20 @@ Three rules fixed that, and every decision below follows from them:
 
 ---
 
+## The mark
+
+A location pin whose hole is a sheet rather than the usual circle: the map
+going in, the spreadsheet coming out. One silhouette, one idea.
+
+`icons/logo.svg` is the source; `npm run icons` renders the PNG sizes Chrome
+needs through Chromium, so the mark gets real anti-aliasing and gradients
+rather than a hand-rolled rasteriser's approximation.
+
+An earlier version cut rows across the whole pin. Better idea on paper, worse
+mark on screen — the cuts flattened the head until it stopped reading as a pin.
+The meaning moved into the hole, where it cannot damage the outline, and at
+16px it simply reads as a pin. Restraint beat the cleverer drawing.
+
 ## Colour
 
 A single chromatic accent; everything else neutral. Colour carries state and
@@ -63,6 +77,24 @@ everywhere.
 
 Numbers that change use `font-variant-numeric: tabular-nums` so they do not
 jitter as a run progresses.
+
+## Motion
+
+Four durations and three curves, as tokens — enough for this surface, and few
+enough that no component invents its own.
+
+| Token | Value | Use |
+| --- | --- | --- |
+| `--t-fast` | 120ms | Hover, focus, press |
+| `--t-normal` | 200ms | Showing and hiding, view changes |
+| `--t-slow` | 320ms | Progress, layout-affecting change |
+| `--ease` | `cubic-bezier(0.2, 0, 0, 1)` | Most transitions |
+| `--ease-out` | `cubic-bezier(0, 0, 0.2, 1)` | Entering |
+| `--ease-linear` | `linear` | Loops only — the spinner, the indeterminate bar |
+
+Motion is confirmation, never decoration: a button press moves 1px, a view
+fades and rises 3px. `prefers-reduced-motion` is handled once, at the system
+level, not per component.
 
 ## Space
 
@@ -109,8 +141,18 @@ settings that started it are not what the user needs.
 | --- | --- | --- |
 | **Idle** | Source, the search, how thorough, disclosure | **Start** |
 | **Running** | Spinner, what it is doing now, progress, live counts | **Stop** |
+| **Paused** | Why it stopped, what was collected so far | **Resume** |
 | **Finished** | Counts, what was found per field | **See results** |
 | **Results** | Virtualised table, filter | **Download** |
+| **Results, empty** | The mark, one line, a way back | **Go to search** |
+
+One primary action per state is enforced in code, not by convention: Resume and
+See results share a row, and only the one that answers the current question is
+indigo.
+
+Resume lives in the run view, not on the form. It was on the form once, and a
+paused run hides the form — so the only button that mattered was unreachable
+exactly when it was needed.
 
 The running state says what it is doing in words — "Opening each listing…",
 "Looking for emails…" — not the internal phase name.

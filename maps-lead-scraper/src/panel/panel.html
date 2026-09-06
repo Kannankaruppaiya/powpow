@@ -159,7 +159,6 @@
         <p id="sourceNote" class="callout callout--warn" hidden></p>
 
         <button type="submit" id="start" class="btn btn--primary btn--lg">Start</button>
-        <button type="button" id="resume" class="btn btn--primary btn--lg" hidden>Resume</button>
       </form>
 
       <!-- --- the run: replaces the form, because nothing else matters -->
@@ -184,6 +183,9 @@
 
         <div class="row">
           <button type="button" id="stop" class="btn" hidden>Stop</button>
+          <!-- Resume belongs here, not on the form: a paused run hides the
+               form, and the button was unreachable when it was over there. -->
+          <button type="button" id="resume" class="btn btn--primary" hidden>Resume</button>
           <button type="button" id="again" class="btn" hidden>New search</button>
           <button type="button" id="goResults" class="btn btn--primary" hidden>See results</button>
         </div>
@@ -209,6 +211,13 @@
       </div>
 
       <input id="filter" class="input" type="search" placeholder="Filter these results…" />
+
+      <div id="emptyResults" class="empty" hidden>
+        <img src="../../icons/icon48.png" alt="" width="40" height="40" />
+        <p class="empty-title">No results yet</p>
+        <p class="empty-body">Run a search and the businesses you find will appear here.</p>
+        <button type="button" id="emptyGoSearch" class="btn">Go to search</button>
+      </div>
 
       <div id="scroller" class="scroller">
         <table class="grid">

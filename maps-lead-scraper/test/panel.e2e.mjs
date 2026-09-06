@@ -62,6 +62,17 @@ const SETUP = (total) => {
       }
     // An untouched panel: the form is the view, nothing has run yet.
     : { status: 'idle', count: 0, tasksTotal: 0, tasksSettled: 0 };
+
+  if (window.__paused) {
+    Object.assign(job, {
+      status: 'paused',
+      canResume: true,
+      count: 40,
+      tasksSettled: 3,
+      tasksTotal: 10,
+      message: 'Interrupted — press Resume to carry on where it stopped.',
+    });
+  }
   const AREAS = ['Anna Nagar', 'Adyar', 'T Nagar', 'Velachery'];
   const RECORDS = Array.from({ length: total }, (_, i) => ({
     key: `fid:${String(i).padStart(5, '0')}`,
@@ -101,7 +112,7 @@ const SETUP = (total) => {
   });
 };
 
-async function openPanel(t, { idle = false } = {}) {
+async function openPanel(t, { idle = false, paused = false } = {}) {
   let chromium;
   try {
     ({ chromium } = await import('playwright-core'));
@@ -118,6 +129,7 @@ async function openPanel(t, { idle = false } = {}) {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
 
+  if (paused) await page.addInitScript(() => { window.__paused = true; });
   await page.addInitScript(SETUP, idle ? 0 : TOTAL);
   await page.goto(`http://localhost:${port}/src/panel/panel.html`);
   await page.evaluate(() => window.__seed);
@@ -423,5 +435,75 @@ test('the category field relabels itself for LinkedIn', async (t) => {
     assert.equal(await ctx.page.isVisible('#categoryFilter'), true);
   } finally {
     await ctx.close();
+  }
+});
+
+test('an interrupted run can actually be resumed', async (t) => {
+  // Resume used to live on the form, and a paused run hides the form — so the
+  // one button that mattered was unreachable exactly when it was needed.
+  const ctx = await openPanel(t, { paused: true });
+  if (!ctx) return;
+  try {
+    assert.equal(await ctx.page.isVisible('#form'), false, 'a paused run shows the run view');
+    assert.equal(await ctx.page.isVisible('#resume'), true, 'Resume must be on screen');
+    assert.equal(await ctx.page.isVisible('#stop'), false, 'nothing is running to stop');
+
+    // And the reason it paused has to be readable, not just the button.
+    assert.match(await ctx.page.textContent('#message'), /Interrupted/i);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('the results view has a designed empty state', async (t) => {
+  const ctx = await openPanel(t, { idle: true });
+  if (!ctx) return;
+  try {
+    await ctx.page.click('#viewResults');
+    await ctx.page.waitForTimeout(300);
+
+    assert.equal(await ctx.page.isVisible('#emptyResults'), true);
+    assert.equal(await ctx.page.isVisible('#scroller'), false, 'no empty table frame');
+    assert.match(await ctx.page.textContent('#emptyResults'), /No results yet/i);
+
+    // It offers the way out rather than leaving the user on a dead screen.
+    await ctx.page.click('#emptyGoSearch');
+    assert.equal(await ctx.page.isVisible('#paneSetup'), true);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('a populated results view shows the table, not the empty state', async (t) => {
+  const ctx = await openPanel(t);
+  if (!ctx) return;
+  try {
+    await ctx.page.click('#viewResults');
+    await ctx.page.waitForTimeout(400);
+    assert.equal(await ctx.page.isVisible('#emptyResults'), false);
+    assert.equal(await ctx.page.isVisible('#scroller'), true);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('only one action is styled as primary at a time', async (t) => {
+  const paused = await openPanel(t, { paused: true });
+  if (!paused) return;
+  try {
+    // Paused: resuming is the question, so it is the only primary.
+    assert.equal(await paused.page.getAttribute('#resume', 'class'), 'btn btn--primary');
+    assert.ok(!(await paused.page.getAttribute('#goResults', 'class')).includes('btn--primary'));
+  } finally {
+    await paused.close();
+  }
+
+  const done = await openPanel(t);
+  if (!done) return;
+  try {
+    // Finished: reading the results is the question.
+    assert.ok((await done.page.getAttribute('#goResults', 'class')).includes('btn--primary'));
+  } finally {
+    await done.close();
   }
 });
