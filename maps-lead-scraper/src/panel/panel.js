@@ -26,6 +26,7 @@ const ui = Object.fromEntries(
     'tabSingle', 'tabBatch', 'modeSingle', 'modeBatch',
     'source', 'sourceNote', 'coverageRow', 'categoryLabel', 'cityLabel',
     'optEmails', 'optContact', 'optVerify', 'optDeep',
+    'optCurrentTab', 'useCurrentTab', 'currentTabHint',
     'category', 'city', 'batch', 'grid', 'maxResults',
     'deep', 'fetchEmails', 'followContactPage', 'verifyEmails', 'skipSeen', 'seenNote',
     'start', 'resume', 'stop',
@@ -59,6 +60,8 @@ const SOURCE_UI = {
     cityPlaceholder: 'e.g. Chennai',
     grid: true,
     emails: true,
+    // The grid needs to drive the tab itself, so this is off for Maps.
+    currentTab: false,
     note: '',
   },
   linkedin: {
@@ -68,6 +71,9 @@ const SOURCE_UI = {
     cityPlaceholder: 'e.g. London',
     grid: false,
     emails: false,
+    // Navigating to our own URL would throw away any filter the user applied,
+    // so reading the tab they already set up is the better default here.
+    currentTab: true,
     note:
       'Uses your signed-in LinkedIn session and reads the same results you see. ' +
       'LinkedIn restricts accounts for automated collection — keep runs small and infrequent.',
@@ -76,6 +82,9 @@ const SOURCE_UI = {
 
 function applySource() {
   const conf = SOURCE_UI[ui.source.value] || SOURCE_UI.maps;
+  ui.optCurrentTab.hidden = !conf.currentTab;
+  if (!conf.currentTab) ui.useCurrentTab.checked = false;
+  applyCurrentTab();
   ui.categoryLabel.textContent = conf.categoryLabel;
   ui.cityLabel.textContent = conf.cityLabel;
   ui.category.placeholder = conf.categoryPlaceholder;
@@ -89,8 +98,25 @@ function applySource() {
   ui.sourceNote.textContent = conf.note;
 }
 
+/**
+ * In current-tab mode the search comes from the page, so the keyword and
+ * location inputs would be ignored — hide them rather than let someone type
+ * into a box that does nothing.
+ */
+function applyCurrentTab() {
+  const on = ui.useCurrentTab.checked && !ui.optCurrentTab.hidden;
+  ui.modeSingle.hidden = on || batchMode;
+  ui.tabSingle.parentElement.hidden = on;
+  ui.currentTabHint.hidden = !on;
+}
+
 ui.source.addEventListener('change', () => {
   applySource();
+  saveSettings();
+});
+
+ui.useCurrentTab.addEventListener('change', () => {
+  applyCurrentTab();
   saveSettings();
 });
 
@@ -136,6 +162,7 @@ async function restoreSettings() {
   ui.followContactPage.checked = s.followContactPage !== false;
   ui.verifyEmails.checked = s.verifyEmails !== false;
   ui.skipSeen.checked = Boolean(s.skipSeen);
+  ui.useCurrentTab.checked = Boolean(s.useCurrentTab);
   // An older build stored "xls"; the exporter only writes real xlsx now.
   ui.format.value = s.format === 'xls' ? 'xlsx' : s.format || 'csv';
   ui.source.value = s.source || 'maps';
@@ -146,6 +173,7 @@ async function restoreSettings() {
 function readConfig() {
   return {
     source: ui.source.value,
+    useCurrentTab: ui.useCurrentTab.checked && !ui.optCurrentTab.hidden,
     category: ui.category.value.trim(),
     city: ui.city.value.trim(),
     // Only send the batch text when the batch tab is active, so a leftover
@@ -310,7 +338,7 @@ function render(job) {
   ui.stop.hidden = !running;
 
   for (const input of [
-    ui.source, ui.category, ui.city, ui.batch, ui.grid, ui.maxResults,
+    ui.source, ui.useCurrentTab, ui.category, ui.city, ui.batch, ui.grid, ui.maxResults,
     ui.deep, ui.fetchEmails, ui.followContactPage, ui.verifyEmails, ui.skipSeen,
   ]) {
     input.disabled = running;
@@ -378,6 +406,14 @@ ui.form.addEventListener('submit', async (event) => {
 
   const config = readConfig();
   const conf = SOURCE_UI[config.source] || SOURCE_UI.maps;
+  // Current-tab mode takes the search off the page, so there is nothing to
+  // validate here.
+  if (config.useCurrentTab) {
+    await saveSettings();
+    const started = await chrome.runtime.sendMessage({ type: 'START_JOB', config });
+    if (started && started.ok === false) showError(started.error);
+    return;
+  }
   if (batchMode ? !config.batch.trim() : !config.category) {
     showError(
       batchMode

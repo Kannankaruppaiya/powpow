@@ -131,3 +131,29 @@ test('the batch box phrases each line for its source', async () => {
   assert.equal(parseBatch('java developer, London', 'linkedin')[0].term, 'java developer London');
   assert.equal(parseBatch('dentists, Chennai', 'maps')[0].term, 'dentists in Chennai');
 });
+
+test('current-tab mode is one task with nothing to navigate to', () => {
+  // Navigating is exactly what would discard the filters the user set by hand,
+  // so the task must carry no URL and no grid.
+  const tasks = buildTaskList({ source: 'linkedin', useCurrentTab: true, grid: 'exhaustive' });
+  assert.equal(tasks.length, 1);
+  assert.equal(tasks[0].useCurrentTab, true);
+  assert.equal(tasks[0].term, '', 'the search comes from the page, not from here');
+  assert.equal(tasks[0].point, null);
+  assert.equal(tasks[0].expandsToGrid, false);
+});
+
+test('current-tab mode ignores a batch list rather than half-honouring it', () => {
+  const tasks = buildTaskList({
+    source: 'linkedin',
+    useCurrentTab: true,
+    batch: 'java, London\npython, Berlin',
+  });
+  assert.equal(tasks.length, 1, 'there is only one tab to scrape');
+});
+
+test('a normal run is unaffected by the current-tab branch', () => {
+  const tasks = buildTaskList({ source: 'maps', category: 'dentists', city: 'Chennai', grid: 'balanced' });
+  assert.equal(tasks[0].useCurrentTab, undefined);
+  assert.equal(tasks[0].term, 'dentists in Chennai');
+});

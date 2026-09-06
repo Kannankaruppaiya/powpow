@@ -274,3 +274,43 @@ test('switching source shows only the controls that apply', async (t) => {
     await ctx.close();
   }
 });
+
+test('current-tab mode replaces the typed search with the page’s own', async (t) => {
+  const ctx = await openPanel(t);
+  if (!ctx) return;
+  try {
+    await ctx.page.click('#viewSetup');
+
+    // Maps drives the tab itself, so the option does not apply there.
+    assert.equal(await ctx.page.isVisible('#optCurrentTab'), false);
+
+    await ctx.page.selectOption('#source', 'linkedin');
+    await ctx.page.waitForTimeout(150);
+    assert.equal(await ctx.page.isVisible('#optCurrentTab'), true);
+
+    // Off: the keyword and location inputs are how you search.
+    assert.equal(await ctx.page.isVisible('#modeSingle'), true);
+    assert.equal(await ctx.page.isVisible('#currentTabHint'), false);
+
+    await ctx.page.check('#useCurrentTab');
+    await ctx.page.waitForTimeout(150);
+
+    // On: those inputs would be ignored, so they are hidden rather than lying.
+    assert.equal(await ctx.page.isVisible('#modeSingle'), false);
+    assert.equal(await ctx.page.isVisible('#currentTabHint'), true);
+    assert.match(await ctx.page.textContent('#currentTabHint'), /come from that page/i);
+
+    await ctx.page.uncheck('#useCurrentTab');
+    await ctx.page.waitForTimeout(150);
+    assert.equal(await ctx.page.isVisible('#modeSingle'), true, 'unchecking restores the inputs');
+
+    // Switching back to Maps must clear it, not leave a stale flag set.
+    await ctx.page.check('#useCurrentTab');
+    await ctx.page.selectOption('#source', 'maps');
+    await ctx.page.waitForTimeout(150);
+    assert.equal(await ctx.page.isChecked('#useCurrentTab'), false);
+    assert.equal(await ctx.page.isVisible('#modeSingle'), true);
+  } finally {
+    await ctx.close();
+  }
+});

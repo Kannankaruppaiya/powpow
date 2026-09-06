@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Maps Lead Scraper",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "description": "Scrape Google Maps business listings and LinkedIn People search results into one downloadable CSV/Excel/JSON file.",
   "minimum_chrome_version": "116",
   "permissions": [

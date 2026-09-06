@@ -212,11 +212,14 @@ async function readMapCentre(tabId, attempts = 8) {
 
 async function runTask(task, config, tabId) {
   const source = sourceFor(config.source);
-  const url = buildUrl(source.id, task.term, task.point);
-  await chrome.tabs.update(tabId, { url, active: !config.background });
-  await waitForTabComplete(tabId, source.urlPart);
-  // Maps hydrates its feed after `complete`; a short settle avoids a race.
-  await new Promise((r) => setTimeout(r, 2500));
+
+  if (!task.useCurrentTab) {
+    const url = buildUrl(source.id, task.term, task.point);
+    await chrome.tabs.update(tabId, { url, active: !config.background });
+    await waitForTabComplete(tabId, source.urlPart);
+    // Maps hydrates its feed after `complete`; a short settle avoids a race.
+    await new Promise((r) => setTimeout(r, 2500));
+  }
   if (cancelRequested) throw new Error('cancelled');
 
   await ensureContentScript(tabId);
@@ -229,6 +232,10 @@ async function runTask(task, config, tabId) {
     throw new Error(`The ${source.label} tab stopped responding. Keep it open while scraping.`);
   }
   if (!response.ok) throw new Error(response.error || 'Scrape failed.');
+
+  // The page knows what it is searching for; on a current-tab run that is the
+  // only place the query and the user's filters exist.
+  if (response.context) task.context = response.context;
   return response.records || [];
 }
 
@@ -273,6 +280,12 @@ async function drainQueue(config, tabId) {
       // than filling a spreadsheet with blank columns. Which fields count
       // depends on the source: a business always has a place link, a person
       // always has a profile URL.
+      // A current-tab run learns its search from the page, so fold that back
+      // into the job for the status line and the download's filename.
+      if (task.context && task.context.query && !job.config.category) {
+        await save({ config: { ...job.config, category: task.context.query } });
+      }
+
       const health = assessHealth(records, gatesFor(sourceFor(config.source)));
       await save({
         tasks: job.tasks,
@@ -440,6 +453,30 @@ async function execute(config, tabId) {
   }
 }
 
+/**
+ * The tab a run will drive.
+ *
+ * Normally the extension opens its own and navigates it per task. In
+ * current-tab mode it adopts the tab the user already has open — the whole
+ * point being that navigating would discard the filters they set by hand.
+ */
+async function acquireTab(config) {
+  if (!config.useCurrentTab) {
+    // A fresh tab: after a browser restart the previous one is long gone.
+    return chrome.tabs.create({ url: 'about:blank', active: !config.background });
+  }
+
+  const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const source = sourceFor(config.source);
+  if (!active || !String(active.url || '').includes(source.urlPart)) {
+    throw new Error(
+      `Open your ${source.label} search in this tab first, then press Start. ` +
+        'Current-tab mode scrapes the page you are on so your filters are kept.'
+    );
+  }
+  return active;
+}
+
 async function startJob(config) {
   if (job.status === 'running') throw new Error('A scrape is already running.');
 
@@ -462,7 +499,7 @@ async function startJob(config) {
     startedAt: Date.now(),
   });
 
-  const tab = await chrome.tabs.create({ url: 'about:blank', active: !settings.background });
+  const tab = await acquireTab(settings);
   await save({ tabId: tab.id });
   await execute(settings, tab.id);
 }
@@ -477,8 +514,7 @@ async function resumeJob() {
   cancelRequested = false;
   await save({ status: 'running', phase: 'listing', error: '', message: 'Resuming…' });
 
-  // The old tab is long gone after a browser restart, so always take a fresh one.
-  const tab = await chrome.tabs.create({ url: 'about:blank', active: !config.background });
+  const tab = await acquireTab(config);
   await save({ tabId: tab.id });
   await execute(config, tab.id);
 }

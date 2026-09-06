@@ -35,6 +35,11 @@
           <button type="button" id="tabBatch" class="tab" role="tab" aria-selected="false">Batch</button>
         </div>
 
+        <label class="check standalone" id="optCurrentTab" hidden>
+          <input type="checkbox" id="useCurrentTab" />
+          <span>Scrape the tab I'm on <em>(keeps the filters you set by hand)</em></span>
+        </label>
+
         <div id="modeSingle">
           <div class="row">
             <label class="field">
@@ -47,6 +52,11 @@
             </label>
           </div>
         </div>
+
+        <p id="currentTabHint" class="hint" hidden>
+          Set up the search and filters in your LinkedIn tab, then press Start.
+          The keywords, the location and every filter come from that page.
+        </p>
 
         <div id="modeBatch" hidden>
           <label class="field">

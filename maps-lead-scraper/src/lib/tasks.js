@@ -73,6 +73,26 @@ export function searchesFromConfig(config = {}) {
  * geocoding service is needed.
  */
 export function buildTaskList(config = {}) {
+  // Scraping the tab the user already set up: there is one search, it is
+  // whatever is on screen, and the extension must not navigate — navigating
+  // is exactly what would throw away the filters they applied by hand.
+  if (config.useCurrentTab) {
+    return [
+      {
+        id: 's0',
+        category: config.category || '',
+        city: config.city || '',
+        term: '',
+        point: null,
+        useCurrentTab: true,
+        expandsToGrid: false,
+        status: 'pending',
+        found: 0,
+        error: '',
+      },
+    ];
+  }
+
   // A LinkedIn people search is not geographic, so no grid is laid over it
   // however the coverage control is set.
   const steps = supportsGrid(config.source) ? gridSteps(config.grid) : 1;
