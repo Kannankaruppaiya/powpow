@@ -31,6 +31,9 @@
     detailWebsite: 'a[data-item-id="authority"]',
     detailPlusCode: 'button[data-item-id="oloc"]',
     detailCategory: 'button[jsaction*="category"]',
+    detailHours: '[aria-label*="Hours" i], div.t39EBf[aria-label], div.OqCZI[aria-label]',
+    detailPrice: '[aria-label*="Price" i], span.mgr77e span',
+    detailClaim: 'a[href*="/business/"], button[aria-label*="Claim" i]',
     backButton: 'button[jsaction*="back"], button[aria-label="Back"]',
     consent: 'form[action*="consent"], div[aria-label*="Before you continue"]',
   };
@@ -170,6 +173,9 @@
       rating,
       reviews,
       website: site ? site.href : '',
+      hours: '',
+      priceLevel: '',
+      claimed: '',
       plusCode: '',
       mapsUrl: link.href,
       detailScraped: false,
@@ -209,6 +215,33 @@
 
     const cat = main.querySelector(SEL.detailCategory);
     if (cat) rec.category = norm(cat.textContent);
+
+    // Opening hours live in an aria-label holding the whole week, e.g.
+    // "Monday, 9 AM to 9 PM; Tuesday, 9 AM to 9 PM; ...".
+    const hours = main.querySelector(SEL.detailHours);
+    if (hours) {
+      const label = norm(hours.getAttribute('aria-label'));
+      // Reject the collapsed summary ("Open ⋅ Closes 9 pm") in favour of the
+      // full week, which is the only version worth putting in a spreadsheet.
+      if (label && label.includes(';')) rec.hours = label.replace(/^hours:\s*/i, '');
+    }
+
+    const price = main.querySelector(SEL.detailPrice);
+    if (price) {
+      const label = norm(price.getAttribute('aria-label') || price.textContent);
+      const m = label.match(/(?:price[:\s]*)?((?:[₹$€£¥]{1,4})|(?:\p{Sc}\s?\d[\d,]*(?:\s?[–-]\s?\p{Sc}?\s?\d[\d,]*)?))/u);
+      if (m) rec.priceLevel = norm(m[1]);
+    }
+
+    // An unclaimed listing advertises "Claim this business" — a strong signal
+    // that nobody is managing the page, which is exactly who cold outreach
+    // tends to target.
+    const claim = [...main.querySelectorAll(SEL.detailClaim)].some((el) =>
+      /claim this business|own this business/i.test(
+        `${el.getAttribute('aria-label') || ''} ${el.textContent || ''}`
+      )
+    );
+    rec.claimed = claim ? 'No' : 'Yes';
 
     const { rating, reviews } = extractRating(main);
     if (rating) rec.rating = rating;
@@ -368,6 +401,9 @@
           rating: '',
           reviews: '',
           website: '',
+          hours: '',
+          priceLevel: '',
+          claimed: '',
           plusCode: '',
           mapsUrl: location.href,
           ...single,

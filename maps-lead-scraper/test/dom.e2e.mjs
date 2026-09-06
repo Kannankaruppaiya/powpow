@@ -32,6 +32,9 @@ const BUSINESSES = [
     website: 'https://brightsmile.test/',
     rating: '4.6',
     reviews: '284',
+    hours: 'Monday, 9 AM to 9 PM; Tuesday, 9 AM to 9 PM; Wednesday, Closed',
+    price: '₹₹',
+    claimed: true,
   },
   {
     name: 'City Dental Care',
@@ -43,6 +46,9 @@ const BUSINESSES = [
     website: 'https://citydental.test/',
     rating: '4.2',
     reviews: '97',
+    hours: 'Monday, 10 AM to 8 PM; Tuesday, 10 AM to 8 PM',
+    price: '',
+    claimed: true,
   },
   {
     // No phone or website on the card, and none in the panel either: the
@@ -56,6 +62,9 @@ const BUSINESSES = [
     website: '',
     rating: '5.0',
     reviews: '12',
+    hours: '',
+    price: '',
+    claimed: false,
   },
 ];
 
@@ -117,7 +126,10 @@ function fixture() {
             <div class="Io6YTe">\${b.fullAddress}</div></button>
           \${b.phone ? \`<button data-item-id="phone:tel:\${b.phone}" aria-label="Phone: \${b.cardPhone}"></button>\` : ''}
           \${b.website ? \`<a data-item-id="authority" href="\${b.website}">\${b.website}</a>\` : ''}
-          <button data-item-id="oloc" aria-label="Plus code: 7J4V+2X Chennai"></button>\`;
+          <button data-item-id="oloc" aria-label="Plus code: 7J4V+2X Chennai"></button>
+          \${b.hours ? \`<div class="t39EBf" aria-label="\${b.hours}"></div>\` : ''}
+          \${b.price ? \`<span aria-label="Price: \${b.price}"></span>\` : ''}
+          \${b.claimed ? '' : '<a href="/business/">Claim this business</a>'}\`;
       }
     </script>
   </body></html>`;
@@ -207,11 +219,20 @@ test('content script scrapes a Maps-shaped page end to end', async (t) => {
     assert.equal(bright.category, 'Dental clinic');
     assert.equal(bright.plusCode, '7J4V+2X Chennai');
     assert.equal(bright.detailScraped, true);
+    assert.equal(
+      bright.hours,
+      'Monday, 9 AM to 9 PM; Tuesday, 9 AM to 9 PM; Wednesday, Closed',
+      'the full week, not the collapsed "Open ⋅ Closes 9 pm" summary'
+    );
+    assert.equal(bright.priceLevel, '₹₹');
+    assert.equal(bright.claimed, 'Yes');
 
     const noPhone = records.find((r) => r.name === 'Smile Studio');
     assert.equal(noPhone.phone, '', 'a business without a phone stays blank, not undefined');
     assert.equal(noPhone.website, '');
     assert.equal(noPhone.area, 'T Nagar');
+    assert.equal(noPhone.claimed, 'No', 'a "Claim this business" link means unclaimed');
+    assert.equal(noPhone.hours, '', 'a listing without hours stays blank');
 
     const phases = new Set(progress.map((m) => m.phase));
     assert.ok(phases.has('listing'), 'listing progress should be reported');

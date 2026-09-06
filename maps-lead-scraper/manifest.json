@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Maps Lead Scraper",
-  "version": "1.0.0",
-  "description": "Scrape every Google Maps business listing for a city + category — name, phone, email, area, rating — into one downloadable CSV/Excel/JSON file.",
+  "version": "2.0.0",
+  "description": "Scrape every Google Maps business listing for a city + category \u2014 name, phone, verified email, area, rating \u2014 into one downloadable CSV/Excel/JSON file.",
   "minimum_chrome_version": "116",
   "permissions": [
     "storage",
@@ -26,7 +26,10 @@
         "https://www.google.com/maps/*",
         "https://www.google.co.in/maps/*"
       ],
-      "js": ["src/lib/parse.js", "src/content/scraper.js"],
+      "js": [
+        "src/lib/parse.js",
+        "src/content/scraper.js"
+      ],
       "run_at": "document_idle",
       "all_frames": false
     }

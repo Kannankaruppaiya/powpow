@@ -102,6 +102,51 @@ export function extractEmails(html, siteHost = '') {
   return cleaned.sort((a, b) => score(b) - score(a));
 }
 
+/**
+ * Social profiles a business links from its own site.
+ *
+ * These come out of the same HTML already fetched for the email, so they cost
+ * nothing extra. Share widgets and intent links point at the visitor's own
+ * account rather than the business, so they are filtered out.
+ */
+const SOCIAL_PATTERNS = [
+  { key: 'facebook', re: /https?:\/\/(?:[\w-]+\.)?facebook\.com\/[^\s"'<>]+/gi },
+  { key: 'instagram', re: /https?:\/\/(?:www\.)?instagram\.com\/[^\s"'<>]+/gi },
+  { key: 'linkedin', re: /https?:\/\/(?:[\w-]+\.)?linkedin\.com\/(?:company|in|school)\/[^\s"'<>]+/gi },
+  { key: 'twitter', re: /https?:\/\/(?:www\.)?(?:twitter|x)\.com\/[^\s"'<>]+/gi },
+  { key: 'youtube', re: /https?:\/\/(?:www\.)?youtube\.com\/(?:c|channel|user|@)[^\s"'<>]*/gi },
+];
+
+/** Paths that are a share button or a platform's own plumbing, not a profile. */
+const SOCIAL_NOISE =
+  /\/(sharer|share|intent|dialog|plugins|tr\?|login|signup|home|privacy|policies|about\/?$)/i;
+
+export function extractSocialLinks(html) {
+  const out = {};
+  const text = String(html || '');
+
+  for (const { key, re } of SOCIAL_PATTERNS) {
+    for (const match of text.matchAll(re)) {
+      let url = match[0].replace(/[)\]},.;'"]+$/, '');
+      if (SOCIAL_NOISE.test(url)) continue;
+
+      try {
+        const parsed = new URL(url);
+        // A bare domain is a link to the platform, not to a profile.
+        if (parsed.pathname.replace(/\/+$/, '').length <= 1) continue;
+        parsed.search = '';
+        parsed.hash = '';
+        url = parsed.toString().replace(/\/$/, '');
+      } catch {
+        continue;
+      }
+
+      if (!out[key]) out[key] = url;
+    }
+  }
+  return out;
+}
+
 async function fetchText(url, timeoutMs) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -128,21 +173,24 @@ async function fetchText(url, timeoutMs) {
  * Returns { email, allEmails, source } — empty strings when nothing is found.
  */
 export async function findEmailForSite(website, { timeout = 12000, followContactPage = true } = {}) {
+  const empty = { email: '', allEmails: [], source: '', social: {} };
   const url = normaliseUrl(website);
-  if (!url) return { email: '', allEmails: [], source: '' };
+  if (!url) return empty;
 
   let host = '';
   try {
     host = new URL(url).host;
   } catch {
-    return { email: '', allEmails: [], source: '' };
+    return empty;
   }
 
   const home = await fetchText(url, timeout);
-  let emails = extractEmails(home, host);
-  if (emails.length) return { email: emails[0], allEmails: emails, source: url };
+  const social = extractSocialLinks(home);
 
-  if (!followContactPage) return { email: '', allEmails: [], source: '' };
+  let emails = extractEmails(home, host);
+  if (emails.length) return { email: emails[0], allEmails: emails, source: url, social };
+
+  if (!followContactPage) return { ...empty, social };
 
   // Prefer a contact link the homepage actually advertises over guessed paths.
   const linked = [];
@@ -159,11 +207,13 @@ export async function findEmailForSite(website, { timeout = 12000, followContact
 
   for (const candidate of candidates) {
     const html = await fetchText(candidate, timeout);
+    // Contact pages often carry the social links the homepage omits.
+    Object.assign(social, { ...extractSocialLinks(html), ...social });
     emails = extractEmails(html, host);
-    if (emails.length) return { email: emails[0], allEmails: emails, source: candidate };
+    if (emails.length) return { email: emails[0], allEmails: emails, source: candidate, social };
   }
 
-  return { email: '', allEmails: [], source: '' };
+  return { ...empty, social };
 }
 
 /** Run `worker` over `items` with a fixed concurrency ceiling. */

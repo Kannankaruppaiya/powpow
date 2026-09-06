@@ -68,3 +68,45 @@ test('mapWithConcurrency handles an empty list', async () => {
   });
   assert.equal(calls, 0);
 });
+
+test('extractSocialLinks finds one profile URL per platform', async () => {
+  const { extractSocialLinks } = await import('../src/lib/email.js');
+  const html = `
+    <a href="https://www.facebook.com/brightsmiledental">FB</a>
+    <a href="https://instagram.com/brightsmile/">IG</a>
+    <a href="https://www.linkedin.com/company/bright-smile">LI</a>
+    <a href="https://x.com/brightsmile">X</a>
+    <a href="https://www.youtube.com/@brightsmile">YT</a>`;
+  assert.deepEqual(extractSocialLinks(html), {
+    facebook: 'https://www.facebook.com/brightsmiledental',
+    instagram: 'https://instagram.com/brightsmile',
+    linkedin: 'https://www.linkedin.com/company/bright-smile',
+    twitter: 'https://x.com/brightsmile',
+    youtube: 'https://www.youtube.com/@brightsmile',
+  });
+});
+
+test('extractSocialLinks ignores share buttons and bare platform links', async () => {
+  const { extractSocialLinks } = await import('../src/lib/email.js');
+  const html = `
+    <a href="https://www.facebook.com/sharer/sharer.php?u=https://shop.test">Share</a>
+    <a href="https://twitter.com/intent/tweet?text=hi">Tweet</a>
+    <a href="https://www.instagram.com/">Instagram</a>
+    <a href="https://www.facebook.com/realbusiness">Us</a>`;
+  const out = extractSocialLinks(html);
+  assert.equal(out.facebook, 'https://www.facebook.com/realbusiness');
+  assert.equal(out.twitter, undefined);
+  assert.equal(out.instagram, undefined);
+});
+
+test('extractSocialLinks strips tracking query strings', async () => {
+  const { extractSocialLinks } = await import('../src/lib/email.js');
+  const out = extractSocialLinks('<a href="https://instagram.com/shop?utm_source=web">IG</a>');
+  assert.equal(out.instagram, 'https://instagram.com/shop');
+});
+
+test('extractSocialLinks copes with empty input', async () => {
+  const { extractSocialLinks } = await import('../src/lib/email.js');
+  assert.deepEqual(extractSocialLinks(''), {});
+  assert.deepEqual(extractSocialLinks(null), {});
+});

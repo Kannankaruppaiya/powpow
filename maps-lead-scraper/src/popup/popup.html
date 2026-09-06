@@ -12,21 +12,50 @@
     </header>
 
     <form id="form" class="panel">
-      <div class="row">
+      <div class="tabs" role="tablist">
+        <button type="button" id="tabSingle" class="tab is-active" role="tab" aria-selected="true">
+          One search
+        </button>
+        <button type="button" id="tabBatch" class="tab" role="tab" aria-selected="false">Batch</button>
+      </div>
+
+      <div id="paneSingle">
+        <div class="row">
+          <label class="field">
+            <span>Category</span>
+            <input id="category" placeholder="e.g. dentists" autocomplete="off" />
+          </label>
+          <label class="field">
+            <span>City</span>
+            <input id="city" placeholder="e.g. Chennai" autocomplete="off" />
+          </label>
+        </div>
+      </div>
+
+      <div id="paneBatch" hidden>
         <label class="field">
-          <span>Category</span>
-          <input id="category" name="category" placeholder="e.g. dentists" required autocomplete="off" />
-        </label>
-        <label class="field">
-          <span>City</span>
-          <input id="city" name="city" placeholder="e.g. Chennai" required autocomplete="off" />
+          <span>One search per line <em>(“dentists, Chennai” or “gyms in Madurai”)</em></span>
+          <textarea id="batch" rows="4" spellcheck="false"
+            placeholder="dentists, Chennai&#10;dental clinics, Chennai&#10;orthodontists, Coimbatore"></textarea>
         </label>
       </div>
 
-      <label class="field">
-        <span>Max results <em>(0 = every listing)</em></span>
-        <input id="maxResults" name="maxResults" type="number" min="0" max="5000" step="10" value="0" />
-      </label>
+      <div class="row">
+        <label class="field">
+          <span>Coverage</span>
+          <select id="grid">
+            <option value="off">Off — 1 search (~120)</option>
+            <option value="light">Light — 4 cells</option>
+            <option value="balanced" selected>Balanced — 9 cells</option>
+            <option value="thorough">Thorough — 16 cells</option>
+            <option value="exhaustive">Exhaustive — 25 cells</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Max per search <em>(0 = all)</em></span>
+          <input id="maxResults" type="number" min="0" max="5000" step="10" value="0" />
+        </label>
+      </div>
 
       <fieldset class="opts">
         <legend>Options</legend>
@@ -36,16 +65,25 @@
         </label>
         <label class="check">
           <input type="checkbox" id="fetchEmails" checked />
-          <span>Find emails from business websites</span>
+          <span>Find emails &amp; social links from business websites</span>
         </label>
         <label class="check">
           <input type="checkbox" id="followContactPage" checked />
           <span>Also check each site's contact page</span>
         </label>
+        <label class="check">
+          <input type="checkbox" id="verifyEmails" checked />
+          <span>Verify emails <em>(MX lookup — drops dead domains)</em></span>
+        </label>
+        <label class="check">
+          <input type="checkbox" id="skipSeen" />
+          <span>Skip businesses from earlier runs <em class="seen" id="seenNote"></em></span>
+        </label>
       </fieldset>
 
       <div class="actions">
         <button type="submit" id="start" class="primary">Start scraping</button>
+        <button type="button" id="resume" class="primary" hidden>Resume</button>
         <button type="button" id="stop" class="ghost" hidden>Stop</button>
       </div>
     </form>
@@ -53,10 +91,12 @@
     <section id="status" class="status" hidden>
       <div class="bar"><div id="barFill" class="bar-fill"></div></div>
       <p id="message" class="message"></p>
+      <p id="taskLine" class="tasks"></p>
       <ul class="stats">
-        <li><strong id="statFound">0</strong><span>listings</span></li>
+        <li><strong id="statFound">0</strong><span>businesses</span></li>
         <li><strong id="statPhones">0</strong><span>phones</span></li>
         <li><strong id="statEmails">0</strong><span>emails</span></li>
+        <li><strong id="statSendable">0</strong><span>sendable</span></li>
       </ul>
     </section>
 

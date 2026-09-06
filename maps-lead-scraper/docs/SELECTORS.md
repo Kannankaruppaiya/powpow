@@ -23,6 +23,11 @@ of redesigns:
 | `a[data-item-id="authority"]` | Website |
 | `button[data-item-id="oloc"]` | Plus code |
 
+Fields without a `data-item-id` fall back to ARIA:
+`[aria-label*="Hours"]` (the whole week, semicolon separated),
+`[aria-label*="Price"]`, and a "Claim this business" link, whose *presence*
+means the listing is unclaimed.
+
 Reading the phone out of the attribute rather than the button text is
 deliberate: the text is formatted for display and varies by locale, the
 attribute is E.164.
@@ -39,6 +44,16 @@ them.
 `div.F7nice`, `div.qBF1Pd`. These appear only as secondary options behind a
 comma in a selector list. If one stops matching, the field degrades; it does
 not crash the run.
+
+## The map centre in the URL
+
+`src/lib/geo.js` reads `@lat,lng,zoom` out of the tab's URL — Maps writes its
+own viewport there once results settle, and that is where the grid search gets
+its coordinates. It is a URL format, not a DOM selector, but it breaks the same
+way: if `parseMapUrl` starts returning `null`, grid coverage silently drops to
+one search per term and the run reports "Could not read the map centre". Check
+what the URL actually looks like before assuming the scraper is at fault; the
+altitude form (`,1500m`) is already handled alongside the zoom form (`,12z`).
 
 ## Why the search URL forces `hl=en`
 
