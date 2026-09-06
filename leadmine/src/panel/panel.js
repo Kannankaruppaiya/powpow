@@ -14,9 +14,18 @@
 import { buildFile } from '../lib/export.js';
 import { summariseRates } from '../lib/health.js';
 import { suggestionsFor } from '../lib/categories.js';
+import { planSearches, planToBatch, providerFor, DEFAULT_PROVIDER } from '../lib/ai.js';
 import * as store from '../lib/store.js';
 
 const SETTINGS_KEY = 'mls.settings';
+/**
+ * The planner's credentials, stored apart from the form's settings.
+ *
+ * Separate on purpose: `readConfig()` is what reaches the service worker, gets
+ * written into the job and is available to the export path. An API key has no
+ * business in any of those, so it never joins that object.
+ */
+const AI_KEY = 'mls.ai';
 /**
  * Row height, read from the stylesheet rather than duplicated here.
  *
@@ -46,6 +55,9 @@ const ui = Object.fromEntries(
     'format', 'download', 'clear', 'filter',
     'scroller', 'viewport', 'spacer', 'rowBody', 'rowNote', 'footnote',
     'emptyResults', 'emptyGoSearch',
+    'assist', 'assistSub', 'aiBrief', 'aiPlan', 'aiStatus', 'aiKeyHint', 'aiOpenSettings',
+    'aiResult', 'aiUnderstood', 'aiList', 'aiApply', 'aiDiscard',
+    'aiSettings', 'aiProvider', 'aiProviderName', 'aiKey', 'aiModel', 'aiKeyLink',
   ].map((id) => [id, el(id)])
 );
 
@@ -96,6 +108,10 @@ const SOURCE_UI = {
     cityPlaceholder: 'Chennai',
     noun: 'businesses',
     limitLabel: 'Stop after this many per search',
+    assistSub:
+      "Describe your business or who you want to reach. I'll work out the searches that find them.",
+    assistPlaceholder:
+      'I make industrial floor-cleaning chemicals and want bulk buyers around Chennai',
     filterLabel: 'Category',
     filterHint: 'Pick one, or type your own. Separate several with commas.',
     grid: true,
@@ -113,6 +129,10 @@ const SOURCE_UI = {
     // per-page cap and made a limit of 100 look like it had been ignored.
     noun: 'people',
     limitLabel: 'Stop after this many profiles',
+    assistSub:
+      "Describe the person you need. I'll work out the titles and skills to search for.",
+    assistPlaceholder:
+      'I need freelance trainers who can teach ServiceNow to corporate teams in India',
     filterLabel: 'Headline contains',
     filterHint: 'A person has no category, so this matches their headline.',
     grid: false,
@@ -137,6 +157,8 @@ function applySource() {
   ui.optCurrentTab.hidden = !conf.currentTab;
   if (!conf.currentTab) ui.useCurrentTab.checked = false;
   applyCurrentTab();
+  ui.assistSub.textContent = conf.assistSub;
+  ui.aiBrief.placeholder = conf.assistPlaceholder;
   ui.categoryLabel.textContent = conf.categoryLabel;
   ui.cityLabel.textContent = conf.cityLabel;
   ui.category.placeholder = conf.categoryPlaceholder;
@@ -161,6 +183,8 @@ function applyCurrentTab() {
   ui.modeBatch.hidden = on || !batchMode;
   ui.toggleBatch.hidden = on;
   ui.currentTabHint.hidden = !on;
+  // Reading the user's own tab means the planner has nothing to fill in.
+  ui.assist.hidden = on;
 }
 
 bindRadios('source', ui.source);
@@ -260,6 +284,175 @@ function readConfig() {
 }
 
 const saveSettings = () => chrome.storage.local.set({ [SETTINGS_KEY]: readConfig() });
+
+/* ------------------------------------------------------- the search planner */
+
+/*
+ * A lot of people know their business perfectly well and still cannot guess
+ * which Maps searches find its customers. "I make floor-cleaning chemicals" is
+ * not a search; "facility management companies" is. This turns the first into
+ * the second, and shows its reasoning so the user stays the one deciding.
+ */
+
+let ai = { provider: DEFAULT_PROVIDER, key: '', model: '' };
+let plan = null;
+
+async function restoreAi() {
+  const stored = await chrome.storage.local.get(AI_KEY);
+  ai = { provider: DEFAULT_PROVIDER, key: '', model: '', ...(stored[AI_KEY] || {}) };
+  ui.aiProvider.value = ai.provider;
+  syncRadios('aiProvider', ai.provider);
+  ui.aiKey.value = ai.key;
+  ui.aiModel.value = ai.model;
+  applyProvider();
+}
+
+const saveAi = () =>
+  chrome.storage.local.set({
+    [AI_KEY]: {
+      provider: ui.aiProvider.value,
+      key: ui.aiKey.value.trim(),
+      model: ui.aiModel.value.trim(),
+    },
+  });
+
+/** Everything that changes when you switch between Gemini and Groq. */
+function applyProvider() {
+  const conf = providerFor(ui.aiProvider.value);
+  ui.aiProviderName.textContent = conf.label;
+  ui.aiKeyLink.href = conf.keyUrl;
+  // The model box shows the default as a placeholder rather than a value, so
+  // leaving it blank keeps following the default when it changes.
+  ui.aiModel.placeholder = conf.defaultModel;
+  ui.aiKey.placeholder = `API key — ${conf.keyHint}`;
+  ui.aiKeyHint.hidden = Boolean(ui.aiKey.value.trim());
+  ui.aiPlan.disabled = !ui.aiKey.value.trim();
+}
+
+function setAiStatus(text, kind = '') {
+  ui.aiStatus.textContent = text;
+  ui.aiStatus.className = `small ${kind === 'error' ? 'assist-error' : 'muted'}`;
+}
+
+const TIER_LABEL = { 1: 'best fit', 2: 'resellers', 3: 'bulk users', 4: 'wider net' };
+
+/** Render the proposal. Every line is a checkbox: the user still decides. */
+function renderPlan(next) {
+  plan = next;
+  ui.aiList.replaceChildren();
+
+  for (const [i, search] of next.searches.entries()) {
+    const row = document.createElement('label');
+    row.className = 'assist-item';
+
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.checked = true;
+    box.dataset.index = String(i);
+
+    const body = document.createElement('span');
+    const title = document.createElement('strong');
+    title.textContent = search.city ? `${search.query} — ${search.city}` : search.query;
+    const why = document.createElement('em');
+    why.textContent = search.reason;
+    body.append(title, why);
+
+    const tier = document.createElement('span');
+    tier.className = 'assist-tier';
+    tier.textContent = TIER_LABEL[search.tier] || '';
+
+    row.append(box, body, tier);
+    ui.aiList.append(row);
+  }
+
+  ui.aiUnderstood.textContent = next.understood;
+  ui.aiUnderstood.hidden = !next.understood;
+  ui.aiResult.hidden = false;
+}
+
+function clearPlan() {
+  plan = null;
+  ui.aiResult.hidden = true;
+  ui.aiList.replaceChildren();
+}
+
+ui.aiPlan.addEventListener('click', async () => {
+  clearPlan();
+  ui.aiPlan.disabled = true;
+  setAiStatus('Thinking…');
+  try {
+    const next = await planSearches({
+      brief: ui.aiBrief.value,
+      source: ui.source.value,
+      city: ui.city.value.trim(),
+      // The plan's size follows the same dial as the run's: someone after a
+      // quick look does not want sixteen searches queued.
+      depth: { off: 'quick', balanced: 'balanced', exhaustive: 'deep' }[ui.grid.value] || 'balanced',
+      provider: ui.aiProvider.value,
+      apiKey: ui.aiKey.value.trim(),
+      model: ui.aiModel.value.trim(),
+    });
+
+    if (next.status === 'needs_clarification') {
+      // One question, asked in the box they are already typing in.
+      setAiStatus(next.question);
+      ui.aiBrief.focus();
+      return;
+    }
+
+    renderPlan(next);
+    setAiStatus(`${next.searches.length} searches — untick any you don't want.`);
+  } catch (err) {
+    setAiStatus(err.message, 'error');
+  } finally {
+    ui.aiPlan.disabled = !ui.aiKey.value.trim();
+  }
+});
+
+ui.aiApply.addEventListener('click', () => {
+  if (!plan) return;
+  const chosen = [...ui.aiList.querySelectorAll('input:checked')].map(
+    (box) => plan.searches[Number(box.dataset.index)]
+  );
+  if (!chosen.length) {
+    setAiStatus('Tick at least one search first.', 'error');
+    return;
+  }
+
+  // The batch box is the queue's own input format, so the plan lands somewhere
+  // the user can still edit by hand before pressing Start.
+  ui.batch.value = planToBatch(chosen);
+  setMode(true);
+  clearPlan();
+  setAiStatus(`${chosen.length} searches ready — press Start.`);
+  saveSettings();
+  ui.batch.scrollIntoView({ block: 'nearest' });
+});
+
+ui.aiDiscard.addEventListener('click', () => {
+  clearPlan();
+  setAiStatus('');
+});
+
+ui.aiOpenSettings.addEventListener('click', () => {
+  const details = ui.aiSettings.closest('details');
+  if (details) details.open = true;
+  ui.aiKey.focus();
+});
+
+bindRadios('aiProvider', ui.aiProvider);
+ui.aiProvider.addEventListener('change', () => {
+  applyProvider();
+  saveAi();
+});
+for (const field of [ui.aiKey, ui.aiModel]) {
+  field.addEventListener('change', () => {
+    applyProvider();
+    saveAi();
+  });
+}
+// The Plan button unlocks as soon as a key is typed, without waiting for blur.
+ui.aiKey.addEventListener('input', applyProvider);
 
 /* ---------------------------------------------------------- virtual table */
 
@@ -613,6 +806,7 @@ chrome.runtime.onMessage.addListener((msg) => {
 
 (async function init() {
   await restoreSettings();
+  await restoreAi();
   const res = await chrome.runtime.sendMessage({ type: 'GET_JOB' });
   render((res && res.job) || { status: 'idle', count: 0, tasksTotal: 0 });
   renderSeen((res && res.seen) || 0);

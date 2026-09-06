@@ -162,6 +162,32 @@ only place `--t-figure` is used, so progress is legible from across a desk.
 LinkedIn account-risk notice is `--warn` and sits directly above the Start
 button, where the decision is actually made.
 
+**The planner panel** — the one filled, tinted block in the interface, in
+`--accent-soft` inside `--accent-line`. It is the only element that is not part
+of the form it sits above, and the tint says so: this is an aside that helps
+you fill the form in, not another field to complete. Someone who already knows
+their search reads past it in one glance.
+
+---
+
+## The planner is a proposal, never a decision
+
+A model suggesting searches is an assistant. A model *starting* searches is a
+system that spends an hour of someone's afternoon on a guess.
+
+So the plan arrives as tick-boxes with its reasoning next to each line, and it
+lands in the batch box — the same editable text the user could have typed —
+rather than going straight to the queue. Three separate moments to say no:
+untick a line, edit the text, don't press Start.
+
+Every proposal shows **why** it is there ("They resell to hundreds of smaller
+buyers"). A list of eight searches with no reasoning cannot be judged, only
+accepted; the reasons are what make unticking possible.
+
+When one missing fact would change every search, it asks one question rather
+than filling the box with plausible guesses. "I need suppliers" gets "suppliers
+of what?", not eight searches for the wrong thing.
+
 ---
 
 ## The four states
@@ -198,6 +224,8 @@ The running state says what it is doing in words — "Opening each listing…",
 | Skip businesses from earlier runs | Skip ones I've already downloaded |
 | sendable | usable |
 | Category / City | What are you looking for? / Where? |
+| Generate search queries with AI | Not sure what to search for? |
+| Invalid API key (401) | That API key was rejected. Check it in More options. |
 | 1 searches failed | *the actual reason the search failed* |
 
 ## Accessibility

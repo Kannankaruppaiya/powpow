@@ -263,6 +263,79 @@ select.input { appearance: auto; }
   background: var(--accent-soft);
 }
 
+/* --- the search planner ------------------------------------------------ */
+
+/*
+ * Framed rather than plain, because it is an aside: the form below is the
+ * thing that runs, and this helps you fill it in. A user who already knows
+ * their search should be able to skip straight past it.
+ */
+.assist {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-3);
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-md);
+  background: var(--accent-soft);
+}
+.assist-head { display: flex; flex-direction: column; gap: var(--s-1); }
+.assist-title {
+  margin: 0;
+  font-size: var(--t-label);
+  font-weight: var(--w-semi);
+  color: var(--accent-ink);
+}
+.assist-sub { margin: 0; font-size: var(--t-small); color: var(--ink-2); }
+.assist .input { background: var(--canvas); }
+.assist textarea { resize: vertical; }
+
+/* The button keeps its width; the status beside it is what wraps. */
+.assist .row > .btn { flex: none; white-space: nowrap; }
+.assist .row > .muted, .assist .row > .assist-error { flex: 1; }
+
+.assist-result { display: flex; flex-direction: column; gap: var(--s-3); }
+.assist-understood {
+  margin: 0;
+  font-size: var(--t-small);
+  color: var(--ink-2);
+}
+.assist-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s-1); }
+
+/* Each proposal reads as one line with its reason underneath, so a glance
+   down the column compares searches rather than sentences. */
+.assist-item {
+  display: flex;
+  gap: var(--s-2);
+  align-items: flex-start;
+  padding: var(--s-2);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.assist-item:hover { background: var(--canvas); }
+.assist-item input { flex: none; width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--accent); }
+.assist-item strong { display: block; font-weight: var(--w-medium); font-size: var(--t-body); }
+.assist-item em {
+  display: block;
+  font-style: normal;
+  font-size: var(--t-small);
+  color: var(--ink-3);
+}
+/* An unticked line stays readable — it is a choice, not an error. */
+.assist-item input:not(:checked) ~ span { opacity: 0.5; }
+
+/* A planner failure is a message about a key or a quota, not a run failure —
+   it belongs beside the button, not in the form's error callout. */
+.assist-error { color: var(--danger); }
+
+.assist-tier {
+  flex: none;
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
 /* --- disclosure -------------------------------------------------------- */
 
 .advanced { border-top: 1px solid var(--hairline); padding-top: var(--s-3); }

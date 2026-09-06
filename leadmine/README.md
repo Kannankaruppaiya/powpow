@@ -117,6 +117,61 @@ If a run is interrupted — you press Stop, Chrome evicts the worker, the browse
 restarts — the queue and everything collected so far are already on disk. Open
 the popup and press **Resume** to carry on from the search it stopped at.
 
+---
+
+## The search planner (optional AI)
+
+Most people know their business perfectly well and still cannot guess which
+Maps searches find its customers. *"I make industrial floor-cleaning
+chemicals"* is not a search. **"facility management companies"** is.
+
+Describe the business at the top of the Search tab and press **Plan my
+searches**. You get back the searches most likely to surface real buyers, each
+with the reason it is there:
+
+| Search | Why |
+| --- | --- |
+| facility management companies | They buy cleaning chemicals in bulk for the sites they run |
+| janitorial supply wholesalers | They resell to hundreds of smaller buyers |
+| hotel housekeeping suppliers | Hotels consume floor cleaner daily |
+| commercial cleaning companies | Contract cleaners buy their own supplies |
+
+Nothing runs automatically. The plan is a list of tick-boxes: untick what you
+do not want, press **Use these searches**, and it lands in the batch box where
+you can still edit it by hand before pressing Start.
+
+If one missing fact would change every search — *"I need suppliers"*, suppliers
+of what? — it asks that one question instead of guessing.
+
+On LinkedIn the same box plans **people** searches: job titles and skills
+rather than business categories.
+
+### Setting it up
+
+You bring your own key; there is no server in the middle and nothing to pay
+for. Both providers have a free tier that is far more than this needs — one
+plan is a single request of about a thousand tokens.
+
+| Provider | Get a key | Default model |
+| --- | --- | --- |
+| **Google Gemini** | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) | `gemini-2.5-flash` |
+| **Groq** | [console.groq.com/keys](https://console.groq.com/keys) | `llama-3.3-70b-versatile` |
+
+Paste it under **More options → Search planner**. Two providers are offered
+because they run out differently — Gemini's free tier caps per day, Groq's per
+minute — so there is always the other one to switch to.
+
+**Where the key goes:** into `chrome.storage.local` on this machine, and out in
+a request header to the provider you picked. It is deliberately kept out of the
+run config, so it cannot reach the background worker, a saved job, or an
+exported file. It is never put in a URL, because a URL carrying a secret ends
+up in every log it passes through.
+
+The planner is entirely optional. Leave the key blank and LeadMine works
+exactly as it did before — type a category and a city and press Start.
+
+---
+
 ### Options
 
 | Option | Effect |

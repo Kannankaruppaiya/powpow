@@ -53,6 +53,45 @@
           Everything comes from that page.
         </p>
 
+        <!-- --- the planner: for people who know their business but not
+             which searches find its customers ------------------------- -->
+        <section class="assist" id="assist">
+          <div class="assist-head">
+            <h2 class="assist-title">Not sure what to search for?</h2>
+            <p class="assist-sub" id="assistSub">
+              Describe your business or who you want to reach. I'll work out the
+              searches that find them.
+            </p>
+          </div>
+
+          <label class="field">
+            <span class="sr-only">Describe what you are looking for</span>
+            <textarea id="aiBrief" class="input" rows="3" spellcheck="false"
+              placeholder="I make industrial floor-cleaning chemicals and want bulk buyers around Chennai"></textarea>
+          </label>
+
+          <div class="row">
+            <button type="button" id="aiPlan" class="btn">Plan my searches</button>
+            <span id="aiStatus" class="muted small" role="status" aria-live="polite"></span>
+          </div>
+
+          <p id="aiKeyHint" class="help" hidden>
+            Needs a free API key — add one under
+            <button type="button" id="aiOpenSettings" class="linkish">More options</button>.
+          </p>
+
+          <!-- The plan is a proposal, not a decision: every line can be
+               unticked before it becomes the run. -->
+          <div id="aiResult" class="assist-result" hidden>
+            <p id="aiUnderstood" class="assist-understood"></p>
+            <ul id="aiList" class="assist-list"></ul>
+            <div class="row">
+              <button type="button" id="aiApply" class="btn btn--primary">Use these searches</button>
+              <button type="button" id="aiDiscard" class="linkish">Discard</button>
+            </div>
+          </div>
+        </section>
+
         <div id="modeSingle" class="stack">
           <label class="field">
             <span class="label" id="categoryLabel">What are you looking for?</span>
@@ -148,6 +187,34 @@
               <input type="checkbox" id="skipSeen" />
               <span>Skip ones I've already downloaded <em id="seenNote"></em></span>
             </label>
+            <div class="field" id="aiSettings">
+              <span class="label">Search planner</span>
+              <fieldset class="segmented" id="aiProviderGroup">
+                <legend class="sr-only">AI provider</legend>
+                <label class="seg">
+                  <input type="radio" name="aiProvider" value="gemini" checked />
+                  <span>Gemini</span>
+                </label>
+                <label class="seg">
+                  <input type="radio" name="aiProvider" value="groq" />
+                  <span>Groq</span>
+                </label>
+              </fieldset>
+              <select id="aiProvider" class="sr-only" tabindex="-1" aria-hidden="true">
+                <option value="gemini" selected>gemini</option>
+                <option value="groq">groq</option>
+              </select>
+              <input id="aiKey" class="input" type="password" autocomplete="off"
+                     spellcheck="false" placeholder="API key" aria-label="API key" />
+              <input id="aiModel" class="input" autocomplete="off" spellcheck="false"
+                     aria-label="Model" />
+              <span class="help">
+                The key stays in this browser — it is never sent anywhere but
+                <span id="aiProviderName">Google</span>, and never written into an export.
+                <a id="aiKeyLink" href="#" target="_blank" rel="noreferrer">Get a free key</a>.
+              </span>
+            </div>
+
             <label class="field">
               <span class="label" id="limitLabel">Stop after this many per search</span>
               <input id="maxResults" class="input" type="number" min="0" max="5000" step="10" value="0" />

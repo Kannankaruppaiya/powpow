@@ -85,13 +85,35 @@ const SETUP = (total) => {
     rating: '4.5',
   }));
 
+  // A real in-memory store, not a stub that forgets: the planner's key is
+  // read back out of it on load, and that path has to be exercised.
+  window.__storage = window.__storage || {};
   window.chrome = {
-    storage: { local: { get: async () => ({}), set: async () => {} } },
+    storage: {
+      local: {
+        get: async (key) => (key in window.__storage ? { [key]: window.__storage[key] } : {}),
+        set: async (obj) => Object.assign(window.__storage, obj),
+      },
+    },
     runtime: {
       sendMessage: async (m) => (m.type === 'GET_JOB' ? { ok: true, job, seen: 0 } : { ok: true }),
       onMessage: { addListener: () => {} },
     },
     downloads: { download: async () => {} },
+  };
+
+  // Stand in for Gemini/Groq. The test sets window.__aiNext before clicking.
+  window.__aiCalls = [];
+  window.__aiNext = { status: 200, body: {} };
+  window.fetch = async (url, init) => {
+    window.__aiCalls.push({ url, headers: init.headers, body: JSON.parse(init.body) });
+    const next = window.__aiNext;
+    return {
+      ok: next.status < 300,
+      status: next.status,
+      json: async () => next.body,
+      text: async () => JSON.stringify(next.body),
+    };
   };
 
   window.__seed = new Promise((resolve) => {
@@ -113,7 +135,7 @@ const SETUP = (total) => {
   });
 };
 
-async function openPanel(t, { idle = false, paused = false } = {}) {
+async function openPanel(t, { idle = false, paused = false, aiKey = '' } = {}) {
   let chromium;
   try {
     ({ chromium } = await import('playwright-core'));
@@ -131,6 +153,11 @@ async function openPanel(t, { idle = false, paused = false } = {}) {
   page.on('pageerror', (e) => errors.push(e.message));
 
   if (paused) await page.addInitScript(() => { window.__paused = true; });
+  if (aiKey) {
+    await page.addInitScript((key) => {
+      window.__storage = { 'mls.ai': { provider: 'gemini', key, model: '' } };
+    }, aiKey);
+  }
   await page.addInitScript(SETUP, idle ? 0 : TOTAL);
   await page.goto(`http://localhost:${port}/src/panel/panel.html`);
   await page.evaluate(() => window.__seed);
@@ -513,5 +540,176 @@ test('only one action is styled as primary at a time', async (t) => {
     assert.ok((await done.page.getAttribute('#goResults', 'class')).includes('btn--primary'));
   } finally {
     await done.close();
+  }
+});
+
+/* ------------------------------------------------------- the search planner */
+
+/** What Gemini returns, in the shape the panel's client unwraps. */
+const geminiBody = (obj) => ({
+  candidates: [{ content: { parts: [{ text: JSON.stringify(obj) }] } }],
+});
+
+const PLAN = {
+  status: 'ready',
+  understood: 'Bulk buyers for industrial cleaning chemicals around Chennai.',
+  searches: [
+    { query: 'facility management companies', city: 'Chennai', tier: 1, reason: 'Buy in bulk.' },
+    { query: 'janitorial supply wholesalers', city: 'Chennai', tier: 2, reason: 'They resell it.' },
+    { query: 'hotel housekeeping suppliers', city: 'Chennai', tier: 3, reason: 'Use it daily.' },
+  ],
+};
+
+async function runPlanner(ctx, { brief, reply, status = 200 }) {
+  await ctx.page.evaluate(
+    ([body, code]) => {
+      window.__aiNext = { status: code, body };
+    },
+    [reply, status]
+  );
+  await ctx.page.fill('#aiBrief', brief);
+  await ctx.page.click('#aiPlan');
+  await ctx.page.waitForTimeout(300);
+}
+
+test('the planner is offered but locked until a key is added', async (t) => {
+  const ctx = await openPanel(t, { idle: true });
+  if (!ctx) return;
+  try {
+    assert.equal(await ctx.page.isVisible('#assist'), true, 'the offer has to be visible to be used');
+    assert.equal(await ctx.page.isDisabled('#aiPlan'), true);
+    assert.equal(await ctx.page.isVisible('#aiKeyHint'), true, 'say what is missing');
+
+    // The hint's link is the way in, and it opens the box it points at.
+    await ctx.page.click('#aiOpenSettings');
+    assert.equal(await ctx.page.isVisible('#aiKey'), true);
+
+    await ctx.page.fill('#aiKey', 'AIza-test');
+    assert.equal(await ctx.page.isDisabled('#aiPlan'), false, 'typing a key unlocks it immediately');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('a saved key comes back on the next open', async (t) => {
+  const ctx = await openPanel(t, { idle: true, aiKey: 'AIza-saved' });
+  if (!ctx) return;
+  try {
+    assert.equal(await ctx.page.inputValue('#aiKey'), 'AIza-saved');
+    assert.equal(await ctx.page.isDisabled('#aiPlan'), false);
+    // A password field, so a shared screen does not leak it.
+    assert.equal(await ctx.page.getAttribute('#aiKey', 'type'), 'password');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('a brief becomes a plan the user can edit before running it', async (t) => {
+  const ctx = await openPanel(t, { idle: true, aiKey: 'AIza-test' });
+  if (!ctx) return;
+  try {
+    await runPlanner(ctx, {
+      brief: 'I make industrial floor cleaning chemicals and want bulk buyers in Chennai',
+      reply: geminiBody(PLAN),
+    });
+
+    assert.equal(await ctx.page.isVisible('#aiResult'), true);
+    assert.equal(await ctx.page.locator('#aiList .assist-item').count(), 3);
+    // The reasoning is shown, because the user is the one deciding.
+    assert.match(await ctx.page.textContent('#aiList'), /They resell it/);
+    assert.match(await ctx.page.textContent('#aiUnderstood'), /Bulk buyers/);
+
+    // Untick one, then apply: the batch box is left editable by hand.
+    await ctx.page.uncheck('#aiList .assist-item:nth-child(3) input');
+    await ctx.page.click('#aiApply');
+    await ctx.page.waitForTimeout(150);
+
+    assert.equal(
+      await ctx.page.inputValue('#batch'),
+      'facility management companies, Chennai\njanitorial supply wholesalers, Chennai'
+    );
+    assert.equal(await ctx.page.isVisible('#modeBatch'), true, 'the form switches to the list it filled');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('the API key never reaches the run config', async (t) => {
+  const ctx = await openPanel(t, { idle: true, aiKey: 'AIza-secret' });
+  if (!ctx) return;
+  try {
+    await runPlanner(ctx, { brief: 'dentists in Chennai', reply: geminiBody(PLAN) });
+    await ctx.page.click('#aiApply');
+    await ctx.page.waitForTimeout(200);
+
+    // The form's saved settings are what the worker and the export path see.
+    const settings = await ctx.page.evaluate(() =>
+      JSON.stringify(window.__storage['mls.settings'] || {})
+    );
+    assert.ok(!settings.includes('AIza-secret'), 'a key in the job config would reach an export');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('a question from the planner is asked, not answered with guesses', async (t) => {
+  const ctx = await openPanel(t, { idle: true, aiKey: 'AIza-test' });
+  if (!ctx) return;
+  try {
+    await runPlanner(ctx, {
+      brief: 'I need suppliers',
+      reply: geminiBody({ status: 'needs_clarification', question: 'Suppliers of what?' }),
+    });
+
+    assert.match(await ctx.page.textContent('#aiStatus'), /Suppliers of what\?/);
+    assert.equal(await ctx.page.isVisible('#aiResult'), false, 'no plan should be offered yet');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('a rejected key is reported next to the button, not as a run failure', async (t) => {
+  const ctx = await openPanel(t, { idle: true, aiKey: 'AIza-wrong' });
+  if (!ctx) return;
+  try {
+    await runPlanner(ctx, { brief: 'dentists', reply: {}, status: 401 });
+
+    assert.match(await ctx.page.textContent('#aiStatus'), /key was rejected/i);
+    assert.equal(await ctx.page.isVisible('#error'), false, 'the form has not failed — the planner has');
+    assert.equal(await ctx.page.isDisabled('#aiPlan'), false, 'still usable after a fix');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('the planner asks for people when the source is LinkedIn', async (t) => {
+  const ctx = await openPanel(t, { idle: true, aiKey: 'AIza-test' });
+  if (!ctx) return;
+  try {
+    await ctx.page.click('label.seg:has(input[value="linkedin"])');
+    await ctx.page.waitForTimeout(150);
+    assert.match(await ctx.page.textContent('#assistSub'), /person you need/i);
+
+    await runPlanner(ctx, { brief: 'ServiceNow trainers', reply: geminiBody(PLAN) });
+    const sent = await ctx.page.evaluate(
+      () => window.__aiCalls[0].body.contents[0].parts[0].text
+    );
+    assert.match(sent, /linkedin \(people\)/);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('reading the user’s own tab hides the planner, which has nothing to fill', async (t) => {
+  const ctx = await openPanel(t, { idle: true, aiKey: 'AIza-test' });
+  if (!ctx) return;
+  try {
+    await ctx.page.click('label.seg:has(input[value="linkedin"])');
+    await ctx.page.waitForTimeout(150);
+    await ctx.page.check('#useCurrentTab');
+    await ctx.page.waitForTimeout(150);
+    assert.equal(await ctx.page.isVisible('#assist'), false);
+  } finally {
+    await ctx.close();
   }
 });
