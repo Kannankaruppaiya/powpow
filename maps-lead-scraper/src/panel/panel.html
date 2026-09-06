@@ -20,6 +20,14 @@
     <!-- ------------------------------------------------------------ setup -->
     <section id="paneSetup" class="pane">
       <form id="form">
+        <label class="field">
+          <span>Source</span>
+          <select id="source">
+            <option value="maps" selected>Google Maps — businesses</option>
+            <option value="linkedin">LinkedIn — people search</option>
+          </select>
+        </label>
+
         <div class="tabs" role="tablist">
           <button type="button" id="tabSingle" class="tab is-active" role="tab" aria-selected="true">
             One search
@@ -30,11 +38,11 @@
         <div id="modeSingle">
           <div class="row">
             <label class="field">
-              <span>Category</span>
+              <span id="categoryLabel">Category</span>
               <input id="category" placeholder="e.g. dentists" autocomplete="off" />
             </label>
             <label class="field">
-              <span>City</span>
+              <span id="cityLabel">City</span>
               <input id="city" placeholder="e.g. Chennai" autocomplete="off" />
             </label>
           </div>
@@ -49,7 +57,7 @@
         </div>
 
         <div class="row">
-          <label class="field">
+          <label class="field" id="coverageRow">
             <span>Coverage</span>
             <select id="grid">
               <option value="off">Off — 1 search (~120)</option>
@@ -67,19 +75,19 @@
 
         <fieldset class="opts">
           <legend>Options</legend>
-          <label class="check">
+          <label class="check" id="optDeep">
             <input type="checkbox" id="deep" checked />
             <span>Open each listing for phone &amp; address <em>(slower, much better data)</em></span>
           </label>
-          <label class="check">
+          <label class="check" id="optEmails">
             <input type="checkbox" id="fetchEmails" checked />
             <span>Find emails &amp; social links from business websites</span>
           </label>
-          <label class="check">
+          <label class="check" id="optContact">
             <input type="checkbox" id="followContactPage" checked />
             <span>Also check each site's contact page</span>
           </label>
-          <label class="check">
+          <label class="check" id="optVerify">
             <input type="checkbox" id="verifyEmails" checked />
             <span>Verify emails <em>(MX lookup — drops dead domains)</em></span>
           </label>
@@ -88,6 +96,8 @@
             <span>Skip businesses from earlier runs <em class="seen" id="seenNote"></em></span>
           </label>
         </fieldset>
+
+        <p id="sourceNote" class="sourcenote" hidden></p>
 
         <div class="actions">
           <button type="submit" id="start" class="primary">Start scraping</button>
@@ -152,9 +162,9 @@
       <p id="rowNote" class="note"></p>
     </section>
 
-    <footer class="foot">
-      Keep the Maps tab open while it runs. Scrape responsibly and respect
-      Google's Terms of Service.
+    <footer class="foot" id="foot">
+      Keep the search tab open while it runs. Scrape responsibly and respect
+      each site's Terms of Service.
     </footer>
 
     <script type="module" src="panel.js"></script>

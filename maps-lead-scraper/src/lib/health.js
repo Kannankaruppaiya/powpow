@@ -40,6 +40,14 @@ export const DEFAULT_WATCHED = [
  */
 export const MIN_SAMPLE = 20;
 
+/** The gates and watch list for a source, falling back to the defaults. */
+export function gatesFor(source) {
+  return {
+    gates: (source && source.healthGates) || DEFAULT_GATES,
+    watched: (source && source.watched) || DEFAULT_WATCHED,
+  };
+}
+
 const filled = (value) => {
   if (value === null || value === undefined) return false;
   if (Array.isArray(value)) return value.length > 0;

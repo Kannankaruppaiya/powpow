@@ -13,6 +13,7 @@
  */
 
 import { buildGrid, gridSteps, viewportSpanMetres } from './geo.js';
+import { supportsGrid } from './sources.js';
 
 /**
  * Parse the batch box into search pairs. Accepts either separator people
@@ -72,7 +73,9 @@ export function searchesFromConfig(config = {}) {
  * geocoding service is needed.
  */
 export function buildTaskList(config = {}) {
-  const steps = gridSteps(config.grid);
+  // A LinkedIn people search is not geographic, so no grid is laid over it
+  // however the coverage control is set.
+  const steps = supportsGrid(config.source) ? gridSteps(config.grid) : 1;
   return searchesFromConfig(config).map((search, index) => ({
     id: `s${index}`,
     ...search,
@@ -89,7 +92,7 @@ export function buildTaskList(config = {}) {
  * Returns [] when gridding is off or the centre could not be read.
  */
 export function expandGridTasks(task, centre, config = {}, viewport) {
-  const steps = gridSteps(config.grid);
+  const steps = supportsGrid(config.source) ? gridSteps(config.grid) : 1;
   if (steps <= 1 || !centre) return [];
 
   const span = viewportSpanMetres(centre, viewport);

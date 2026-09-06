@@ -27,6 +27,10 @@
 
 * { box-sizing: border-box; }
 
+/* Several layout rules set display on a class, which outranks the UA rule for
+   [hidden] and leaves "hidden" elements on screen. Settle it once. */
+[hidden] { display: none !important; }
+
 html, body { height: 100%; }
 
 body {
@@ -85,9 +89,6 @@ body {
 .viewtab.is-active { color: var(--brand); border-bottom-color: var(--brand); }
 
 .pane { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: auto; padding: 12px; }
-/* A class selector beats the UA rule for [hidden], so display must be reset
-   explicitly or both panes render at once. */
-.pane[hidden] { display: none; }
 #paneResults { overflow: hidden; }
 
 
@@ -278,3 +279,14 @@ textarea:focus { outline: 2px solid var(--brand); outline-offset: -1px; border-c
 }
 .healthlist li { padding: 1px 6px; background: var(--surface); border-radius: 5px; }
 .healthlist li.low { color: var(--danger); }
+
+.sourcenote {
+  margin: 0 0 10px;
+  padding: 7px 9px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--muted);
+  background: var(--surface);
+  border-left: 3px solid var(--brand);
+  border-radius: 0 6px 6px 0;
+}

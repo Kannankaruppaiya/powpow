@@ -1,6 +1,6 @@
 {
   "name": "maps-lead-scraper",
-  "version": "2.0.0",
+  "version": "3.1.0",
   "private": true,
   "description": "Chrome extension that scrapes Google Maps business listings for a city + category into one downloadable file.",
   "type": "module",

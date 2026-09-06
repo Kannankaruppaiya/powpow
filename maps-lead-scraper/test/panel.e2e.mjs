@@ -235,3 +235,42 @@ test('switching to Setup hides the results and back again', async (t) => {
     await ctx.close();
   }
 });
+
+test('switching source shows only the controls that apply', async (t) => {
+  const ctx = await openPanel(t);
+  if (!ctx) return;
+  try {
+    await ctx.page.click('#viewSetup');
+
+    // Maps: geography and business websites both mean something.
+    assert.equal(await ctx.page.isVisible('#coverageRow'), true);
+    assert.equal(await ctx.page.isVisible('#optEmails'), true);
+    assert.equal(await ctx.page.isVisible('#optDeep'), true);
+    assert.equal(await ctx.page.textContent('#categoryLabel'), 'Category');
+
+    await ctx.page.selectOption('#source', 'linkedin');
+    await ctx.page.waitForTimeout(150);
+
+    // LinkedIn: no viewport to grid over, no website to read an email from.
+    // These are display:flex containers, where [hidden] is easily overridden.
+    assert.equal(await ctx.page.isVisible('#coverageRow'), false, 'no grid for a people search');
+    assert.equal(await ctx.page.isVisible('#optEmails'), false, 'people have no site to scan');
+    assert.equal(await ctx.page.isVisible('#optDeep'), false, 'there is no detail pass');
+    assert.equal(await ctx.page.textContent('#categoryLabel'), 'Keywords');
+    assert.equal(await ctx.page.textContent('#cityLabel'), 'Location');
+
+    // Still useful for both, so it must survive the switch.
+    assert.equal(await ctx.page.isVisible('#maxResults'), true);
+
+    // And the account-risk warning has to be visible, not buried in a doc.
+    assert.equal(await ctx.page.isVisible('#sourceNote'), true);
+    assert.match(await ctx.page.textContent('#sourceNote'), /restricts accounts/i);
+
+    await ctx.page.selectOption('#source', 'maps');
+    await ctx.page.waitForTimeout(150);
+    assert.equal(await ctx.page.isVisible('#coverageRow'), true, 'switching back restores it');
+    assert.equal(await ctx.page.isVisible('#sourceNote'), false);
+  } finally {
+    await ctx.close();
+  }
+});

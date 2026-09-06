@@ -106,3 +106,23 @@ test('taskProgress counts failures as settled so a run can finish', () => {
   const tasks = [{ status: 'done' }, { status: 'failed' }, { status: 'pending' }];
   assert.deepEqual(taskProgress(tasks), { settled: 2, total: 3 });
 });
+
+test('a LinkedIn search is never gridded, whatever the coverage setting', async () => {
+  // A people search has no viewport to divide; laying a grid over it would
+  // just repeat the same query with coordinates the site ignores.
+  const [task] = buildTaskList({ category: 'java', city: 'London', grid: 'exhaustive', source: 'linkedin' });
+  assert.equal(task.expandsToGrid, false);
+  assert.deepEqual(
+    expandGridTasks(task, { lat: 51.5, lng: -0.12, zoom: 12 }, { grid: 'exhaustive', source: 'linkedin' }),
+    []
+  );
+});
+
+test('a Maps search still grids as before', async () => {
+  const [task] = buildTaskList({ category: 'dentists', city: 'Chennai', grid: 'balanced', source: 'maps' });
+  assert.equal(task.expandsToGrid, true);
+  assert.equal(
+    expandGridTasks(task, { lat: 13, lng: 80, zoom: 12 }, { grid: 'balanced', source: 'maps' }).length,
+    9
+  );
+});

@@ -1,7 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { toCsv, toJson, toRows, buildFile, COLUMNS } from '../src/lib/export.js';
+import {
+  toCsv,
+  toJson,
+  toRows,
+  buildFile,
+  columnsFor,
+  COLUMNS,
+  MAPS_COLUMNS,
+  LINKEDIN_COLUMNS,
+} from '../src/lib/export.js';
 
 const sample = [
   {
@@ -97,9 +106,52 @@ test('buildFile prefixes the source when one is given', async () => {
 });
 
 test('buildFile falls back to a generic name without search metadata', async () => {
-  assert.match((await buildFile(sample, 'csv', {})).filename, /^maps-leads_[\d-]+\.csv$/);
+  assert.match((await buildFile(sample, 'csv', {})).filename, /^leads_[\d-]+\.csv$/);
+});
+
+test('buildFile takes the source from the records when meta omits it', async () => {
+  const out = await buildFile([{ source: 'linkedin', name: 'Priya' }], 'csv', { category: 'Java' });
+  assert.match(out.filename, /^linkedin_java_/);
 });
 
 test('buildFile defaults to CSV for an unknown format', async () => {
   assert.match((await buildFile(sample, 'nonsense', {})).mime, /^text\/csv/);
+});
+
+test('columnsFor picks the column set the records actually need', () => {
+  assert.equal(columnsFor([{ source: 'maps' }]), MAPS_COLUMNS);
+  assert.equal(columnsFor([{ source: 'linkedin' }]), LINKEDIN_COLUMNS);
+  // An untagged set is a Maps run from before sources existed.
+  assert.equal(columnsFor([{ name: 'x' }]), MAPS_COLUMNS);
+  assert.equal(columnsFor([]), MAPS_COLUMNS);
+  assert.equal(COLUMNS, MAPS_COLUMNS, 'the default export stays Maps for older callers');
+});
+
+test('a LinkedIn export uses people columns, not blank business ones', () => {
+  const people = [
+    {
+      source: 'linkedin',
+      name: 'Priya Sharma',
+      headline: 'Staff Engineer at Acme',
+      company: 'Acme',
+      location: 'Chennai, Tamil Nadu, India',
+      degree: '2nd',
+      openToWork: 'Yes',
+      profileUrl: 'https://www.linkedin.com/in/priya',
+    },
+  ];
+
+  const csv = toCsv(people);
+  const [header, row] = csv.trimEnd().split('\r\n');
+  assert.ok(header.includes('"Headline"'));
+  assert.ok(header.includes('"Connection"'));
+  assert.ok(!header.includes('"Plus Code"'), 'business-only columns must not appear');
+  assert.ok(row.includes('Priya Sharma'));
+  assert.ok(row.includes('2nd'));
+});
+
+test('toJson and toRows follow the same source-aware columns', () => {
+  const people = [{ source: 'linkedin', name: 'Priya', company: 'Acme' }];
+  assert.deepEqual(Object.keys(JSON.parse(toJson(people))[0]), LINKEDIN_COLUMNS.map((c) => c.key));
+  assert.deepEqual(toRows(people).headers, LINKEDIN_COLUMNS.map((c) => c.label));
 });

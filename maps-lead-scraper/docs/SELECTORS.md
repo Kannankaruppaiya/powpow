@@ -104,3 +104,37 @@ If you add locales, extend `parseRatingLabel` and the prefix strips in
 
 The scraper never throws on a missing field. If you add extraction, keep that
 property — a partial row is worth far more than a failed run.
+
+
+## LinkedIn selectors
+
+The same ladder applies, with one extra hazard: LinkedIn hydrates its result
+list lazily. An `<li>` can exist with no content at all, so *absence of a
+profile link is not a broken selector* — it means that card has not rendered
+yet. The adapter treats it as "not ready" and picks it up on a later round;
+never "fix" that by loosening the check.
+
+Ranked by stability:
+
+| Selector | Field | Why |
+| --- | --- | --- |
+| `a[href*="/in/"]` | Identity + name | The profile URL is the one thing that cannot change shape |
+| `span[aria-hidden="true"]` inside that link | Display name | LinkedIn renders the name twice; this is the visible copy, the other is "View X's profile" |
+| `.entity-result__primary-subtitle` | Headline | Hashed-adjacent, so `[class*="primary-subtitle"]` backs it up |
+| `.entity-result__secondary-subtitle` | Location | Same |
+| `.entity-result__badge-text`, `span.dist-value` | Connection degree | Also recoverable from the card text |
+| `[class*="open-to-work"]`, `img[alt*="open to work"]` | Open to work | Best effort — it is a photo frame, not text |
+
+`readFilters()` deliberately reads two sources and merges them: the pills in
+the filter bar (via `aria-pressed` and `aria-label`) and the URL's own facet
+parameters. Neither alone is complete, and neither is ever hardcoded to a list
+of expected filters — whatever the user applied is what gets reported.
+
+### The search fingerprint
+
+Maps is driven by the extension, so the query cannot drift. LinkedIn is driven
+by the *user*, who can retype the search or change a filter while a run is
+going. `fingerprint()` hashes the query plus the applied filters and is checked
+every round; if it changes, the run stops rather than blending two different
+searches into one export. If you see a LinkedIn run ending early, check that
+first — it is usually correct behaviour, not a bug.

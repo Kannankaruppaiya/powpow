@@ -24,6 +24,8 @@ const ui = Object.fromEntries(
   [
     'form', 'statusPill', 'viewSetup', 'viewResults', 'paneSetup', 'paneResults',
     'tabSingle', 'tabBatch', 'modeSingle', 'modeBatch',
+    'source', 'sourceNote', 'coverageRow', 'categoryLabel', 'cityLabel',
+    'optEmails', 'optContact', 'optVerify', 'optDeep',
     'category', 'city', 'batch', 'grid', 'maxResults',
     'deep', 'fetchEmails', 'followContactPage', 'verifyEmails', 'skipSeen', 'seenNote',
     'start', 'resume', 'stop',
@@ -40,6 +42,57 @@ let batchMode = false;
 /** Every record for the current job, loaded from IndexedDB for the table. */
 let rows = [];
 let visibleRows = [];
+
+/* ----------------------------------------------------------------- source */
+
+/**
+ * The two sources ask for genuinely different things, so the form follows the
+ * choice: a people search has no geography to grid over and no business
+ * website to read an email from, and showing those controls anyway would just
+ * be a lie about what the run will do.
+ */
+const SOURCE_UI = {
+  maps: {
+    categoryLabel: 'Category',
+    cityLabel: 'City',
+    categoryPlaceholder: 'e.g. dentists',
+    cityPlaceholder: 'e.g. Chennai',
+    grid: true,
+    emails: true,
+    note: '',
+  },
+  linkedin: {
+    categoryLabel: 'Keywords',
+    cityLabel: 'Location',
+    categoryPlaceholder: 'e.g. java developer',
+    cityPlaceholder: 'e.g. London',
+    grid: false,
+    emails: false,
+    note:
+      'Uses your signed-in LinkedIn session and reads the same results you see. ' +
+      'LinkedIn restricts accounts for automated collection — keep runs small and infrequent.',
+  },
+};
+
+function applySource() {
+  const conf = SOURCE_UI[ui.source.value] || SOURCE_UI.maps;
+  ui.categoryLabel.textContent = conf.categoryLabel;
+  ui.cityLabel.textContent = conf.cityLabel;
+  ui.category.placeholder = conf.categoryPlaceholder;
+  ui.city.placeholder = conf.cityPlaceholder;
+  ui.coverageRow.hidden = !conf.grid;
+  // The detail pass only exists for Maps; a LinkedIn card already carries
+  // everything, so offering the option would be a lie about what it does.
+  ui.optDeep.hidden = !conf.grid;
+  for (const node of [ui.optEmails, ui.optContact, ui.optVerify]) node.hidden = !conf.emails;
+  ui.sourceNote.hidden = !conf.note;
+  ui.sourceNote.textContent = conf.note;
+}
+
+ui.source.addEventListener('change', () => {
+  applySource();
+  saveSettings();
+});
 
 /* ------------------------------------------------------------------- tabs */
 
@@ -85,11 +138,14 @@ async function restoreSettings() {
   ui.skipSeen.checked = Boolean(s.skipSeen);
   // An older build stored "xls"; the exporter only writes real xlsx now.
   ui.format.value = s.format === 'xls' ? 'xlsx' : s.format || 'csv';
+  ui.source.value = s.source || 'maps';
   setMode(Boolean(s.batchMode));
+  applySource();
 }
 
 function readConfig() {
   return {
+    source: ui.source.value,
     category: ui.category.value.trim(),
     city: ui.city.value.trim(),
     // Only send the batch text when the batch tab is active, so a leftover
@@ -123,7 +179,19 @@ const saveSettings = () => chrome.storage.local.set({ [SETTINGS_KEY]: readConfig
 async function refreshRows() {
   const jobId = current && current.jobId;
   rows = jobId ? await store.getRecords(jobId) : [];
+  relabelColumns();
   applyFilter();
+}
+
+/** A LinkedIn run fills different columns; say so in the header. */
+function relabelColumns() {
+  const isLinkedIn = rows.some((r) => r.source === 'linkedin');
+  const labels = isLinkedIn
+    ? ['Name', 'Company', 'Headline', 'Location', 'Connection', '']
+    : ['Name', 'Phone', 'Email', 'Area', 'Category', '★'];
+  document.querySelectorAll('.scroller thead th').forEach((th, i) => {
+    th.textContent = labels[i];
+  });
 }
 
 function applyFilter() {
@@ -160,14 +228,24 @@ function drawWindow() {
   const body = document.createDocumentFragment();
   for (const record of slice) {
     const tr = document.createElement('tr');
-    const cells = [
-      ['c-name', record.name],
-      ['c-phone', record.phone],
-      ['c-email', record.email],
-      ['c-area', record.area],
-      ['c-cat', record.category],
-      ['c-rating', record.rating],
-    ];
+    const cells =
+      record.source === 'linkedin'
+        ? [
+            ['c-name', record.name],
+            ['c-phone', record.company],
+            ['c-email', record.headline],
+            ['c-area', record.location],
+            ['c-cat', record.degree],
+            ['c-rating', record.openToWork],
+          ]
+        : [
+            ['c-name', record.name],
+            ['c-phone', record.phone],
+            ['c-email', record.email],
+            ['c-area', record.area],
+            ['c-cat', record.category],
+            ['c-rating', record.rating],
+          ];
     for (const [cls, value] of cells) {
       const td = document.createElement('td');
       td.className = cls;
@@ -232,7 +310,7 @@ function render(job) {
   ui.stop.hidden = !running;
 
   for (const input of [
-    ui.category, ui.city, ui.batch, ui.grid, ui.maxResults,
+    ui.source, ui.category, ui.city, ui.batch, ui.grid, ui.maxResults,
     ui.deep, ui.fetchEmails, ui.followContactPage, ui.verifyEmails, ui.skipSeen,
   ]) {
     input.disabled = running;
@@ -299,8 +377,13 @@ ui.form.addEventListener('submit', async (event) => {
   showError('');
 
   const config = readConfig();
-  if (batchMode ? !config.batch.trim() : !config.category || !config.city) {
-    showError(batchMode ? 'Add at least one line to the batch list.' : 'Enter both a category and a city.');
+  const conf = SOURCE_UI[config.source] || SOURCE_UI.maps;
+  if (batchMode ? !config.batch.trim() : !config.category) {
+    showError(
+      batchMode
+        ? 'Add at least one line to the batch list.'
+        : `Enter a ${conf.categoryLabel.toLowerCase()}.`
+    );
     return;
   }
 

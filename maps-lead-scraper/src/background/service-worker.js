@@ -20,9 +20,10 @@
 
 import { findEmailForSite, mapWithConcurrency } from '../lib/email.js';
 import { verifyEmail, isSendable } from '../lib/verify.js';
-import { buildSearchUrl, parseMapUrl } from '../lib/geo.js';
+import { parseMapUrl } from '../lib/geo.js';
 import { absorbInto, recordKey } from '../lib/dedupe.js';
-import { assessHealth } from '../lib/health.js';
+import { assessHealth, gatesFor } from '../lib/health.js';
+import { sourceFor, buildUrl, DEFAULT_SOURCE } from '../lib/sources.js';
 import * as store from '../lib/store.js';
 import { buildTaskList, expandGridTasks, insertAfter, nextPending, taskProgress } from '../lib/tasks.js';
 
@@ -178,7 +179,12 @@ async function ensureContentScript(tabId) {
   }
   await chrome.scripting.executeScript({
     target: { tabId },
-    files: ['src/lib/parse.js', 'src/content/scraper.js'],
+    files: [
+      'src/lib/parse.js',
+      'src/content/engine.js',
+      'src/content/adapters/maps.js',
+      'src/content/adapters/linkedin.js',
+    ],
   });
   await new Promise((r) => setTimeout(r, 300));
 }
@@ -205,9 +211,10 @@ async function readMapCentre(tabId, attempts = 8) {
 /* ---------------------------------------------------------------- the queue */
 
 async function runTask(task, config, tabId) {
-  const url = buildSearchUrl(task.term, task.point);
+  const source = sourceFor(config.source);
+  const url = buildUrl(source.id, task.term, task.point);
   await chrome.tabs.update(tabId, { url, active: !config.background });
-  await waitForTabComplete(tabId);
+  await waitForTabComplete(tabId, source.urlPart);
   // Maps hydrates its feed after `complete`; a short settle avoids a race.
   await new Promise((r) => setTimeout(r, 2500));
   if (cancelRequested) throw new Error('cancelled');
@@ -218,7 +225,9 @@ async function runTask(task, config, tabId) {
     type: 'RUN_SCRAPE',
     config: { ...config, city: task.city, category: task.category },
   });
-  if (!response) throw new Error('The Maps tab stopped responding. Keep it open while scraping.');
+  if (!response) {
+    throw new Error(`The ${source.label} tab stopped responding. Keep it open while scraping.`);
+  }
   if (!response.ok) throw new Error(response.error || 'Scrape failed.');
   return response.records || [];
 }
@@ -250,7 +259,8 @@ async function drainQueue(config, tabId) {
       await store.putRecords(job.jobId, touched);
 
       // The first search of each term also reveals where the city is; use that
-      // to lay the grid before moving on.
+      // to lay the grid before moving on. Non-geographic sources never set
+      // this flag, so the tab URL is not read at all for them.
       if (task.expandsToGrid) {
         task.expandsToGrid = false;
         const centre = await readMapCentre(tabId);
@@ -260,8 +270,10 @@ async function drainQueue(config, tabId) {
       }
 
       // If every selector for a field has stopped matching, stop now rather
-      // than filling a spreadsheet with blank columns.
-      const health = assessHealth(records);
+      // than filling a spreadsheet with blank columns. Which fields count
+      // depends on the source: a business always has a place link, a person
+      // always has a profile URL.
+      const health = assessHealth(records, gatesFor(sourceFor(config.source)));
       await save({
         tasks: job.tasks,
         found: records.length,
@@ -388,8 +400,11 @@ async function finishRun(config) {
     }
   }
 
-  if (config.fetchEmails !== false) await enrichEmails(records, config);
-  if (config.verifyEmails !== false && !cancelRequested) await verifyEmails(records, config);
+  const source = sourceFor(config.source);
+  if (source.supportsEmails && config.fetchEmails !== false) await enrichEmails(records, config);
+  if (source.supportsEmails && config.verifyEmails !== false && !cancelRequested) {
+    await verifyEmails(records, config);
+  }
 
   // Enrichment mutated the working set in place; flush it all once at the end.
   await store.putRecords(job.jobId, records);
@@ -403,7 +418,7 @@ async function finishRun(config) {
     status: 'done',
     phase: 'done',
     found: records.length,
-    message: `Finished — ${records.length} businesses${failed ? `, ${failed} searches failed` : ''}.`,
+    message: `Finished — ${records.length} ${source.noun}${failed ? `, ${failed} searches failed` : ''}.`,
     finishedAt: Date.now(),
   });
 }
@@ -428,8 +443,9 @@ async function execute(config, tabId) {
 async function startJob(config) {
   if (job.status === 'running') throw new Error('A scrape is already running.');
 
-  const tasks = buildTaskList(config);
-  if (!tasks.length) throw new Error('Enter a category and city, or a batch list.');
+  const settings = { ...config, source: config.source || DEFAULT_SOURCE };
+  const tasks = buildTaskList(settings);
+  if (!tasks.length) throw new Error('Enter a search, or a batch list.');
 
   cancelRequested = false;
   // A fresh job id keeps this run's rows separate from the previous one's.
@@ -439,16 +455,16 @@ async function startJob(config) {
     ...DEFAULT_JOB,
     status: 'running',
     phase: 'listing',
-    config,
+    config: settings,
     jobId,
     tasks,
-    message: 'Opening Google Maps…',
+    message: `Opening ${sourceFor(settings.source).label}…`,
     startedAt: Date.now(),
   });
 
-  const tab = await chrome.tabs.create({ url: 'about:blank', active: !config.background });
+  const tab = await chrome.tabs.create({ url: 'about:blank', active: !settings.background });
   await save({ tabId: tab.id });
-  await execute(config, tab.id);
+  await execute(settings, tab.id);
 }
 
 /** Continue a run that was interrupted or stopped, without losing its results. */

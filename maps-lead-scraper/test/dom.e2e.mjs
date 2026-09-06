@@ -18,8 +18,13 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const parseSrc = readFileSync(join(ROOT, 'src/lib/parse.js'), 'utf8');
-const scraperSrc = readFileSync(join(ROOT, 'src/content/scraper.js'), 'utf8');
+// The content script is now three files: shared parsing, the generic engine,
+// and the source adapter. Load them in the same order the manifest does.
+const CONTENT_SCRIPTS = [
+  'src/lib/parse.js',
+  'src/content/engine.js',
+  'src/content/adapters/maps.js',
+].map((f) => readFileSync(join(ROOT, f), 'utf8'));
 
 const BUSINESSES = [
   {
@@ -168,10 +173,14 @@ const CHROMIUM = findChromium();
 /** Loads the fixture, injects the real content script, and runs one scrape. */
 async function scrape(browser, config) {
   const page = await browser.newPage();
-  await page.setContent(fixture(), { waitUntil: 'load' });
+  // Serve the fixture from a real Maps URL: the adapter is chosen by
+  // matchesUrl, and the search term is read out of the path.
+  await page.route('https://www.google.com/maps/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'text/html', body: fixture() })
+  );
+  await page.goto('https://www.google.com/maps/search/dentists+in+Chennai/@13.0827,80.2707,12z?hl=en');
   await page.addScriptTag({ content: CHROME_STUB });
-  await page.addScriptTag({ content: parseSrc });
-  await page.addScriptTag({ content: scraperSrc });
+  for (const src of CONTENT_SCRIPTS) await page.addScriptTag({ content: src });
 
   const result = await page.evaluate(
     (cfg) =>
@@ -204,8 +213,11 @@ test('content script scrapes a Maps-shaped page end to end', async (t) => {
     const { result, progress } = await scrape(browser, { deep: true });
 
     assert.equal(result.ok, true, result.error);
+    assert.equal(result.context.query, 'dentists in Chennai', 'context comes from the URL');
+
     const records = result.records;
     assert.equal(records.length, 3, 'every card in the feed should be collected');
+    assert.ok(records.every((r) => r.source === 'maps'), 'each record is tagged with its source');
 
     const bright = records.find((r) => r.name === 'Bright Smile Dental');
     assert.ok(bright, 'named record missing');

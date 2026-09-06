@@ -1,16 +1,38 @@
 # Maps Lead Scraper
 
-A Chrome extension that pulls **every business listing** for a city and a
-category out of Google Maps and hands you **one file** — name, phone, verified
-email, area, rating and more — as CSV, Excel or JSON.
+A Chrome extension that turns a search you could run by hand into **one
+downloadable file**.
+
+Two sources:
+
+- **Google Maps** — every business listing for a city and a category: name,
+  phone, verified email, area, rating, website, hours and more. It works around
+  Google's ~120-results-per-search cap by splitting the city into a **grid** of
+  map viewports and searching each one, then merging the results into a single
+  deduplicated list.
+- **LinkedIn People search** — the results of a people search you have already
+  set up: name, headline, company, location, connection degree, open-to-work
+  and profile URL. **Read the warning below before using this one.**
 
 Type `dentists` + `Chennai`, press start, and you get a spreadsheet.
 
-It works around Google's ~120-results-per-search cap by splitting the city into
-a **grid** of map viewports and searching each one, then merging the results
-into a single deduplicated list.
-
 ---
+
+## ⚠️ Before you use the LinkedIn source
+
+Google's Terms of Service discourage automated collection; the practical
+consequence of ignoring them is that a scraper stops working.
+
+**LinkedIn is different.** LinkedIn actively detects automated collection and
+**restricts or permanently bans the accounts that do it**. The cost does not
+land on this extension — it lands on your personal LinkedIn account, including
+your history and your connections.
+
+This adapter is deliberately conservative: it reads only the cards already
+rendered on the page you are looking at, never opens individual profiles, and
+stops immediately on a login wall or a security check. That reduces the risk.
+It does not remove it. Keep runs small and infrequent, and decide knowing the
+failure mode is a banned account, not a broken script.
 
 ## What you get per business
 
@@ -181,10 +203,17 @@ popup  ──START_JOB──▶  service worker  ──RUN_SCRAPE──▶  cont
 | `src/lib/health.js` | Extraction fill rates and the gate that stops a broken run |
 | `src/lib/export.js` | CSV / JSON serialisation and file naming |
 | `src/lib/xlsx.js` | A real .xlsx writer — OOXML in a ZIP, no dependencies |
+| `src/content/engine.js` | The source-agnostic half: harvest loop, detail pass, progress, cancellation |
+| `src/content/adapters/` | The source-specific half: one adapter per site |
+| `src/lib/sources.js` | What differs per source — URL shape, whether a grid applies, health gates |
 | `src/panel/` | The side panel UI |
 
 Three design notes worth knowing:
 
+- **Adapters own the DOM; the engine owns the process.** Google Maps and
+  LinkedIn differ in every DOM detail and in almost none of the process — both
+  render a virtualised list that grows as you scroll. The engine runs that
+  loop; an adapter answers questions about the page.
 - **The run is a queue, not a loop.** Batch entries × grid cells become a list
   of tasks written to storage after every one. That is what makes a run
   resumable rather than restartable, and it is why one failed grid cell does
@@ -206,7 +235,7 @@ Three design notes worth knowing:
 ## Development
 
 ```bash
-npm test          # 130 unit tests — geo, queue, dedupe, parsing, email, verify, health, xlsx, export
+npm test          # 144 unit tests — geo, queue, dedupe, parsing, email, verify, health, xlsx, export
 npm run test:dom  # browser tests of the DOM wiring (see below)
 npm run icons     # regenerate the PNG icons
 npm run package   # build the distributable zip
@@ -215,8 +244,9 @@ npm run package   # build the distributable zip
 `npm run test:dom` runs everything that needs a real browser: the content
 script against a synthetic Maps-shaped page (selectors, scroll loop, the
 click-into-detail-and-back cycle), the IndexedDB layer against a real database,
-and the side panel's virtualised table — including a check that only a window
-of rows is ever in the DOM. It needs a browser:
+the side panel's virtualised table — including a check that only a window of
+rows is ever in the DOM — and the LinkedIn adapter against a synthetic page
+that hydrates lazily the way the real one does. It needs a browser:
 
 ```bash
 npm i -D playwright-core     # then either set PLAYWRIGHT_BROWSERS_PATH
@@ -249,6 +279,9 @@ Common problems:
 | Nothing happens | Reload the extension at `chrome://extensions`, then reopen the Maps tab. |
 | The run paused itself | The extraction health gate fired: a field Maps always shows came back mostly empty, which means a selector broke. See `docs/SELECTORS.md`. Your partial results are kept. |
 | The panel does not open | Chrome 116+ is required. Check `chrome://extensions` for a manifest error. |
+| LinkedIn: "You are signed out" | Sign in to LinkedIn in that tab and rerun. |
+| LinkedIn: "security check" | Solve it in the tab, then rerun — and take it as a signal to slow down. |
+| LinkedIn results stop early | The adapter stops if the query or filters change mid-run, rather than blending two searches into one file. |
 
 ---
 
@@ -258,8 +291,9 @@ This extension automates a browser you are already allowed to use: it reads the
 same public pages you would see by hand, at a deliberately unhurried pace. That
 does not make it unlimited.
 
-- Scraping Google Maps is contrary to Google's Terms of Service. You are
-  responsible for how you use this.
+- Scraping Google Maps is contrary to Google's Terms of Service, and scraping
+  LinkedIn is contrary to theirs — with the account consequences described at
+  the top of this file. You are responsible for how you use this.
 - Emails come from business websites. Contacting them puts you under GDPR, the
   CAN-SPAM Act, India's DPDP Act and similar laws — which generally require a
   lawful basis, accurate sender details and a working opt-out.

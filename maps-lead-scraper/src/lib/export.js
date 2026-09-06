@@ -7,7 +7,14 @@ import { buildXlsx } from './xlsx.js';
  * line up, and so a rerun produces a diffable file.
  */
 
-export const COLUMNS = [
+/**
+ * Column sets per source.
+ *
+ * A LinkedIn person and a Maps business share almost no fields, so one merged
+ * table would be mostly blank either way. The exporter picks the set that
+ * matches what was actually scraped.
+ */
+export const MAPS_COLUMNS = [
   { key: 'name', label: 'Business Name' },
   { key: 'category', label: 'Category' },
   { key: 'phone', label: 'Phone' },
@@ -32,6 +39,27 @@ export const COLUMNS = [
   { key: 'mapsUrl', label: 'Google Maps URL' },
 ];
 
+export const LINKEDIN_COLUMNS = [
+  { key: 'name', label: 'Name' },
+  { key: 'headline', label: 'Headline' },
+  { key: 'company', label: 'Company' },
+  { key: 'location', label: 'Location' },
+  { key: 'degree', label: 'Connection' },
+  { key: 'openToWork', label: 'Open To Work' },
+  { key: 'summary', label: 'Match Context' },
+  { key: 'profileUrl', label: 'Profile URL' },
+  { key: 'searchCategory', label: 'Search' },
+];
+
+/** Kept as the default so existing callers and tests keep working. */
+export const COLUMNS = MAPS_COLUMNS;
+
+/** Choose columns from what the records actually are. */
+export function columnsFor(records) {
+  const source = (records || []).find((r) => r && r.source);
+  return source && source.source === 'linkedin' ? LINKEDIN_COLUMNS : MAPS_COLUMNS;
+}
+
 function cell(record, key) {
   const value = record[key];
   if (value === null || value === undefined) return '';
@@ -39,7 +67,7 @@ function cell(record, key) {
   return String(value);
 }
 
-export function toCsv(records) {
+export function toCsv(records, columns = columnsFor(records)) {
   const escape = (v) => {
     const s = String(v ?? '');
     // Guard against spreadsheet formula injection from scraped text.
@@ -47,28 +75,28 @@ export function toCsv(records) {
     return `"${safe.replace(/"/g, '""')}"`;
   };
 
-  const lines = [COLUMNS.map((c) => escape(c.label)).join(',')];
+  const lines = [columns.map((c) => escape(c.label)).join(',')];
   for (const record of records) {
-    lines.push(COLUMNS.map((c) => escape(cell(record, c.key))).join(','));
+    lines.push(columns.map((c) => escape(cell(record, c.key))).join(','));
   }
   // Leading BOM so Excel reads UTF-8 (accented street names) correctly.
   return `﻿${lines.join('\r\n')}\r\n`;
 }
 
-export function toJson(records) {
+export function toJson(records, columns = columnsFor(records)) {
   const rows = records.map((record) => {
     const row = {};
-    for (const c of COLUMNS) row[c.key] = record[c.key] ?? '';
+    for (const c of columns) row[c.key] = record[c.key] ?? '';
     return row;
   });
   return JSON.stringify(rows, null, 2);
 }
 
 /** The header labels and value rows a spreadsheet needs. */
-export function toRows(records) {
+export function toRows(records, columns = columnsFor(records)) {
   return {
-    headers: COLUMNS.map((c) => c.label),
-    rows: (records || []).map((record) => COLUMNS.map((c) => cell(record, c.key))),
+    headers: columns.map((c) => c.label),
+    rows: (records || []).map((record) => columns.map((c) => cell(record, c.key))),
   };
 }
 
@@ -89,7 +117,8 @@ export async function buildFile(records, format, meta = {}) {
   // The stamp is always truthy, so the search terms have to be defaulted
   // before it is appended — otherwise every file is named after the clock only.
   const search = [slug(meta.category), slug(meta.city)].filter(Boolean).join('_');
-  const base = `${meta.source ? `${slug(meta.source)}_` : ''}${search || 'maps-leads'}_${stamp}`;
+  const source = meta.source || ((records || []).find((r) => r && r.source) || {}).source || '';
+  const base = `${source ? `${slug(source)}_` : ''}${search || 'leads'}_${stamp}`;
 
   if (format === 'json') {
     return { content: toJson(records), mime: 'application/json', filename: `${base}.json` };
