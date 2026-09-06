@@ -252,7 +252,7 @@ ui.download.addEventListener('click', async () => {
     }
 
     const meta = (res && res.config) || readConfig();
-    const { content, mime, filename } = buildFile(records, ui.format.value, meta);
+    const { content, mime, filename } = await buildFile(records, ui.format.value, meta);
 
     // Blob URLs need a document, which is why the download is built here in
     // the popup rather than in the service worker.

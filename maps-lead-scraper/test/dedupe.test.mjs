@@ -141,8 +141,9 @@ test('absorbInto merges overlapping grid cells and counts only new businesses', 
     { name: 'C', phone: '3333333333' },
   ]);
 
-  assert.equal(cellA, 2);
-  assert.equal(cellB, 1, 'the repeat sighting of A is not a new business');
+  assert.equal(cellA.added, 2);
+  assert.equal(cellB.added, 1, 'the repeat sighting of A is not a new business');
+  assert.equal(cellB.touched.length, 2, 'both the updated and the new record must be persisted');
   assert.equal(records.length, 3);
   assert.equal(records.find((r) => r.name === 'A').website, 'https://a.test', 'A was enriched in place');
 });
@@ -159,6 +160,25 @@ test('absorbInto does not mutate the records it is handed', async () => {
 test('absorbInto keeps unidentifiable records instead of dropping them', async () => {
   const { absorbInto } = await import('../src/lib/dedupe.js');
   const records = [];
-  assert.equal(absorbInto(records, [{ note: 'no name' }, { note: 'also none' }]), 2);
+  assert.equal(absorbInto(records, [{ note: 'no name' }, { note: 'also none' }]).added, 2);
   assert.equal(records.length, 2);
+  assert.ok(records.every((r) => r.key), 'every stored record needs a primary key');
+});
+
+test('absorbInto stamps each record with its identity as the primary key', async () => {
+  const { absorbInto, recordKey } = await import('../src/lib/dedupe.js');
+  const records = [];
+  const incoming = { name: 'A', phone: '+91 98765 43210' };
+  absorbInto(records, [incoming]);
+  assert.equal(records[0].key, recordKey(incoming));
+});
+
+test('absorbInto keeps the key stable when a record is merged again', async () => {
+  const { absorbInto } = await import('../src/lib/dedupe.js');
+  const records = [];
+  absorbInto(records, [{ name: 'A', phone: '1111111111' }]);
+  const firstKey = records[0].key;
+  absorbInto(records, [{ name: 'A', phone: '1111111111', website: 'https://a.test' }]);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].key, firstKey, 'a merge must not re-key the row');
 });

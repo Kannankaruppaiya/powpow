@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { toCsv, toJson, toExcelHtml, buildFile, COLUMNS } from '../src/lib/export.js';
+import { toCsv, toJson, toRows, buildFile, COLUMNS } from '../src/lib/export.js';
 
 const sample = [
   {
@@ -53,27 +53,53 @@ test('toJson emits every column in a stable order', () => {
   assert.equal(rows[0].plusCode, '');
 });
 
-test('toExcelHtml escapes markup rather than emitting it', () => {
-  const html = toExcelHtml([{ name: '<script>alert(1)</script>', phone: '007' }]);
-  assert.ok(html.includes('&lt;script&gt;'));
-  assert.ok(!html.includes('<script>'));
-  assert.ok(html.includes('mso-number-format'), 'phones need a text format');
+test('toRows lines the values up with the header labels', () => {
+  const { headers, rows } = toRows(sample);
+  assert.equal(headers.length, COLUMNS.length);
+  assert.equal(rows[0].length, COLUMNS.length);
+  assert.equal(headers[0], 'Business Name');
+  assert.equal(rows[0][0], 'Bright Smile "Dental"');
+  assert.equal(rows[0][headers.indexOf('Other Emails')], 'hi@bright.test; admin@bright.test');
 });
 
-test('buildFile names the download after the search and picks the right mime', () => {
+test('toRows blanks missing fields instead of writing undefined', () => {
+  const { headers, rows } = toRows([{ name: 'Only a name' }]);
+  assert.equal(rows[0][headers.indexOf('Phone')], '');
+});
+
+test('buildFile names the download after the search and picks the right mime', async () => {
   const meta = { city: 'Chennai', category: 'Dental Clinics' };
-  const csv = buildFile(sample, 'csv', meta);
+  const csv = await buildFile(sample, 'csv', meta);
   assert.match(csv.filename, /^dental-clinics_chennai_[\d-]+\.csv$/);
   assert.match(csv.mime, /^text\/csv/);
 
-  assert.equal(buildFile(sample, 'json', meta).mime, 'application/json');
-  assert.match(buildFile(sample, 'xls', meta).filename, /\.xls$/);
+  assert.equal((await buildFile(sample, 'json', meta)).mime, 'application/json');
 });
 
-test('buildFile falls back to a generic name without search metadata', () => {
-  assert.match(buildFile(sample, 'csv', {}).filename, /^maps-leads_[\d-]+\.csv$/);
+test('buildFile emits a real xlsx, not an HTML table named .xls', async () => {
+  const out = await buildFile(sample, 'xlsx', { city: 'Chennai', category: 'Dentists' });
+  assert.match(out.filename, /\.xlsx$/);
+  assert.equal(out.mime, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  // "PK" — the ZIP magic every real xlsx starts with.
+  assert.equal(out.content[0], 0x50);
+  assert.equal(out.content[1], 0x4b);
 });
 
-test('buildFile defaults to CSV for an unknown format', () => {
-  assert.match(buildFile(sample, 'nonsense', {}).mime, /^text\/csv/);
+test('buildFile upgrades a saved "xls" preference to xlsx', async () => {
+  // Settings stored by an older version must not break the download.
+  const out = await buildFile(sample, 'xls', {});
+  assert.match(out.filename, /\.xlsx$/);
+});
+
+test('buildFile prefixes the source when one is given', async () => {
+  const out = await buildFile(sample, 'csv', { source: 'linkedin', category: 'Java', city: 'London' });
+  assert.match(out.filename, /^linkedin_java_london_/);
+});
+
+test('buildFile falls back to a generic name without search metadata', async () => {
+  assert.match((await buildFile(sample, 'csv', {})).filename, /^maps-leads_[\d-]+\.csv$/);
+});
+
+test('buildFile defaults to CSV for an unknown format', async () => {
+  assert.match((await buildFile(sample, 'nonsense', {})).mime, /^text\/csv/);
 });

@@ -112,37 +112,47 @@ export function dedupeRecords(records) {
  *
  * Grid cells overlap heavily, so most of what a later cell returns is already
  * present; those sightings merge into the existing row instead of appending.
- * Returns how many genuinely new businesses were added, which is the number
- * worth showing the user per search.
+ * Returns { added, touched }: how many genuinely new businesses appeared (the
+ * number worth showing per search) and every record object that changed, so
+ * the caller can persist just those rather than the whole set.
+ *
+ * Each record is stamped with its identity as `key`, which is also the primary
+ * key in IndexedDB — so a re-sighting updates a row instead of duplicating it.
  */
 export function absorbInto(records, incoming) {
   const index = new Map();
   for (const record of records) {
-    const id = recordKey(record);
-    if (id) index.set(id, record);
+    if (record.key) index.set(record.key, record);
   }
 
   let added = 0;
+  const touched = [];
+
   for (const record of incoming || []) {
     const id = recordKey(record);
     if (!id) {
       // Nothing to match on — keep it rather than silently lose a business.
-      records.push({ ...record });
+      // A synthetic key keeps it addressable in the database.
+      const copy = { ...record, key: `anon:${records.length}:${Date.now()}` };
+      records.push(copy);
+      touched.push(copy);
       added += 1;
       continue;
     }
 
     const existing = index.get(id);
     if (existing) {
-      Object.assign(existing, mergeRecords(existing, record));
+      Object.assign(existing, mergeRecords(existing, record), { key: id });
+      touched.push(existing);
     } else {
-      const copy = { ...record };
+      const copy = { ...record, key: id };
       records.push(copy);
       index.set(id, copy);
+      touched.push(copy);
       added += 1;
     }
   }
-  return added;
+  return { added, touched };
 }
 
 /**

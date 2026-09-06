@@ -10,16 +10,23 @@
  * After the queue drains, two enrichment passes run over the merged records:
  * emails (and social links) from each business's website, then email
  * verification over DNS-over-HTTPS.
+ *
+ * Records live in IndexedDB, not in the job object. Keeping them together
+ * meant every progress update re-serialised the entire result set — several
+ * gigabytes of writes over a large run — and capped how much could be handed
+ * to the UI in one message. Now only the records a task actually touched are
+ * written, and the side panel reads the database directly.
  */
 
 import { findEmailForSite, mapWithConcurrency } from '../lib/email.js';
 import { verifyEmail, isSendable } from '../lib/verify.js';
 import { buildSearchUrl, parseMapUrl } from '../lib/geo.js';
-import { dedupeRecords, absorbInto, addToSeen, filterUnseen } from '../lib/dedupe.js';
+import { absorbInto, recordKey } from '../lib/dedupe.js';
+import { assessHealth } from '../lib/health.js';
+import * as store from '../lib/store.js';
 import { buildTaskList, expandGridTasks, insertAfter, nextPending, taskProgress } from '../lib/tasks.js';
 
 const STORE_KEY = 'mls.job';
-const SEEN_KEY = 'mls.seen';
 
 const DEFAULT_JOB = {
   status: 'idle', // idle | running | paused | done | error | cancelled
@@ -27,8 +34,8 @@ const DEFAULT_JOB = {
   message: '',
   error: '',
   config: null,
+  jobId: null,
   tasks: [],
-  records: [],
   found: 0,
   detailed: 0,
   total: 0,
@@ -37,12 +44,16 @@ const DEFAULT_JOB = {
   verified: 0,
   sendable: 0,
   skippedSeen: 0,
+  health: null,
   tabId: null,
   startedAt: null,
   finishedAt: null,
 };
 
 let job = { ...DEFAULT_JOB };
+// The working set for the current run. Held in memory so merging stays cheap,
+// mirrored to IndexedDB after every task so nothing is lost.
+let records = [];
 let cancelRequested = false;
 let keepAlive = null;
 
@@ -67,8 +78,9 @@ function stopKeepAlive() {
 /* ------------------------------------------------------------------ state */
 
 async function loadJob() {
-  const stored = await chrome.storage.local.get(STORE_KEY);
-  if (stored[STORE_KEY]) job = { ...DEFAULT_JOB, ...stored[STORE_KEY] };
+  const stored = await store.getMeta(STORE_KEY);
+  if (stored) job = { ...DEFAULT_JOB, ...stored };
+  records = job.jobId ? await store.getRecords(job.jobId) : [];
 
   // A worker restart means the in-flight task was abandoned. Say so honestly
   // and offer to resume rather than silently reporting the run as finished.
@@ -78,16 +90,21 @@ async function loadJob() {
     job.status = resumable ? 'paused' : 'done';
     job.message = resumable
       ? 'Interrupted — press Resume to carry on where it stopped.'
-      : 'Recovered results from the previous run.';
+      : `Recovered ${records.length} results from the previous run.`;
   }
   return job;
 }
 
 const ready = loadJob();
 
+/**
+ * Persist the job metadata — the queue and the counters only. This object stays
+ * small however many businesses have been collected, which is the whole point
+ * of keeping records in their own store.
+ */
 async function save(patch = {}) {
   job = { ...job, ...patch };
-  await chrome.storage.local.set({ [STORE_KEY]: job });
+  await store.putMeta(STORE_KEY, job);
   try {
     await chrome.runtime.sendMessage({ type: 'JOB_UPDATE', job: publicJob() });
   } catch {
@@ -97,7 +114,7 @@ async function save(patch = {}) {
 
 /** The popup renders a preview and counters, never the whole result set. */
 function publicJob() {
-  const { records, tasks, ...rest } = job;
+  const { tasks, ...rest } = job;
   const { settled, total } = taskProgress(tasks);
   return {
     ...rest,
@@ -107,6 +124,7 @@ function publicJob() {
     tasksSettled: settled,
     tasksTotal: total,
     canResume: job.status === 'paused' && tasks.some((t) => t.status === 'pending'),
+    // A preview only — the side panel pages the full set out of IndexedDB.
     preview: records.slice(0, 60),
   };
 }
@@ -222,11 +240,14 @@ async function drainQueue(config, tabId) {
     });
 
     try {
-      const records = await runTask(task, config, tabId);
-      task.found = records.length;
+      const harvested = await runTask(task, config, tabId);
+      task.found = harvested.length;
       task.status = 'done';
 
-      const added = absorbInto(job.records, records);
+      const { added, touched } = absorbInto(records, harvested);
+      // Only the rows this task changed are written, so the cost of a progress
+      // save is proportional to the task rather than to the whole run.
+      await store.putRecords(job.jobId, touched);
 
       // The first search of each term also reveals where the city is; use that
       // to lay the grid before moving on.
@@ -238,12 +259,25 @@ async function drainQueue(config, tabId) {
         else if (!centre) task.error = 'Could not read the map centre — grid skipped.';
       }
 
+      // If every selector for a field has stopped matching, stop now rather
+      // than filling a spreadsheet with blank columns.
+      const health = assessHealth(records);
       await save({
         tasks: job.tasks,
-        records: job.records,
-        found: job.records.length,
-        message: `${task.term}: ${records.length} listings (${added} new).`,
+        found: records.length,
+        health: { ok: health.ok, rates: health.rates, sample: health.sample },
+        message: `${task.term}: ${harvested.length} listings (${added} new).`,
       });
+
+      if (!health.ok) {
+        await save({
+          status: 'paused',
+          phase: 'idle',
+          error: health.reason,
+          message: health.reason,
+        });
+        return;
+      }
     } catch (err) {
       const message = String((err && err.message) || err);
       if (message === 'cancelled' || cancelRequested) {
@@ -328,39 +362,48 @@ async function verifyEmails(records, config) {
 
 async function finishRun(config) {
   if (cancelRequested) {
-    await save({ status: 'cancelled', phase: 'done', message: 'Stopped — partial results kept.', finishedAt: Date.now() });
+    await save({
+      status: 'cancelled',
+      phase: 'done',
+      message: 'Stopped — partial results kept.',
+      finishedAt: Date.now(),
+    });
     return;
   }
 
   // Cross-run dedupe happens before enrichment so we never spend fetches on
   // businesses the user already exported.
   if (config.skipSeen) {
-    const stored = await chrome.storage.local.get(SEEN_KEY);
-    const before = job.records.length;
-    const fresh = filterUnseen(job.records, stored[SEEN_KEY]);
-    await save({
-      records: fresh,
-      skippedSeen: before - fresh.length,
-      message: `${before - fresh.length} already-seen businesses skipped.`,
-    });
+    const seen = await store.filterSeen(records.map((r) => r.key));
+    if (seen.size) {
+      // These rows were written as each task finished, so drop them from the
+      // database too — not just from the working set.
+      await store.deleteRecords(records.filter((r) => seen.has(r.key)).map((r) => r.key));
+      records = records.filter((r) => !seen.has(r.key));
+      await save({
+        skippedSeen: seen.size,
+        found: records.length,
+        message: `${seen.size} already-seen businesses skipped.`,
+      });
+    }
   }
 
-  if (config.fetchEmails !== false) await enrichEmails(job.records, config);
-  if (config.verifyEmails !== false && !cancelRequested) await verifyEmails(job.records, config);
+  if (config.fetchEmails !== false) await enrichEmails(records, config);
+  if (config.verifyEmails !== false && !cancelRequested) await verifyEmails(records, config);
 
-  await save({ records: dedupeRecords(job.records) });
+  // Enrichment mutated the working set in place; flush it all once at the end.
+  await store.putRecords(job.jobId, records);
 
   if (config.rememberSeen !== false) {
-    const stored = await chrome.storage.local.get(SEEN_KEY);
-    await chrome.storage.local.set({ [SEEN_KEY]: addToSeen(stored[SEEN_KEY], job.records) });
+    await store.addSeen(records.map((r) => r.key || recordKey(r)).filter(Boolean));
   }
 
   const failed = job.tasks.filter((t) => t.status === 'failed').length;
   await save({
-    status: cancelRequested ? 'cancelled' : 'done',
+    status: 'done',
     phase: 'done',
-    found: job.records.length,
-    message: `Finished — ${job.records.length} businesses${failed ? `, ${failed} searches failed` : ''}.`,
+    found: records.length,
+    message: `Finished — ${records.length} businesses${failed ? `, ${failed} searches failed` : ''}.`,
     finishedAt: Date.now(),
   });
 }
@@ -389,13 +432,16 @@ async function startJob(config) {
   if (!tasks.length) throw new Error('Enter a category and city, or a batch list.');
 
   cancelRequested = false;
+  // A fresh job id keeps this run's rows separate from the previous one's.
+  const jobId = `job-${Date.now()}`;
+  records = [];
   await save({
     ...DEFAULT_JOB,
     status: 'running',
     phase: 'listing',
     config,
+    jobId,
     tasks,
-    records: [],
     message: 'Opening Google Maps…',
     startedAt: Date.now(),
   });
@@ -433,13 +479,10 @@ async function cancelJob() {
   await save({ message: 'Stopping…' });
 }
 
-async function clearSeen() {
-  await chrome.storage.local.remove(SEEN_KEY);
-}
-
-async function seenCount() {
-  const stored = await chrome.storage.local.get(SEEN_KEY);
-  return Array.isArray(stored[SEEN_KEY]) ? stored[SEEN_KEY].length : 0;
+async function clearJob() {
+  if (job.jobId) await store.clearRecords(job.jobId);
+  records = [];
+  await save({ ...DEFAULT_JOB });
 }
 
 /* --------------------------------------------------------------- messaging */
@@ -457,7 +500,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
   switch (msg.type) {
     case 'GET_JOB':
-      return reply(ready.then(async () => ({ job: publicJob(), seen: await seenCount() })));
+      return reply(ready.then(async () => ({ job: publicJob(), seen: await store.countSeen() })));
 
     case 'START_JOB':
       // Fire and forget: the run outlives this message and reports through
@@ -479,13 +522,15 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       return reply(cancelJob().then(() => ({})));
 
     case 'GET_RECORDS':
-      return reply(ready.then(() => ({ records: job.records, config: job.config })));
+      // The side panel normally reads IndexedDB itself; this stays for any
+      // caller that cannot, and for small result sets.
+      return reply(ready.then(() => ({ records, config: job.config })));
 
     case 'CLEAR_JOB':
-      return reply(save({ ...DEFAULT_JOB }).then(() => ({ job: publicJob() })));
+      return reply(clearJob().then(() => ({ job: publicJob() })));
 
     case 'CLEAR_SEEN':
-      return reply(clearSeen().then(() => ({ seen: 0 })));
+      return reply(store.clearSeen().then(() => ({ seen: 0 })));
 
     case 'SCRAPE_PROGRESS': {
       // Relayed from the content script while a single search is running.
