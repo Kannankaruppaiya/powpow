@@ -42,7 +42,7 @@ const ui = Object.fromEntries(
     'form', 'statusPill', 'version', 'viewSetup', 'viewResults', 'paneSetup', 'paneResults', 'tabCount',
     'modeSingle', 'modeBatch', 'toggleBatch',
     'source', 'sourceGroup', 'sourceNote', 'coverageRow', 'coverage', 'coverageHint',
-    'categoryLabel', 'cityLabel', 'limitLabel',
+    'categoryLabel', 'cityLabel', 'limitLabel', 'limitHint', 'limitRow', 'limitSlot', 'advancedBody',
     'optEmails', 'optContact', 'optVerify', 'optDeep',
     'optCurrentTab', 'useCurrentTab', 'currentTabHint',
     'category', 'city', 'batch', 'grid', 'maxResults',
@@ -162,6 +162,7 @@ const SOURCE_UI = {
     cityPlaceholder: 'Chennai',
     noun: 'businesses',
     limitLabel: 'Stop after this many per search',
+    limitHint: 'Leave blank for no limit.',
     filterField: 'category',
     assistSub:
       "Describe your business or who you want to reach. I'll work out the searches that find them.",
@@ -183,7 +184,8 @@ const SOURCE_UI = {
     // One LinkedIn search is the whole run, so "per search" read as a
     // per-page cap and made a limit of 100 look like it had been ignored.
     noun: 'people',
-    limitLabel: 'Stop after this many profiles',
+    limitLabel: 'How many profiles?',
+    limitHint: 'Leave blank for every profile LinkedIn will show you.',
     filterField: 'headline',
     assistSub:
       "Describe the person you need. I'll work out the titles and skills to search for.",
@@ -208,6 +210,11 @@ function applySource() {
   ui.statFoundLabel.textContent = conf.noun;
   ui.filterLabel.textContent = conf.filterLabel;
   ui.limitLabel.textContent = conf.limitLabel;
+  ui.limitHint.textContent = conf.limitHint;
+  // A people search has no grid, so the slot the grid occupies asks the
+  // question that does apply to it. For Maps the limit goes back where it
+  // belongs: last in the disclosure, behind a setting that already works.
+  (conf.grid ? ui.advancedBody : ui.limitSlot).appendChild(ui.limitRow);
   ui.filterHint.textContent = conf.filterHint;
   refreshCategoryOptions();
   ui.optCurrentTab.hidden = !conf.currentTab;
@@ -326,7 +333,9 @@ async function restoreSettings() {
   ui.city.value = s.city ?? '';
   ui.batch.value = s.batch ?? '';
   ui.grid.value = s.grid || 'balanced';
-  ui.maxResults.value = s.maxResults ?? 0;
+  // Blank and zero mean the same thing to `readConfig`, and blank is the one
+  // that reads as "no limit" rather than "a limit of nothing".
+  ui.maxResults.value = s.maxResults || '';
   ui.deep.checked = s.deep !== false;
   ui.fetchEmails.checked = s.fetchEmails !== false;
   ui.followContactPage.checked = s.followContactPage !== false;
@@ -915,16 +924,19 @@ function render(job) {
   const running = job.status === 'running';
   const settled = ['done', 'error', 'cancelled', 'paused'].includes(job.status);
 
-  ui.statusPill.hidden = job.status === 'idle';
-  ui.statusPill.textContent = PILL[job.status] || job.status;
-  ui.statusPill.dataset.state = job.status;
-
   // The form and the run never share the screen: while a scrape is going,
   // the settings that started it are not what the user needs to look at.
   // "Done with this run": either the user said so, or the extension restarted
   // and the run finished before that.
   const dismissed = !running && job.jobId && (job.stale || job.jobId === dismissedJobId);
   const showRun = !dismissed && (running || (settled && job.status !== 'idle' && job.tasksTotal > 0));
+
+  // The chip reports the run on screen, so a run that is no longer on screen
+  // has no status to report. A restart left "Done" in the header of a panel
+  // showing an empty form, which reads as this search having finished.
+  ui.statusPill.hidden = dismissed || job.status === 'idle';
+  ui.statusPill.textContent = PILL[job.status] || job.status;
+  ui.statusPill.dataset.state = job.status;
   ui.form.hidden = showRun;
   ui.runView.hidden = !showRun;
 
@@ -1101,6 +1113,7 @@ ui.again.addEventListener('click', () => {
   dismissedJobId = (current && current.jobId) || null;
   ui.form.hidden = false;
   ui.runView.hidden = true;
+  ui.statusPill.hidden = true;
   // The bar follows the view: the form is back, so Start is the action again.
   ui.again.hidden = true;
   ui.goResults.hidden = true;
@@ -1146,6 +1159,28 @@ ui.assist.addEventListener('toggle', () => {
   saveSettings();
 });
 ui.format.addEventListener('change', saveSettings);
+
+/*
+ * Keep whatever is in the form.
+ *
+ * Only the source, the filter and the format were being saved as they were
+ * edited; everything else — the search, the city, how many profiles, the
+ * checkboxes — was written only when Start was pressed. The panel closes
+ * whenever the user clicks into the tab a run is driving, and a form that
+ * forgets what you typed the moment you look away is its own bug.
+ *
+ * Delegated, so a field added later is covered without being wired up, and on
+ * `input` rather than `change` so it does not wait for a blur that may never
+ * come. Debounced, because otherwise this writes on every keystroke.
+ *
+ * The planner's key and brief are inside this form and are deliberately not in
+ * `readConfig()`, so they cannot reach these settings.
+ */
+let saveTimer = null;
+ui.form.addEventListener('input', () => {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveSettings, 250);
+});
 
 ui.download.addEventListener('click', async () => {
   showError('');

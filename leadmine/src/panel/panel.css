@@ -185,6 +185,9 @@ body {
 .pane p { margin: 0; }
 
 .stack { display: flex; flex-direction: column; gap: var(--s-4); }
+/* A box-less slot: empty it takes no space and adds no gap, and what is moved
+   into it lays out as if it were a direct child of the form. */
+#limitSlot { display: contents; }
 .stack.tight { gap: var(--s-3); }
 .row { display: flex; align-items: center; gap: var(--s-2); }
 .grow { flex: 1; }

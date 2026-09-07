@@ -555,10 +555,8 @@ test('the category field relabels itself for LinkedIn', async (t) => {
 
     // "per search" made a limit of 100 look ignored: one LinkedIn search is
     // the whole run, not one page of it.
-    assert.equal(
-      await ctx.page.textContent('#limitLabel'),
-      'Stop after this many profiles'
-    );
+    assert.equal(await ctx.page.textContent('#limitLabel'), 'How many profiles?');
+    assert.match(await ctx.page.textContent('#limitHint'), /every profile LinkedIn will show/i);
   } finally {
     await ctx.close();
   }
@@ -1239,6 +1237,42 @@ test('a person reads as a person, and the name copies their profile link', async
   }
 });
 
+test('a people search asks how many profiles, where you can see it', async (t) => {
+  // A people search has no grid, so this number is the only thing that decides
+  // how much it collects — and it was under "More options", which is where you
+  // put a setting nobody needs to touch.
+  const ctx = await openPanel(t, { idle: true });
+  if (!ctx) return;
+  try {
+    // Maps: the grid decides, so the limit stays in the disclosure.
+    assert.equal(await ctx.page.isVisible('#coverageRow'), true);
+    assert.equal(await ctx.page.isVisible('#maxResults'), false);
+
+    await ctx.page.click('#sourceGroup label.seg:has(input[value="linkedin"])');
+    await ctx.page.waitForTimeout(200);
+
+    assert.equal(await ctx.page.isVisible('#coverageRow'), false, 'no grid for a people search');
+    assert.equal(await ctx.page.isVisible('#maxResults'), true, 'so ask the question that applies');
+    assert.match(await ctx.page.textContent('#limitLabel'), /how many profiles/i);
+
+    // It is the same setting, wherever it is standing.
+    await ctx.page.fill('#maxResults', '250');
+    await ctx.page.waitForTimeout(500);
+    assert.equal(
+      await ctx.page.evaluate(() => window.__storage['mls.settings'].maxResults),
+      250
+    );
+
+    // Back to Maps and it goes back where it came from, still holding 250.
+    await ctx.page.click('#sourceGroup label.seg:has(input[value="maps"])');
+    await ctx.page.waitForTimeout(200);
+    assert.equal(await ctx.page.isVisible('#maxResults'), false);
+    assert.equal(await ctx.page.inputValue('#maxResults'), '250');
+  } finally {
+    await ctx.close();
+  }
+});
+
 test('an active narrowing filter rides beside the button that acts on it', async (t) => {
   // The filter is saved between runs. A term typed weeks ago silently set
   // aside all 235 results of a search planned today, and the form gave no
@@ -1335,6 +1369,10 @@ test('a finished run does not reclaim the screen after a restart', async (t) => 
     assert.equal(await ctx.page.isVisible('#form'), true, 'the form is what you need on a reload');
     assert.equal(await ctx.page.isVisible('#runView'), false);
     assert.equal(await ctx.page.isVisible('#error'), false, 'a dead run’s error is not news');
+    // The chip reports the run on screen. With the form on screen it reported
+    // "Done" over a search nobody had run, which reads as this one finishing.
+    assert.equal(await ctx.page.isVisible('#statusPill'), false, 'no status for a run you left');
+    assert.equal(await ctx.page.isVisible('#start'), true, 'Start is the action again');
 
     // The results are still there, and the tab count is the way back to them.
     assert.equal(await ctx.page.textContent('#tabCount'), '2,400');

@@ -155,7 +155,10 @@ means an hour.
 
 **Disclosure** — everything with a working default. Five checkboxes behind
 "More options" is not five fewer features; it is five fewer decisions before
-the first run.
+the first run. The exception is a setting that has no default anywhere else:
+"how many profiles" is the *only* thing bounding a LinkedIn run, which has no
+grid, so on that source it comes out of the disclosure and takes the slot the
+grid would have used. One slot, one question, whichever source is chosen.
 
 **Stat tiles** — one row of four large numbers with small labels, ruled above
 and below. This is the only place `--t-figure` is used, so progress is legible
@@ -219,12 +222,17 @@ settings that started it are not what the user needs.
 
 | State | What is on screen | Primary action |
 | --- | --- | --- |
-| **Idle** | Source, the search, how thorough, disclosure | **Start** |
+| **Idle** | Source, the search, how much, disclosure | **Start** |
 | **Running** | Spinner, which search, progress, live counts, latest arrivals | **Stop** |
 | **Paused** | Why it stopped, what was collected so far | **Resume** |
 | **Finished** | Counts, what was found per field | **See results** |
 | **Results** | Virtualised lead cards, filter | **Download** |
 | **Results, empty** | The mark, one line, a way back | **Go to search** |
+
+The status chip in the masthead reports the run *on screen*. When a run has
+been left behind — dismissed, or finished before a restart — the chip goes with
+it: "Done" over an empty form reads as this search having finished, which is
+the opposite of true.
 
 One primary action per state is enforced in code, not by convention: Resume and
 See results share the bar, and only the one that answers the current question

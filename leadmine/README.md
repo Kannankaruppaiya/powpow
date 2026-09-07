@@ -117,7 +117,11 @@ npm run package     # -> dist/leadmine-v5.0.0.zip
    saved between runs, and an input holding a value from three weeks ago looks
    exactly like an empty one. Click the chip to clear it.
 
-4. Pick a **Coverage** level (see below) and leave **Max per search** at `0`.
+4. Pick a **Coverage** level (see below).
+
+   On a **LinkedIn** search there is no grid, so the panel asks **How many
+   profiles?** instead — leave it blank for every profile LinkedIn will show
+   you, or type a number to stop there.
 5. Press **Start**. A Google Maps tab opens and drives itself.
 6. When it finishes, choose Excel / CSV / JSON and press **Download**.
 

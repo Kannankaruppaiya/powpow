@@ -161,6 +161,25 @@
           </fieldset>
           <span class="help" id="coverageHint"></span>
         </div>
+
+        <!--
+          "How many?" is a question a Maps run answers with a geographic grid
+          and a LinkedIn run answers with a number, so the two share a slot and
+          only one of them is ever on screen.
+
+          The limit lived under More options, where a people search — which has
+          no grid, so nothing else decides how much it collects — could not
+          find it. For LinkedIn it moves up here; for Maps it goes back.
+        -->
+        <div id="limitSlot"></div>
+        <label class="field" id="limitRow">
+          <span class="label" id="limitLabel">Stop after this many per search</span>
+          <!-- Blank, not 0. A box reading "0" looks like a limit of nothing;
+               empty reads as "no limit", which is what it means. -->
+          <input id="maxResults" class="input" type="number" min="0" max="5000" step="10"
+                 placeholder="All of them" />
+          <span class="help" id="limitHint">0 means no limit</span>
+        </label>
         <select id="grid" class="sr-only" tabindex="-1" aria-hidden="true">
           <option value="off">off</option>
           <option value="light">light</option>
@@ -189,7 +208,7 @@
         <!-- Everything below has a sensible default. Hidden until wanted. -->
         <details class="advanced">
           <summary>More options</summary>
-          <div class="stack advanced-body">
+          <div class="stack advanced-body" id="advancedBody">
             <label class="check" id="optDeep">
               <input type="checkbox" id="deep" checked />
               <span>Open each listing for the full address and phone</span>
@@ -247,11 +266,6 @@
               </label>
             </div>
 
-            <label class="field">
-              <span class="label" id="limitLabel">Stop after this many per search</span>
-              <input id="maxResults" class="input" type="number" min="0" max="5000" step="10" value="0" />
-              <span class="help">0 means no limit</span>
-            </label>
           </div>
         </details>
 
