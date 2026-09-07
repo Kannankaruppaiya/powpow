@@ -14,6 +14,7 @@
 
 import { buildGrid, gridSteps, viewportSpanMetres } from './geo.js';
 import { supportsGrid, buildTerm } from './sources.js';
+import { buildUrl as buildQueryUrl, partition } from './linkedin-query.js';
 
 /**
  * Parse the batch box into search pairs. Accepts either separator people
@@ -65,6 +66,66 @@ export function searchesFromConfig(config = {}) {
 }
 
 /**
+ * A LinkedIn search that carries real facets, as the URL that runs it.
+ *
+ * A keyword string cannot say "in Theni" — it can only say the word "Theni",
+ * which is a different and much worse question. `geoUrn` and `serviceCategory`
+ * are the real filters, and they only fit in a URL, so a task that has them
+ * carries the URL instead of a search term.
+ */
+function facetUrl(term, facets) {
+  return buildQueryUrl({
+    scalars: { keywords: String(term || '').trim(), origin: 'FACETED_SEARCH' },
+    facets,
+  });
+}
+
+/** Facet values, dropping the ones nothing was chosen for. */
+function usedFacets(config) {
+  const out = {};
+  for (const [name, values] of Object.entries(config.facets || {})) {
+    const list = (values || []).map((v) => String(v || '').trim()).filter(Boolean);
+    if (list.length) out[name] = list;
+  }
+  return out;
+}
+
+/**
+ * The searches a LinkedIn run with facets should make.
+ *
+ * One search per location when asked, because a people search stops after a
+ * fixed number of pages however good the filter is: two places in one search
+ * share that ceiling instead of getting one each. This is the LinkedIn
+ * equivalent of the geographic grid Maps gets.
+ */
+export function facetSearches(config = {}) {
+  // Facets are LinkedIn's. A Maps run with a leftover geoUrn from a people
+  // search would otherwise be sent to a LinkedIn URL.
+  if (config.source !== 'linkedin') return [];
+  const facets = usedFacets(config);
+  if (!Object.keys(facets).length) return [];
+
+  const term = buildTerm(config.source, config.category, '');
+  const labels = (config.facetLabels && config.facetLabels.geoUrn) || [];
+  const query = { scalars: {}, facets };
+  const places = facets.geoUrn || [];
+
+  const split = config.splitLocations && places.length > 1;
+  if (!split) {
+    return [{ category: config.category || '', city: labels.join(', '), term, url: facetUrl(term, facets) }];
+  }
+
+  return partition(query, 'geoUrn', places).map((one, index) => ({
+    category: config.category || '',
+    // The label, not the id: this is what lands on every record and in the
+    // export's filename.
+    city: labels[index] || '',
+    term,
+    url: facetUrl(term, one.facets),
+  }));
+}
+
+/**
  * The initial queue: one "locate" task per search.
  *
  * A locate task runs the plain search, which both collects its own results and
@@ -96,7 +157,11 @@ export function buildTaskList(config = {}) {
   // A LinkedIn people search is not geographic, so no grid is laid over it
   // however the coverage control is set.
   const steps = supportsGrid(config.source) ? gridSteps(config.grid) : 1;
-  return searchesFromConfig(config).map((search, index) => ({
+  // Facets outrank the typed city: a real location filter and the word
+  // "Theni" in the keywords are not the same search, and only one of them
+  // is the one the user asked for.
+  const searches = facetSearches(config);
+  return (searches.length ? searches : searchesFromConfig(config)).map((search, index) => ({
     id: `s${index}`,
     ...search,
     point: null,

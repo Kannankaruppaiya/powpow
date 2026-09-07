@@ -9,6 +9,7 @@ import {
   insertAfter,
   nextPending,
   taskProgress,
+  facetSearches,
 } from '../src/lib/tasks.js';
 
 test('parseBatch reads both separators people type', () => {
@@ -156,4 +157,52 @@ test('a normal run is unaffected by the current-tab branch', () => {
   const tasks = buildTaskList({ source: 'maps', category: 'dentists', city: 'Chennai', grid: 'balanced' });
   assert.equal(tasks[0].useCurrentTab, undefined);
   assert.equal(tasks[0].term, 'dentists in Chennai');
+});
+
+test('LinkedIn facets never reach a Maps run', () => {
+  // The panel keeps a chosen location between runs, so a people search left a
+  // geoUrn behind and the next Maps search would have been sent to a LinkedIn
+  // URL with a Maps search term in it.
+  const leftover = {
+    source: 'maps',
+    category: 'dentists',
+    city: 'Chennai',
+    facets: { geoUrn: ['102713980'] },
+    facetLabels: { geoUrn: ['India'] },
+  };
+  assert.deepEqual(facetSearches(leftover), []);
+
+  const [task] = buildTaskList(leftover);
+  assert.equal(task.url, undefined, 'a Maps task builds its own URL from the term');
+  assert.equal(task.term, 'dentists in Chennai');
+});
+
+test('a LinkedIn run with facets carries the URL, not a keyword place', () => {
+  const [task] = buildTaskList({
+    source: 'linkedin',
+    category: 'kotlin',
+    facets: { geoUrn: ['102713980'], serviceCategory: ['20016'] },
+    facetLabels: { geoUrn: ['India'] },
+  });
+  assert.match(task.url, /keywords=kotlin/);
+  assert.match(task.url, /geoUrn=%5B%22102713980%22%5D/);
+  assert.match(task.url, /serviceCategory=%5B%2220016%22%5D/);
+  // The label, not the id, is what lands on the records and in the filename.
+  assert.equal(task.city, 'India');
+});
+
+test('two places become two searches only when asked', () => {
+  const config = {
+    source: 'linkedin',
+    category: 'kotlin',
+    facets: { geoUrn: ['101138777', '106888327'] },
+    facetLabels: { geoUrn: ['Theni', 'Chennai'] },
+  };
+  assert.equal(buildTaskList(config).length, 1, 'both places in one search by default');
+
+  const split = buildTaskList({ ...config, splitLocations: true });
+  assert.equal(split.length, 2);
+  assert.deepEqual(split.map((t) => t.city), ['Theni', 'Chennai']);
+  assert.match(split[0].url, /geoUrn=%5B%22101138777%22%5D/);
+  assert.match(split[1].url, /geoUrn=%5B%22106888327%22%5D/);
 });

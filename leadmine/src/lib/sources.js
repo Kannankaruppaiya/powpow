@@ -41,8 +41,11 @@ export const SOURCES = {
     supportsGrid: false,
     // People have no website to read an address off, so the email pass is moot.
     supportsEmails: false,
-    // A person has no category, but their headline says what they do.
-    filterField: 'headline',
+    // A person has no category, and their headline is not the whole story:
+    // the best result for "kotlin trainer" had "Software Developer" as its
+    // headline and "AI Trainer" only in the line below it. Narrowing on the
+    // headline alone set that person aside.
+    filterField: ['headline', 'summary', 'company'],
     filterLabel: 'Headline contains',
     filterHint: 'Only keep people whose headline matches',
     urlPart: '/search/results/',

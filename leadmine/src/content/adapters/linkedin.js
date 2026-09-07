@@ -393,11 +393,70 @@
     'profileLanguage', 'openToVolunteer', 'contactInterest',
   ]);
 
+  /**
+   * Labels seen on filter options, keyed by the id LinkedIn puts in the URL.
+   *
+   * LinkedIn's facets take ids, not names — geoUrn wants 102713980, not
+   * "India" — and those ids are internal, undocumented and not derivable. The
+   * only place both halves appear together is the filter panel: the checkbox
+   * carries the id, its label carries the name. So whenever the user ticks
+   * one, both are recorded here, and `learnedUrns` pairs them with whichever
+   * URL parameter the id then turns up in.
+   *
+   * Observation only. Nothing is inferred, and a value seen without a label
+   * is simply not learned — a wrong id searches the wrong place and hands
+   * back a plausible spreadsheet, which is worse than knowing nothing.
+   */
+  const seenLabels = new Map();
+
+  function noteOption(input) {
+    if (!input || input.type !== 'checkbox' || !input.value) return;
+    const byFor = input.id && document.querySelector(`label[for="${CSS.escape(input.id)}"]`);
+    const label = norm((byFor || input.closest('label') || input.parentElement || {}).textContent);
+    // A bare number is the id echoed back, not a name for it.
+    if (!label || /^\d+$/.test(label)) return;
+    seenLabels.set(input.value, label);
+  }
+
+  document.addEventListener(
+    'change',
+    (event) => {
+      const target = event.target;
+      if (target && target.tagName === 'INPUT') noteOption(target);
+    },
+    true
+  );
+
+  /** Every id in the current URL that we now have a name for. */
+  function learnedUrns() {
+    const out = [];
+    for (const [facet, raw] of new URLSearchParams(location.search)) {
+      if (!raw || raw[0] !== '[') continue;
+      let values;
+      try {
+        values = JSON.parse(raw);
+      } catch {
+        continue;
+      }
+      if (!Array.isArray(values)) continue;
+      for (const id of values) {
+        const label = seenLabels.get(String(id));
+        if (label) out.push({ facet, id: String(id), label });
+      }
+    }
+    return out;
+  }
+
   function searchContext() {
     const params = new URLSearchParams(location.search);
+    // Anything already on screen when a run starts is worth recording too —
+    // a panel left open, or options rendered before the listener attached.
+    for (const input of document.querySelectorAll('input[type="checkbox"]')) noteOption(input);
     return {
       query: norm(params.get('keywords') || ''),
       filters: readFilters(),
+      url: location.href,
+      learned: learnedUrns(),
     };
   }
 

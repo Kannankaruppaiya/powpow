@@ -205,7 +205,7 @@ async function openPanel(
   t,
   {
     idle = false, paused = false, running = false, linkedin = false,
-    aiKey = '', noManifest = false, stale = false,
+    aiKey = '', urns = null, noManifest = false, stale = false,
   } = {}
 ) {
   let chromium;
@@ -227,6 +227,14 @@ async function openPanel(
   if (paused) await page.addInitScript(() => { window.__paused = true; });
   if (running) await page.addInitScript(() => { window.__running = true; });
   if (linkedin) await page.addInitScript(() => { window.__linkedin = true; });
+  // Filter ids the extension has already learned, as a run would have left
+  // them. The harness's storage lives in the page, so this has to be seeded
+  // before the panel loads rather than written afterwards.
+  if (urns) {
+    await page.addInitScript((table) => {
+      window.__storage = { ...(window.__storage || {}), 'mls.urns': table };
+    }, urns);
+  }
   if (stale) await page.addInitScript(() => { window.__stale = true; });
   if (aiKey) {
     // Deliberately the shape an older build wrote — one key, no provider — so
@@ -1368,6 +1376,102 @@ test('the picker only fills the box — typing a town still runs it', async (t) 
     const config = await ctx.page.evaluate(() => window.__started);
     assert.equal(config.city, 'Kumbakonam', 'what is in the box is what runs');
     assert.equal(config.country, '', 'and no country was needed to get there');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('LinkedIn’s own filters are offered — and only the ones ever observed', async (t) => {
+  // A place in `keywords` is not a location filter: it is a word LinkedIn
+  // hunts for anywhere in a profile, which is why searching Theni returned
+  // people in Coimbatore. These are the real ones, and they take LinkedIn's
+  // internal ids — so the list holds only what has actually been seen.
+  const ctx = await openPanel(t, { idle: true });
+  if (!ctx) return;
+  try {
+    assert.equal(await ctx.page.isVisible('#liFilters'), false, 'Maps has no such thing');
+
+    await ctx.page.click('#sourceGroup label.seg:has(input[value="linkedin"])');
+    await ctx.page.waitForTimeout(250);
+    assert.equal(await ctx.page.isVisible('#liFilters'), true);
+    assert.equal(await ctx.page.isVisible('#placeRow'), false, 'one location control, not two');
+
+    await ctx.page.fill('#geoInput', 'India');
+    await ctx.page.click('#geoAdd');
+    await ctx.page.waitForTimeout(150);
+    assert.equal(await ctx.page.textContent('#geoChips'), 'India✕');
+
+    // The important half: a label nobody has ever applied is refused, and the
+    // refusal says exactly what to do about it. Guessing an id would search
+    // somewhere else and hand back a spreadsheet that looks perfectly right.
+    await ctx.page.fill('#geoInput', 'Munnar');
+    await ctx.page.click('#geoAdd');
+    await ctx.page.waitForTimeout(150);
+    assert.match(await ctx.page.textContent('#geoHelp'), /not known yet/i);
+    assert.match(await ctx.page.textContent('#geoHelp'), /apply it once on LinkedIn/i);
+    assert.equal(await ctx.page.textContent('#geoChips'), 'India✕', 'and nothing was added');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('a chosen filter reaches the run as an id, not as a word', async (t) => {
+  const ctx = await openPanel(t, { idle: true });
+  if (!ctx) return;
+  try {
+    await ctx.page.evaluate(() => {
+      window.__started = null;
+      const send = chrome.runtime.sendMessage;
+      chrome.runtime.sendMessage = async (m) => {
+        if (m.type === 'START_JOB') window.__started = m.config;
+        return send(m);
+      };
+    });
+
+    await ctx.page.click('#sourceGroup label.seg:has(input[value="linkedin"])');
+    await ctx.page.waitForTimeout(250);
+    await ctx.page.fill('#category', 'kotlin');
+    await ctx.page.fill('#geoInput', 'India');
+    await ctx.page.click('#geoAdd');
+    await ctx.page.fill('#svcInput', 'Corporate Training');
+    await ctx.page.click('#svcAdd');
+    await ctx.page.waitForTimeout(200);
+
+    // A real location filter makes the free-text place meaningless, and a box
+    // that is silently ignored is a box people fill in and then distrust.
+    assert.equal(await ctx.page.isDisabled('#city'), true);
+    assert.equal(await ctx.page.isVisible('#cityIgnored'), true);
+
+    await ctx.page.click('#start');
+    await ctx.page.waitForTimeout(400);
+
+    const config = await ctx.page.evaluate(() => window.__started);
+    assert.deepEqual(config.facets.geoUrn, ['102713980'], 'the id, seen on a live page');
+    assert.deepEqual(config.facets.serviceCategory, ['20016']);
+    assert.deepEqual(config.facetLabels.geoUrn, ['India'], 'the label, for the records');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('splitting is offered only when there is something to split', async (t) => {
+  // A second place, learned the way a real run would have learned it.
+  const ctx = await openPanel(t, {
+    idle: true,
+    urns: { geoUrn: { theni: { id: '101138777', label: 'Theni' } } },
+  });
+  if (!ctx) return;
+  try {
+    await ctx.page.click('#sourceGroup label.seg:has(input[value="linkedin"])');
+    await ctx.page.waitForTimeout(250);
+    assert.equal(await ctx.page.isVisible('#optSplit'), false, 'nothing chosen, nothing to split');
+
+    for (const place of ['India', 'Theni']) {
+      await ctx.page.fill('#geoInput', place);
+      await ctx.page.click('#geoAdd');
+      await ctx.page.waitForTimeout(150);
+    }
+    assert.equal(await ctx.page.isVisible('#optSplit'), true, 'two places, one search each');
   } finally {
     await ctx.close();
   }

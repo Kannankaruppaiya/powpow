@@ -255,6 +255,59 @@ async function run(t, { url, config = {}, mutate } = {}) {
   return result;
 }
 
+test('the name LinkedIn gives a filter is learned alongside its id', async (t) => {
+  // LinkedIn's facets take ids, not names: geoUrn wants 102713980, not
+  // "India". Those ids are internal and not derivable, so the only place both
+  // halves appear together is the filter panel — the checkbox carries the id,
+  // its label carries the name. This is the pairing the whole facet feature
+  // rests on, and nothing else in the extension can produce it.
+  const result = await run(t, {
+    mutate: async (page) => {
+      await page.evaluate(() => {
+        const panel = document.createElement('div');
+        panel.innerHTML =
+          '<input type="checkbox" id="opt_102713980" value="102713980">' +
+          '<label for="opt_102713980">India</label>';
+        document.body.appendChild(panel);
+      });
+    },
+  });
+  if (!result) return;
+
+  // The fixture's URL carries geoUrn=["102713980"], so the id in the URL and
+  // the label on the option are now paired.
+  assert.deepEqual(result.context.learned, [
+    { facet: 'geoUrn', id: '102713980', label: 'India' },
+  ]);
+});
+
+test('an id with no name attached is not learned', async (t) => {
+  // Half an observation is a guess, and a guessed geoUrn does not fail — it
+  // searches somewhere else and hands back a plausible spreadsheet.
+  const result = await run(t, {
+    mutate: async (page) => {
+      await page.evaluate(() => {
+        const panel = document.createElement('div');
+        // A checkbox whose only text is the id echoed back is not a name.
+        panel.innerHTML =
+          '<input type="checkbox" id="opt_102713980" value="102713980">' +
+          '<label for="opt_102713980">102713980</label>';
+        document.body.appendChild(panel);
+      });
+    },
+  });
+  if (!result) return;
+  assert.deepEqual(result.context.learned, []);
+});
+
+test('the URL a run was told to use is reported back with the results', async (t) => {
+  // A facet-driven task navigates to a URL the panel built; the context is
+  // what proves the page it actually landed on is that one.
+  const result = await run(t);
+  if (!result) return;
+  assert.match(result.context.url, /geoUrn=%5B%22102713980%22%5D/);
+});
+
 test('the LinkedIn adapter is chosen for a People search URL', async (t) => {
   const result = await run(t);
   if (!result) return;

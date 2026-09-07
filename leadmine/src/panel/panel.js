@@ -16,6 +16,7 @@ import { summariseRates } from '../lib/health.js';
 import { suggestionsFor, observedCategories } from '../lib/categories.js';
 import { planSearches, listModels, planToBatch, providerFor, DEFAULT_PROVIDER } from '../lib/ai.js';
 import { loadCountries, loadCountry, citiesFor, regionsFor, CITY_LIMIT } from '../lib/places.js';
+import { URN_KEY, withSeed, lookup, labelsFor } from '../lib/urns.js';
 import * as store from '../lib/store.js';
 
 const SETTINGS_KEY = 'mls.settings';
@@ -47,7 +48,10 @@ const ui = Object.fromEntries(
     'optEmails', 'optContact', 'optVerify', 'optDeep',
     'optCurrentTab', 'useCurrentTab', 'currentTabHint',
     'category', 'city', 'batch', 'grid', 'maxResults',
-    'country', 'region', 'cityOptions', 'placeRow', 'placeHint',
+    'country', 'region', 'cityOptions', 'placeRow', 'placeHint', 'cityIgnored',
+    'liFilters', 'optSplit', 'splitLocations',
+    'geoInput', 'geoAdd', 'geoOptions', 'geoChips', 'geoHelp',
+    'svcInput', 'svcAdd', 'svcOptions', 'svcChips',
     'categoryFilter', 'categoryFilterRow', 'categoryOptions', 'filterLabel', 'filterHint',
     'filterChip', 'filterChipText',
     'deep', 'fetchEmails', 'followContactPage', 'verifyEmails', 'skipSeen', 'seenNote',
@@ -231,6 +235,12 @@ function applySource() {
   applyCityOptions();
   ui.coverageRow.hidden = !conf.grid;
   applyCoverage();
+  // The country/state picker names places; LinkedIn's filter takes its own
+  // ids. Two location controls on one form is one too many.
+  const people = ui.source.value === 'linkedin';
+  ui.liFilters.hidden = !people;
+  ui.placeRow.hidden = people;
+  applyFacets();
   // The detail pass only exists for Maps; a LinkedIn card already carries
   // everything, so offering the option would be a lie about what it does.
   ui.optDeep.hidden = !conf.grid;
@@ -370,6 +380,114 @@ ui.region.addEventListener('change', () => {
   saveSettings();
 });
 
+/* ------------------------------------------------------ LinkedIn filters */
+
+/*
+ * LinkedIn's own filters, which take ids rather than names.
+ *
+ * `geoUrn` wants 102713980, not "India". Those ids are LinkedIn's internal
+ * numbers — undocumented and not derivable — so the only ones offered here are
+ * the ones actually seen on a live page, either seeded or learned when the
+ * user applied that filter by hand. Asked for a label nobody has ever applied,
+ * this says so rather than guessing: a wrong id searches somewhere else and
+ * hands back a spreadsheet of the wrong people that looks entirely correct.
+ */
+
+let urns = {};
+/** What the user has chosen, as [{ id, label }] per facet. */
+const chosen = { geoUrn: [], serviceCategory: [] };
+
+const FACET_UI = {
+  geoUrn: { input: 'geoInput', options: 'geoOptions', chips: 'geoChips', help: 'geoHelp' },
+  serviceCategory: { input: 'svcInput', options: 'svcOptions', chips: 'svcChips' },
+};
+
+async function restoreUrns() {
+  const stored = await chrome.storage.local.get(URN_KEY);
+  urns = withSeed(stored[URN_KEY]);
+  for (const facet of Object.keys(FACET_UI)) fillFacetOptions(facet);
+}
+
+function fillFacetOptions(facet) {
+  const ui_ = FACET_UI[facet];
+  ui[ui_.options].replaceChildren(
+    ...labelsFor(urns, facet).map((label) => new Option(label))
+  );
+}
+
+function renderChips(facet) {
+  const ui_ = FACET_UI[facet];
+  ui[ui_.chips].replaceChildren(
+    ...chosen[facet].map((value) => {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.title = `${value.label} — click to remove`;
+      chip.append(Object.assign(document.createElement('span'), { textContent: value.label }));
+      chip.append(Object.assign(document.createElement('em'), { textContent: '✕' }));
+      chip.addEventListener('click', () => {
+        chosen[facet] = chosen[facet].filter((v) => v.id !== value.id);
+        renderChips(facet);
+        applyFacets();
+        saveSettings();
+      });
+      return chip;
+    })
+  );
+}
+
+/**
+ * Add a value, or explain why it cannot be added yet.
+ *
+ * The "cannot yet" path is the important one: it names the exact thing to do
+ * once on LinkedIn, after which this label is known forever.
+ */
+function addFacet(facet) {
+  const ui_ = FACET_UI[facet];
+  const label = ui[ui_.input].value.trim();
+  if (!label) return;
+
+  const id = lookup(urns, facet, label);
+  if (!id) {
+    if (ui_.help) {
+      ui[ui_.help].textContent =
+        `LinkedIn's id for “${label}” is not known yet. Apply it once on LinkedIn ` +
+        '— open the filter, tick it, press Show results — and LeadMine will ' +
+        'remember it from then on.';
+    }
+    return;
+  }
+
+  if (!chosen[facet].some((v) => v.id === id)) chosen[facet].push({ id, label });
+  ui[ui_.input].value = '';
+  if (ui_.help) ui[ui_.help].textContent = '';
+  renderChips(facet);
+  applyFacets();
+  saveSettings();
+}
+
+/** Show the split option only when there is something to split. */
+function applyFacets() {
+  // These are LinkedIn's filters. Left over from a people search, they must
+  // not reach across and disable the Maps form.
+  const people = ui.source.value === 'linkedin';
+  const places = people ? chosen.geoUrn.length : 0;
+  ui.optSplit.hidden = places < 2;
+  // A real location filter makes the free-text place meaningless, and a box
+  // that is silently ignored is a box people fill in and then distrust.
+  ui.city.disabled = places > 0;
+  ui.cityIgnored.hidden = !places;
+}
+
+for (const [facet, ui_] of Object.entries(FACET_UI)) {
+  ui[`${facet === 'geoUrn' ? 'geo' : 'svc'}Add`].addEventListener('click', () => addFacet(facet));
+  ui[ui_.input].addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    // The form would otherwise take this as "start the run".
+    event.preventDefault();
+    addFacet(facet);
+  });
+}
+
 /* ------------------------------------------------------------------- tabs */
 
 function setView(showResults) {
@@ -416,6 +534,13 @@ async function restoreSettings() {
   ui.city.value = s.city ?? '';
   ui.country.value = s.country ?? '';
   ui.region.value = s.region ?? '';
+  ui.splitLocations.checked = s.splitLocations !== false;
+  for (const facet of Object.keys(chosen)) {
+    const ids = (s.facets && s.facets[facet]) || [];
+    const labels = (s.facetLabels && s.facetLabels[facet]) || [];
+    chosen[facet] = ids.map((id, i) => ({ id, label: labels[i] || id })).filter((v) => v.id);
+    renderChips(facet);
+  }
   ui.batch.value = s.batch ?? '';
   ui.grid.value = s.grid || 'balanced';
   // Blank and zero mean the same thing to `readConfig`, and blank is the one
@@ -454,6 +579,15 @@ function readConfig() {
     // ever reads `city`, which is the box these two helped fill in.
     country: ui.country.value,
     region: ui.region.value,
+    // LinkedIn's real filters: ids for the run, labels for the records and
+    // for putting the form back the way it was.
+    facets: Object.fromEntries(
+      Object.entries(chosen).map(([facet, values]) => [facet, values.map((v) => v.id)])
+    ),
+    facetLabels: Object.fromEntries(
+      Object.entries(chosen).map(([facet, values]) => [facet, values.map((v) => v.label)])
+    ),
+    splitLocations: ui.splitLocations.checked,
     // Only send the batch text when the batch tab is active, so a leftover
     // draft cannot hijack a single search.
     batch: batchMode ? ui.batch.value : '',
@@ -1327,6 +1461,7 @@ function showVersion() {
   // Before the settings, which restore a country by its code — an <option>
   // that does not exist yet cannot be selected.
   await fillCountries();
+  await restoreUrns();
   await restoreSettings();
   // And after them: this is what reads the country file the saved code names.
   await applyCountry({ keepRegion: true });

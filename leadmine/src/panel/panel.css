@@ -180,6 +180,28 @@ body {
 .chip:hover { border-color: currentColor; }
 .chip-x { flex: none; opacity: 0.7; font-size: 10px; }
 
+/* A chosen filter value, and the way to drop it. Same shape as the narrowing
+   chip in the action bar, in the accent rather than the warning colour: these
+   are choices, not warnings. */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips:empty { display: none; }
+.chips button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 3px var(--s-2) 3px 10px;
+  font: var(--w-medium) var(--t-small) / 1.4 var(--font);
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  cursor: pointer;
+}
+.chips button:hover { border-color: var(--accent-line); }
+.chips span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chips em { flex: none; font-style: normal; opacity: 0.7; font-size: 10px; }
+
 /* --- layout helpers ---------------------------------------------------- */
 
 .pane p { margin: 0; }

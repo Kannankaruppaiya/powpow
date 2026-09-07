@@ -27,6 +27,7 @@ import { filterByCategory } from '../lib/categories.js';
 import { sourceFor, buildUrl, DEFAULT_SOURCE } from '../lib/sources.js';
 import * as store from '../lib/store.js';
 import { buildTaskList, expandGridTasks, insertAfter, nextPending, taskProgress } from '../lib/tasks.js';
+import { URN_KEY, withSeed, learn } from '../lib/urns.js';
 
 const STORE_KEY = 'mls.job';
 
@@ -249,7 +250,10 @@ async function runTask(task, config, tabId) {
   const source = sourceFor(config.source);
 
   if (!task.useCurrentTab) {
-    const url = buildUrl(source.id, task.term, task.point);
+    // A LinkedIn task built from facets already knows its exact URL — the
+    // keyword string cannot express geoUrn or serviceCategory, so it is not
+    // asked to.
+    const url = task.url || buildUrl(source.id, task.term, task.point);
     await chrome.tabs.update(tabId, { url, active: !config.background });
     await waitForTabComplete(tabId, source.urlPart);
     // Maps hydrates its feed after `complete`; a short settle avoids a race.
@@ -271,8 +275,25 @@ async function runTask(task, config, tabId) {
   // The page knows what it is searching for; on a current-tab run that is the
   // only place the query and the user's filters exist.
   if (response.context) task.context = response.context;
+  // The page is the only place a filter's name and LinkedIn's id for it appear
+  // together. Whatever it saw, keep — one filter applied by hand is one filter
+  // this extension can build for itself from then on.
+  if (response.context && response.context.learned) await rememberUrns(response.context.learned);
   if (response.stoppedBecause) task.stoppedBecause = response.stoppedBecause;
   return response.records || [];
+}
+
+/**
+ * Store filter-name-to-id pairs the page handed back.
+ *
+ * Written only when something is genuinely new, because this runs after every
+ * task and a run that learned nothing should not touch storage.
+ */
+async function rememberUrns(pairs) {
+  if (!pairs || !pairs.length) return;
+  const stored = await chrome.storage.local.get(URN_KEY);
+  const { table, changed } = learn(withSeed(stored[URN_KEY]), pairs);
+  if (changed) await chrome.storage.local.set({ [URN_KEY]: table });
 }
 
 /** Drive the queue until it drains, is cancelled, or hits a fatal error. */

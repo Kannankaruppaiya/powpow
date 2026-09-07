@@ -366,6 +366,65 @@ Three design notes worth knowing:
 
 ---
 
+## LinkedIn's own filters
+
+A place typed into a LinkedIn search is **not a location filter**. It is a word
+LinkedIn hunts for anywhere in a profile — which is why a search for
+`finance head theni` came back full of people in Coimbatore and Chennai whose
+profiles merely mention Tamil Nadu.
+
+The real filters are separate, and they take LinkedIn's **internal ids**:
+
+```
+?keywords=kotlin&origin=FACETED_SEARCH
+  &geoUrn=%5B%22102713980%22%5D          ["102713980"]  = India
+  &serviceCategory=%5B%2220016%22%5D     ["20016"]      = Corporate Training
+```
+
+Those ids are not published, not documented and not derivable from the name,
+so **there is no table to ship**. LeadMine learns them instead. Whenever you
+apply a filter on LinkedIn by hand, the content script sees both halves at
+once — the label on the checkbox you ticked and the id that lands in the URL —
+and pairs them. One filter, applied once, is known forever after.
+
+Ask for a value it has never seen and it says so, naming exactly what to do:
+
+> LinkedIn's id for "Munnar" is not known yet. Apply it once on LinkedIn —
+> open the filter, tick it, press Show results — and LeadMine will remember it
+> from then on.
+
+**It never guesses.** A wrong id does not fail; it quietly searches somewhere
+else and hands back a spreadsheet of the wrong people that looks entirely
+correct. Two ids ship as seeds because both were read off a live page with the
+label and the id visible together; two more have been observed but which label
+belongs to which is an inference, so they are left to be learned properly.
+
+With more than one location chosen, **One search per location** runs them
+separately. A people search stops after a fixed number of pages however good
+the filter is, so two places in one search share that ceiling instead of
+getting one each — the same reason Maps runs get a geographic grid.
+
+### Search the rare word, filter the common one
+
+LinkedIn's free people search is not a boolean engine. `kotlin trainer` does
+not mean "both" — it is a relevance ranking over a bag of words, biased hard
+towards your own network, so it returns "trainer" matches with no Kotlin
+anywhere in them.
+
+Give LinkedIn the *rare* term and let LeadMine narrow on the common one:
+
+```
+LinkedIn:   kotlin        + Location: India + Service category: Corporate Training
+LeadMine:   Headline contains: trainer
+```
+
+The narrowing filter reads a person's headline, their current role and their
+employer, not the headline alone — the best result for "kotlin trainer" had
+`Software Developer` as its headline and the word *Trainer* only in the line
+underneath.
+
+---
+
 ## Where the place lists come from
 
 The "Where?" picker offers 250 countries, ~5,300 states and ~152,000 towns.

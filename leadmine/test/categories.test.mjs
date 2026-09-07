@@ -96,3 +96,31 @@ test('suggestions still work before any run has happened', () => {
   const out = suggestionsFor([]);
   assert.deepEqual(out, COMMON_CATEGORIES);
 });
+
+test('a person is filtered on everything their card says, not just the headline', () => {
+  // The live case: LinkedIn's best result for "kotlin trainer" carried the
+  // word Trainer only in its "Current:" line. Filtering the headline alone
+  // set the single most relevant person aside.
+  const people = [
+    {
+      name: 'Shishupalsingh Bhati',
+      headline: 'Software Developer @Invisible| JAVA | KOTLIN | DSA |',
+      summary: 'Current: Kotlin Coding Specialist - AI Trainer at Invisible Technologies',
+      company: 'Invisible Technologies',
+    },
+    { name: 'Someone Else', headline: 'Product Manager', summary: '', company: 'Acme' },
+  ];
+
+  const fields = ['headline', 'summary', 'company'];
+  const { kept, dropped } = filterByCategory(people, 'trainer', fields);
+  assert.equal(kept.length, 1);
+  assert.equal(kept[0].name, 'Shishupalsingh Bhati');
+  assert.equal(dropped.length, 1);
+
+  // The headline alone is what used to be matched, and it loses them.
+  assert.equal(filterByCategory(people, 'trainer', 'headline').kept.length, 0);
+
+  // A term in any one of the fields is enough.
+  assert.equal(filterByCategory(people, 'invisible', fields).kept.length, 1);
+  assert.equal(filterByCategory(people, 'kotlin', fields).kept.length, 1);
+});

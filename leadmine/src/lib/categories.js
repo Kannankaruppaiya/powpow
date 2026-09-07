@@ -96,12 +96,31 @@ export function matchesCategory(value, terms) {
 }
 
 /**
+ * The text a filter is matched against, which is more than one field for a
+ * person.
+ *
+ * A business carries its category in one place. A person does not: LinkedIn's
+ * best lead for "kotlin trainer" had the headline "Software Developer
+ * @Invisible | JAVA | KOTLIN | DSA" and the word *Trainer* only in the line
+ * underneath — "Current: Kotlin Coding Specialist - AI Trainer". Filtering the
+ * headline alone set the best result aside.
+ */
+function filterText(record, field) {
+  const fields = Array.isArray(field) ? field : [field];
+  return fields
+    .map((name) => String((record && record[name]) || '').trim())
+    .filter(Boolean)
+    .join(' · ');
+}
+
+/**
  * Split records into the ones to keep and the ones to drop.
  *
  * `field` differs by source: a business has a category, a person has a
- * headline. Records with nothing in that field are dropped when a filter is
- * set — an unlabelled row cannot be shown to satisfy the filter, and silently
- * keeping it would defeat the point of narrowing.
+ * headline, a current role and an employer. Records with nothing in any of
+ * those fields are dropped when a filter is set — an unlabelled row cannot be
+ * shown to satisfy the filter, and silently keeping it would defeat the point
+ * of narrowing.
  */
 export function filterByCategory(records, text, field = 'category') {
   const terms = parseCategoryFilter(text);
@@ -110,7 +129,7 @@ export function filterByCategory(records, text, field = 'category') {
   const kept = [];
   const dropped = [];
   for (const record of records || []) {
-    (matchesCategory(record && record[field], terms) ? kept : dropped).push(record);
+    (matchesCategory(filterText(record, field), terms) ? kept : dropped).push(record);
   }
   return { kept, dropped };
 }

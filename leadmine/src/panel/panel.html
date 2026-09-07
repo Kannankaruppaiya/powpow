@@ -97,6 +97,65 @@
                    placeholder="Chennai" autocomplete="off" />
             <datalist id="cityOptions"></datalist>
             <span class="help" id="placeHint" hidden></span>
+            <!-- Said only when a real location filter is doing the work, so
+                 the box above is not silently ignored. -->
+            <span class="help" id="cityIgnored" hidden>
+              The LinkedIn location filter below is doing this job — anything
+              typed here would only be a word to hunt for.
+            </span>
+          </div>
+
+          <!--
+            LinkedIn's own filters.
+
+            A place in `keywords` is not a location filter: it is a word
+            LinkedIn looks for anywhere in a profile, which is why searching
+            Theni returned people in Coimbatore and Chennai. These are the real
+            ones — but they take LinkedIn's internal ids, not names, so the
+            list offers only what has actually been seen on a live page. See
+            src/lib/urns.js for why nothing here is ever guessed.
+          -->
+          <div class="field" id="liFilters" hidden>
+            <div class="field">
+              <span class="label">
+                Location <em class="optional">LinkedIn filter</em>
+              </span>
+              <div class="row">
+                <input id="geoInput" class="input grow" list="geoOptions"
+                       placeholder="India" autocomplete="off" aria-label="Location filter" />
+                <button type="button" id="geoAdd" class="btn btn--sm">Add</button>
+              </div>
+              <datalist id="geoOptions"></datalist>
+              <div class="chips" id="geoChips"></div>
+              <span class="help" id="geoHelp"></span>
+            </div>
+
+            <div class="field">
+              <span class="label">
+                Service category <em class="optional">LinkedIn filter</em>
+              </span>
+              <div class="row">
+                <input id="svcInput" class="input grow" list="svcOptions"
+                       placeholder="Corporate Training" autocomplete="off"
+                       aria-label="Service category filter" />
+                <button type="button" id="svcAdd" class="btn btn--sm">Add</button>
+              </div>
+              <datalist id="svcOptions"></datalist>
+              <div class="chips" id="svcChips"></div>
+              <span class="help" id="svcHelp">
+                People who advertise this as a service they offer — the sharpest
+                filter there is for finding trainers.
+              </span>
+            </div>
+
+            <label class="check" id="optSplit" hidden>
+              <input type="checkbox" id="splitLocations" checked />
+              <span>
+                <strong>One search per location</strong>
+                <em>A search stops after a fixed number of pages, so each place
+                    gets its own instead of sharing one</em>
+              </span>
+            </label>
           </div>
         </div>
 
