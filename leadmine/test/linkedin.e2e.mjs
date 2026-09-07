@@ -21,6 +21,7 @@ const CONTENT_SCRIPTS = [
   'src/content/engine.js',
   'src/content/adapters/maps.js',
   'src/content/adapters/linkedin.js',
+  'src/content/adapters/web.js',
 ].map((f) => readFileSync(join(ROOT, f), 'utf8'));
 
 function findChromium() {

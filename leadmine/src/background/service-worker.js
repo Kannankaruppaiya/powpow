@@ -207,6 +207,7 @@ async function ensureContentScript(tabId) {
       'src/content/engine.js',
       'src/content/adapters/maps.js',
       'src/content/adapters/linkedin.js',
+      'src/content/adapters/web.js',
     ],
   });
   await new Promise((r) => setTimeout(r, 300));

@@ -274,6 +274,12 @@ select.input { appearance: auto; }
 .seg span {
   display: block;
   padding: 6px var(--s-2);
+  /* Three sources at 400px leave about 100px a cell. A segment is a label,
+     not a paragraph: on one line the cells give width to whichever name needs
+     it, and a name too long for the panel pushes the control past the edge
+     where a test sees it. Wrapped, it would instead grow the row and quietly
+     push Start further down the panel. */
+  white-space: nowrap;
   font-size: var(--t-label);
   font-weight: var(--w-medium);
   text-align: center;

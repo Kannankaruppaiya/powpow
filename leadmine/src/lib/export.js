@@ -39,7 +39,17 @@ export const MAPS_COLUMNS = [
   { key: 'mapsUrl', label: 'Google Maps URL' },
 ];
 
-export const LINKEDIN_COLUMNS = [
+/*
+ * People, from either door.
+ *
+ * LinkedIn's own search and a search engine's results describe the same
+ * person with the same fields, so one column set covers both — and a file
+ * holding rows from both keeps every column either of them filled. Which door
+ * a row came through is a column of its own: a public-web row has no
+ * connection degree because there is no degree to have, not because the
+ * scrape missed it.
+ */
+export const PEOPLE_COLUMNS = [
   { key: 'name', label: 'Name' },
   { key: 'headline', label: 'Headline' },
   { key: 'company', label: 'Company' },
@@ -50,15 +60,20 @@ export const LINKEDIN_COLUMNS = [
   { key: 'profileUrl', label: 'Profile URL' },
   { key: 'photoUrl', label: 'Photo URL' },
   { key: 'searchCategory', label: 'Search' },
+  { key: 'source', label: 'Found Via' },
 ];
+
+/** The name this set had when LinkedIn was the only source of people. */
+export const LINKEDIN_COLUMNS = PEOPLE_COLUMNS;
 
 /** Kept as the default so existing callers and tests keep working. */
 export const COLUMNS = MAPS_COLUMNS;
 
 /** Choose columns from what the records actually are. */
 export function columnsFor(records) {
-  const source = (records || []).find((r) => r && r.source);
-  return source && source.source === 'linkedin' ? LINKEDIN_COLUMNS : MAPS_COLUMNS;
+  const first = (records || []).find((r) => r && r.source);
+  const id = first ? first.source : '';
+  return id === 'linkedin' || id === 'web' ? PEOPLE_COLUMNS : MAPS_COLUMNS;
 }
 
 function cell(record, key) {

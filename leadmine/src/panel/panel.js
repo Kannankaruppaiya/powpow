@@ -208,6 +208,39 @@ const SOURCE_UI = {
       'This reads the results you are already signed in to see. LinkedIn restricts ' +
       'accounts for automated collection, so keep runs small and infrequent.',
   },
+
+  /*
+   * The public web.
+   *
+   * LinkedIn's own search anonymises anyone outside your network — "LinkedIn
+   * Member", no name — so a search that reaches the whole site still returns
+   * rows nobody can act on. Their public profile page names them, and search
+   * engines have indexed it. Same people, different door, no login and no
+   * connection degree.
+   */
+  web: {
+    categoryLabel: 'What are you looking for?',
+    cityLabel: 'Where?',
+    categoryPlaceholder: 'corporate trainer kotlin',
+    cityPlaceholder: 'Chennai',
+    noun: 'people',
+    limitLabel: 'How many results?',
+    limitHint: 'Leave blank for every result the search engine will show.',
+    filterField: 'headline',
+    assistSub:
+      "Describe the person you need. I'll work out what to search the public web for.",
+    assistPlaceholder:
+      'I need freelance trainers who can teach Kotlin to corporate teams in India',
+    filterLabel: 'Result text contains',
+    filterHint: 'This matches the name, headline and snippet of the result.',
+    grid: false,
+    emails: false,
+    currentTab: false,
+    note:
+      'Reads public LinkedIn profiles out of a search engine — no LinkedIn login, and ' +
+      'no connection-degree limit, so it names people a signed-in search would show ' +
+      'only as “LinkedIn Member”. Public profiles only.',
+  },
 };
 
 function applySource() {
@@ -953,9 +986,7 @@ function renderAside() {
  * three the user wants to choose between.
  */
 function refreshCategoryOptions() {
-  const field = (SOURCE_UI[ui.source.value] || SOURCE_UI.maps) === SOURCE_UI.linkedin
-    ? 'headline'
-    : 'category';
+  const field = (SOURCE_UI[ui.source.value] || SOURCE_UI.maps).filterField;
   ui.categoryOptions.replaceChildren(
     ...suggestionsFor(rows, field).slice(0, 60).map((value) => {
       const option = document.createElement('option');
@@ -1004,44 +1035,49 @@ function applyFilter() {
 function leadCard(record) {
   const card = document.createElement('div');
   card.className = 'lead';
-  const lines =
-    record.source === 'linkedin'
-      ? [
+  // A record about a person, whichever door it came through. Rendering a
+  // web-sourced person as a business gave a card with an empty phone row and
+  // no headline at all.
+  const person = record.source === 'linkedin' || record.source === 'web';
+  const lines = person
+    ? [
+        [
+          'lead-1',
           [
-            'lead-1',
-            [
-              // A person's profile link is the thing you actually go and do
-              // something with, the way a phone number is for a business.
-              record.profileUrl
-                ? copyable(record.profileUrl, 'lead-name', record.name)
-                : text('lead-name', record.name),
-              text('lead-mark', record.degree),
-            ],
+            // A person's profile link is the thing you actually go and do
+            // something with, the way a phone number is for a business.
+            record.profileUrl
+              ? copyable(record.profileUrl, 'lead-name', record.name)
+              : text('lead-name', record.name),
+            // Outside LinkedIn there is no degree to show; the source is the
+            // useful mark, because it says why this row has no badge.
+            text('lead-mark', record.degree || (record.source === 'web' ? 'public' : '')),
           ],
-          ['lead-2', [text('lead-sub lead-headline', record.headline)]],
+        ],
+        ['lead-2', [text('lead-sub lead-headline', record.headline)]],
+        [
+          'lead-3',
           [
-            'lead-3',
-            [
-              text('lead-sub lead-area', [record.company, record.location].filter(Boolean).join(' · ')),
-              text('lead-tag', record.openToWork ? 'open to work' : ''),
-            ],
+            text('lead-sub lead-area', [record.company, record.location].filter(Boolean).join(' · ')),
+            text('lead-tag', record.openToWork ? 'open to work' : ''),
           ],
-        ]
-      : [
+        ],
+      ]
+    : [
+        [
+          'lead-1',
+          [text('lead-name', record.name), text('lead-mark', record.rating ? `★ ${record.rating}` : '')],
+        ],
+        [
+          'lead-2',
           [
-            'lead-1',
-            [text('lead-name', record.name), text('lead-mark', record.rating ? `★ ${record.rating}` : '')],
+            copyable(record.phone, 'lead-phone'),
+            record.area ? text('lead-dot', '·') : null,
+            record.area ? text('lead-sub lead-area', record.area) : null,
           ],
-          [
-            'lead-2',
-            [
-              copyable(record.phone, 'lead-phone'),
-              record.area ? text('lead-dot', '·') : null,
-              record.area ? text('lead-sub lead-area', record.area) : null,
-            ],
-          ],
-          ['lead-3', [emailCell(record), text('lead-tag', record.category)]],
-        ];
+        ],
+        ['lead-3', [emailCell(record), text('lead-tag', record.category)]],
+      ];
 
   for (const [cls, kids] of lines) {
     const row = document.createElement('div');

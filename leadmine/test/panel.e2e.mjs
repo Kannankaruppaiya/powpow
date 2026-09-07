@@ -120,6 +120,21 @@ const SETUP = (total) => {
           profileUrl: `https://www.linkedin.com/in/priya-sharma-${i}`,
         }
       : {}),
+    // The same person, found through a search engine instead. No degree, no
+    // open-to-work badge, and no phone — the card must still read as a person.
+    ...(window.__web
+      ? {
+          source: 'web',
+          name: `Raghu Vaidyanathan ${i}`,
+          headline: 'Corporate Trainer at Trioangle Technologies',
+          company: 'Trioangle Technologies',
+          location: 'Madurai, Tamil Nadu, India',
+          degree: '',
+          phone: '',
+          email: '',
+          profileUrl: `https://www.linkedin.com/in/raghu-v-${i}`,
+        }
+      : {}),
   }));
 
   // A real in-memory store, not a stub that forgets: the planner's key is
@@ -208,7 +223,7 @@ const SETUP = (total) => {
 async function openPanel(
   t,
   {
-    idle = false, paused = false, running = false, linkedin = false,
+    idle = false, paused = false, running = false, linkedin = false, web = false,
     aiKey = '', urns = null, noManifest = false, stale = false,
   } = {}
 ) {
@@ -231,6 +246,7 @@ async function openPanel(
   if (paused) await page.addInitScript(() => { window.__paused = true; });
   if (running) await page.addInitScript(() => { window.__running = true; });
   if (linkedin) await page.addInitScript(() => { window.__linkedin = true; });
+  if (web) await page.addInitScript(() => { window.__web = true; });
   // Filter ids the extension has already learned, as a run would have left
   // them. The harness's storage lives in the page, so this has to be seeded
   // before the panel loads rather than written afterwards.
@@ -436,6 +452,70 @@ test('switching source shows only the controls that apply', async (t) => {
     await ctx.page.waitForTimeout(200);
     assert.equal(await ctx.page.isVisible('#coverageRow'), true, 'switching back restores it');
     assert.equal(await ctx.page.isVisible('#sourceNote'), false);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('the public-web source shows the controls that apply to it', async (t) => {
+  const ctx = await openPanel(t, { idle: true });
+  if (!ctx) return;
+  try {
+    await ctx.page.evaluate(() => {
+      document.querySelector('details.advanced').open = true;
+    });
+
+    await ctx.page.click('label.seg:has(input[value="web"])');
+    await ctx.page.waitForTimeout(200);
+
+    // A search engine has no map to grid over, no site to read an email from,
+    // and no profile to open — the whole point is that it never signs in.
+    assert.equal(await ctx.page.isVisible('#coverageRow'), false);
+    assert.equal(await ctx.page.isVisible('#optEmails'), false);
+    assert.equal(await ctx.page.isVisible('#optDeep'), false);
+    // "Use the tab I'm on" belongs to LinkedIn, where the user sets up their
+    // own filters. There is nothing to inherit from a results page.
+    assert.equal(await ctx.page.isVisible('#optCurrentTab'), false);
+
+    assert.equal(await ctx.page.isVisible('#maxResults'), true);
+    assert.match(await ctx.page.textContent('#sourceNote'), /LinkedIn Member/i);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('the three source labels fit the panel at its narrowest', async (t) => {
+  const ctx = await openPanel(t, { idle: true });
+  if (!ctx) return;
+  try {
+    // A third segment was added to a control designed for two. At 400px the
+    // failure is silent to every other test: a flex item will not shrink
+    // below its own text, so a label that no longer fits does not clip — it
+    // pushes the whole control past the edge of the panel.
+    const fits = await ctx.page.evaluate(() => {
+      const seg = document.querySelector('.segmented');
+      const room = seg.parentElement.getBoundingClientRect().width;
+      const spans = [...seg.querySelectorAll('.seg span')].map((el) => {
+        // A range over the text lays out exactly as the text does, so its
+        // rect count is the line count. Dividing the box height by the line
+        // height counts the padding as a second line.
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        return { text: el.textContent.trim(), lines: range.getClientRects().length };
+      });
+      return {
+        spans,
+        over: Math.round(seg.getBoundingClientRect().width - room),
+        page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      };
+    });
+
+    assert.equal(fits.spans.length, 3);
+    assert.ok(fits.over <= 1, `the source control overflows its column by ${fits.over}px`);
+    assert.ok(fits.page <= 0, `the panel scrolls sideways by ${fits.page}px`);
+    for (const span of fits.spans) {
+      assert.equal(span.lines, 1, `"${span.text}" wrapped onto ${span.lines} lines`);
+    }
   } finally {
     await ctx.close();
   }
@@ -1219,6 +1299,28 @@ test('a phone number is one click away from the clipboard', async (t) => {
     assert.equal(await ctx.page.evaluate(() => window.__copied), first);
     // A copy with no confirmation reads as a click that did nothing.
     assert.equal(await ctx.page.isVisible('#toast'), true);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('a person found on the public web reads as a person, not a business', async (t) => {
+  const ctx = await openPanel(t, { web: true });
+  if (!ctx) return;
+  try {
+    await ctx.page.click('#viewResults');
+    await ctx.page.waitForTimeout(400);
+
+    const first = ctx.page.locator('#rowBody .lead:first-child');
+    assert.equal(await first.locator('.lead-name').textContent(), 'Raghu Vaidyanathan 0');
+    // Rendered as a business, this row was a name, an empty phone line and
+    // nothing else — every field it does have lives in the person layout.
+    assert.match(await first.locator('.lead-headline').textContent(), /Corporate Trainer/);
+    assert.match(await first.locator('.lead-area').textContent(), /Trioangle Technologies · Madurai/);
+    assert.equal(await first.locator('.lead-phone').count(), 0, 'a person has no phone column');
+    // No connection degree exists off LinkedIn, so the mark says where the
+    // row came from instead of sitting empty.
+    assert.equal(await first.locator('.lead-mark').textContent(), 'public');
   } finally {
     await ctx.close();
   }

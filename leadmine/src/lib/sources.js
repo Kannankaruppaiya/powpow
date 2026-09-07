@@ -56,6 +56,42 @@ export const SOURCES = {
     buildTerm: (category, city) => [category, city].filter(Boolean).join(' ').trim(),
     noun: 'people',
   },
+
+  web: {
+    id: 'web',
+    label: 'Public web',
+    /** A search result gives a name and a profile link, and little else. */
+    healthGates: { name: 0.9, profileUrl: 0.9 },
+    watched: ['name', 'profileUrl', 'headline', 'company', 'location'],
+    // A search engine's results are a list, not a map.
+    supportsGrid: false,
+    // There is no company website here to read an address off.
+    supportsEmails: false,
+    filterField: ['headline', 'summary', 'company'],
+    filterLabel: 'Result text contains',
+    filterHint: 'Only keep people whose result text matches',
+    urlPart: '/search',
+    /*
+     * Bing by default.
+     *
+     * All three engines work — the adapter reads results by shape — but Google
+     * challenges automated queries hardest, and DuckDuckGo wraps every result
+     * in a redirect. Bing links straight out and is the least obstructed, so a
+     * run gets further before anyone has to solve anything.
+     */
+    buildUrl: (term) => `https://www.bing.com/search?q=${encodeURIComponent(String(term).trim())}`,
+    /*
+     * The whole point of this source: `site:` restricts the engine to public
+     * LinkedIn profile pages, which name people the logged-in search will only
+     * show as "LinkedIn Member" once they are outside your network.
+     */
+    buildTerm: (category, city) =>
+      ['site:linkedin.com/in', category ? `"${category}"` : '', city]
+        .filter(Boolean)
+        .join(' ')
+        .trim(),
+    noun: 'people',
+  },
 };
 
 export const DEFAULT_SOURCE = 'maps';
