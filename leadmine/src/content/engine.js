@@ -260,6 +260,26 @@
       return undefined;
     }
 
+    /*
+     * Ask the page for LinkedIn's own id for a name.
+     *
+     * Not part of a run: this drives the filter panel's typeahead, reads the
+     * id off the option and puts the panel back. It is the only way to turn
+     * "Chennai" into 102784390 without a table nobody publishes.
+     */
+    if (msg.type === 'RESOLVE_FACET') {
+      const adapter = pickAdapter(location.href);
+      if (!adapter || typeof adapter.resolveFacet !== 'function') {
+        sendResponse({ ok: false, reason: 'this page cannot resolve filters' });
+        return undefined;
+      }
+      adapter
+        .resolveFacet(msg.want || {}, { waitFor, sleep })
+        .then(sendResponse)
+        .catch((err) => sendResponse({ ok: false, reason: String((err && err.message) || err) }));
+      return true;
+    }
+
     if (msg.type === 'CANCEL_SCRAPE') {
       state.cancelled = true;
       sendResponse({ ok: true });

@@ -649,6 +649,15 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   };
 
   switch (msg.type) {
+    // Asking LinkedIn for its own id for a name. Not part of a run — the
+    // panel does this the moment a filter is added, so the answer arrives
+    // while the user is still looking at the field they typed into.
+    case 'RESOLVE_FACET':
+      resolveFacet(msg.want || {}).then(sendResponse, (err) =>
+        sendResponse({ ok: false, reason: String((err && err.message) || err) })
+      );
+      return true;
+
     case 'GET_JOB':
       return reply(ready.then(async () => ({ job: publicJob(), seen: await store.countSeen() })));
 

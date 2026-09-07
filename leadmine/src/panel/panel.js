@@ -443,26 +443,64 @@ function renderChips(facet) {
   );
 }
 
-/**
- * Add a value, or explain why it cannot be added yet.
- *
- * The "cannot yet" path is the important one: it names the exact thing to do
- * once on LinkedIn, after which this label is known forever.
- */
-function addFacet(facet) {
+function setFacetHelp(facet, text) {
   const ui_ = FACET_UI[facet];
-  const label = ui[ui_.input].value.trim();
-  if (!label) return;
+  if (ui_.help) ui[ui_.help].textContent = text;
+}
 
-  const id = lookup(urns, facet, label);
+/**
+ * Add a value — asking LinkedIn for its id if we do not have one.
+ *
+ * A name is not enough: `geoUrn` wants 102784390, not "Chennai". Making the
+ * user go and apply every filter by hand first is a chore, and it is one the
+ * page can do itself — the filter panel's typeahead *is* LinkedIn's resolver,
+ * so this drives it once and remembers the answer forever.
+ *
+ * What it will not do is guess. When LinkedIn does not offer the name, what it
+ * does offer is shown and the choice stays with the user: a wrong id searches
+ * somewhere else and hands back a spreadsheet that looks entirely right.
+ */
+async function addFacet(facet) {
+  const ui_ = FACET_UI[facet];
+  const typed = ui[ui_.input].value.trim();
+  if (!typed) return;
+
+  let id = lookup(urns, facet, typed);
+  let label = typed;
+
   if (!id) {
-    if (ui_.help) {
-      ui[ui_.help].textContent =
-        `LinkedIn's id for “${label}” is not known yet. Apply it once on LinkedIn ` +
-        '— open the filter, tick it, press Show results — and LeadMine will ' +
-        'remember it from then on.';
+    const button = ui[facet === 'geoUrn' ? 'geoAdd' : 'svcAdd'];
+    button.disabled = true;
+    setFacetHelp(facet, `Asking LinkedIn for “${typed}”…`);
+    let answer = null;
+    try {
+      answer = await chrome.runtime.sendMessage({
+        type: 'RESOLVE_FACET',
+        want: { facet, label: typed },
+      });
+    } catch (err) {
+      answer = { ok: false, reason: String((err && err.message) || err) };
     }
-    return;
+    button.disabled = false;
+
+    if (!answer || !answer.ok) {
+      const offered = (answer && answer.offered) || [];
+      setFacetHelp(
+        facet,
+        `${(answer && answer.reason) || 'LinkedIn did not answer'}${
+          offered.length ? `. It offers: ${offered.join(' · ')}` : ''
+        }`
+      );
+      return;
+    }
+
+    // The worker stored it; take the table back with it in.
+    const stored = await chrome.storage.local.get(URN_KEY);
+    urns = withSeed(stored[URN_KEY]);
+    id = answer.id;
+    // LinkedIn's own wording, not what was typed: "chennai" comes back as
+    // "Chennai, Tamil Nadu, India", and that is the thing being filtered on.
+    label = answer.label || typed;
   }
 
   if (!chosen[facet].some((v) => v.id === id)) chosen[facet].push({ id, label });

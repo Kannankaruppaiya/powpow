@@ -394,11 +394,20 @@ together belong to the same facet, so the moment any of them lands in the URL
 the whole batch is attributable — which is an observation, not a guess: they
 were on screen together.
 
-Ask for a value it has never seen and it says so, naming exactly what to do:
+**And it asks LinkedIn for the ones it does not have.** Type a place LeadMine
+has never seen, press Add, and it drives LinkedIn's own filter typeahead in the
+tab beside you — types the name, reads the id off the option it offers, puts
+the panel back and remembers the answer. The chip that appears carries
+LinkedIn's own wording, not what you typed: "chennai" comes back as
+"Chennai, Tamil Nadu, India", because that is the thing actually being filtered
+on. (It needs a LinkedIn people search open in the same window; that page is
+where the answer lives.)
 
-> LinkedIn's id for "Munnar" is not known yet. Apply it once on LinkedIn —
-> open the filter, tick it, press Show results — and LeadMine will remember it
-> from then on.
+When LinkedIn does not have the name, it says so and shows what LinkedIn *does*
+offer — the choice stays with you:
+
+> LinkedIn does not offer "Munnar". It offers: Idukki, Kerala, India · Kerala,
+> India · Kochi, Kerala, India
 
 **It never guesses.** A wrong id does not fail; it quietly searches somewhere
 else and hands back a spreadsheet of the wrong people that looks entirely

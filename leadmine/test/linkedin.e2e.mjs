@@ -219,7 +219,7 @@ const CHROME_STUB = `
   };
 `;
 
-async function run(t, { url, config = {}, mutate } = {}) {
+async function run(t, { url, config = {}, mutate, instead } = {}) {
   let chromium;
   try {
     ({ chromium } = await import('playwright-core'));
@@ -243,17 +243,170 @@ async function run(t, { url, config = {}, mutate } = {}) {
 
   if (mutate) await mutate(page);
 
-  const result = await page.evaluate(
-    (cfg) =>
-      new Promise((resolve) => {
-        window.__listener({ type: 'RUN_SCRAPE', config: cfg }, {}, resolve);
-      }),
-    { scrollDelay: 150, deep: false, ...config }
-  );
+  // Some tests drive something other than a scrape — resolving a filter, for
+  // instance, which is a lookup rather than a run.
+  const result = instead
+    ? await instead(page)
+    : await page.evaluate(
+        (cfg) =>
+          new Promise((resolve) => {
+            window.__listener({ type: 'RUN_SCRAPE', config: cfg }, {}, resolve);
+          }),
+        { scrollDelay: 150, deep: false, ...config }
+      );
 
   await browser.close();
   return result;
 }
+
+/**
+ * A stand-in for LinkedIn's Locations filter, hostile in the ways the real one
+ * is: hashed class names, a panel rendered as a portal at the end of the
+ * document rather than inside the pill, and options that arrive ~300ms after
+ * typing because the typeahead is network-backed.
+ */
+const FILTER_PANEL = (catalog) => {
+  // The page already has a Locations pill — the one readPills was written
+  // against. Adding a second would mean the adapter picks the inert first
+  // one, which is exactly what it should do.
+  const pill = [...document.querySelectorAll('button')].find((b) =>
+    /^locations\b/i.test((b.getAttribute('aria-label') || b.textContent || '').trim())
+  );
+  if (!pill) throw new Error('the fixture has no Locations pill to drive');
+
+  let open = null;
+  pill.addEventListener('click', () => {
+    if (open) {
+      open.remove();
+      open = null;
+      return;
+    }
+    const panel = document.createElement('div');
+    panel.className = 'q2b8';
+    panel.innerHTML =
+      '<input type="text" placeholder="Add a location">' +
+      '<div class="opts"></div>' +
+      '<button class="zz">Show results</button>';
+    // A portal: anything scoped to the pill's subtree finds nothing.
+    document.body.appendChild(panel);
+    open = panel;
+
+    const box = panel.querySelector('input[type=text]');
+    const opts = panel.querySelector('.opts');
+    let timer = null;
+    box.addEventListener('input', () => {
+      clearTimeout(timer);
+      opts.replaceChildren();
+      const q = box.value.trim().toLowerCase();
+      if (q.length < 2) return;
+      timer = setTimeout(() => {
+        for (const [id, label] of catalog.filter(([, l]) => l.toLowerCase().includes(q))) {
+          opts.insertAdjacentHTML(
+            'beforeend',
+            `<input type="checkbox" id="c_${id}" value="${id}">` +
+              `<label for="c_${id}">${label}</label>`
+          );
+        }
+      }, 300);
+    });
+  });
+};
+
+const CATALOG = [
+  ['102713980', 'India'],
+  ['102784390', 'Chennai, Tamil Nadu, India'],
+  ['101138777', 'Theni, Tamil Nadu, India'],
+  ['106164952', 'Tamil Nadu, India'],
+];
+
+async function resolve(t, want, catalog = CATALOG) {
+  return run(t, {
+    mutate: async (page) => {
+      await page.evaluate(
+        ([source, list]) => {
+          // eslint-disable-next-line no-new-func
+          new Function('catalog', `(${source})(catalog)`)(list);
+        },
+        [FILTER_PANEL.toString(), catalog]
+      );
+    },
+    // The resolve happens instead of a scrape.
+    instead: async (page) => {
+      const built = await page.evaluate(() => ({
+        pill: Boolean(document.querySelector('button[aria-label^="Locations filter"]')),
+        panels: document.querySelectorAll('.q2b8').length,
+      }));
+      if (!built.pill) throw new Error('fixture pill was never built');
+      return page.evaluate(
+        (w) =>
+          new Promise((done) => {
+            window.__listener({ type: 'RESOLVE_FACET', want: w }, {}, done);
+          }),
+        want
+      );
+    },
+  });
+}
+
+test('a place name is resolved to LinkedIn’s own id by asking LinkedIn', async (t) => {
+  // `geoUrn` wants 102784390, not "Chennai", and that number is LinkedIn's
+  // own. The filter panel's typeahead is the only thing that knows it, so the
+  // adapter drives that box rather than shipping a table nobody publishes.
+  const result = await resolve(t, { facet: 'geoUrn', label: 'chennai' });
+  if (!result) return;
+  assert.equal(result.ok, true, result.reason);
+  assert.equal(result.id, '102784390');
+  // LinkedIn's own wording comes back, not what was typed.
+  assert.equal(result.label, 'Chennai, Tamil Nadu, India');
+});
+
+test('a broad name resolves to itself, never to a town inside it', async (t) => {
+  // "India" must not become "Theni, Tamil Nadu, India" just because the words
+  // appear in it. A prefix is allowed; a substring is not.
+  const result = await resolve(t, { facet: 'geoUrn', label: 'India' });
+  if (!result) return;
+  assert.equal(result.id, '102713980');
+  assert.equal(result.label, 'India');
+});
+
+test('a name LinkedIn does not have is refused, with what it does have', async (t) => {
+  const result = await resolve(t, { facet: 'geoUrn', label: 'Munnar' });
+  if (!result) return;
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /offered nothing|does not offer/i);
+});
+
+test('resolving survives every class name being rewritten', async (t) => {
+  // LinkedIn's classes are build output. Everything above is found by shape.
+  const result = await run(t, {
+    mutate: async (page) => {
+      await page.evaluate(
+        ([source, list]) => {
+          // eslint-disable-next-line no-new-func
+          new Function('catalog', `(${source})(catalog)`)(list);
+          for (const el of document.querySelectorAll('[class]')) {
+            el.className = `r${Math.random()}`;
+          }
+        },
+        [FILTER_PANEL.toString(), CATALOG]
+      );
+    },
+    instead: (page) =>
+      page.evaluate(
+        () =>
+          new Promise((done) => {
+            window.__listener(
+              { type: 'RESOLVE_FACET', want: { facet: 'geoUrn', label: 'Theni' } },
+              {},
+              done
+            );
+          })
+      ),
+  });
+  if (!result) return;
+  assert.equal(result.ok, true, result.reason);
+  assert.equal(result.id, '101138777');
+});
 
 test('the name LinkedIn gives a filter is learned alongside its id', async (t) => {
   // LinkedIn's facets take ids, not names: geoUrn wants 102713980, not

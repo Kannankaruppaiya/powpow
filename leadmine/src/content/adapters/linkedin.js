@@ -575,6 +575,126 @@
     return pills;
   }
 
+  /* ------------------------------------------------- resolving a filter */
+
+  /*
+   * Ask LinkedIn for its own id for a name.
+   *
+   * `geoUrn` wants 102713980, not "Chennai", and that number is LinkedIn's
+   * own — undocumented, and not derivable from anything we hold. But the page
+   * already contains a resolver: the filter panel's typeahead. Type into it
+   * and LinkedIn answers with its options, each carrying its id.
+   *
+   * So this drives that box once per new name and remembers the answer.
+   * Everything is found by shape rather than class name, because LinkedIn's
+   * classes are build output and change without notice.
+   */
+
+  const FACET_PILL = { geoUrn: 'location', serviceCategory: 'service categor' };
+  const APPLY_LABEL = /show results|apply|done/i;
+
+  const accessibleName = (el) => norm(el.getAttribute('aria-label') || el.textContent);
+
+  /** The pill that opens a facet, matched on the head of its label. */
+  function findPill(facet) {
+    const want = FACET_PILL[facet];
+    if (!want) return null;
+    for (const el of document.querySelectorAll('button')) {
+      const head = accessibleName(el).split(/\s+filter\b/i)[0].trim().toLowerCase();
+      if (head.startsWith(want)) return el;
+    }
+    return null;
+  }
+
+  /**
+   * The open panel, by shape: whatever holds a text box and an apply button.
+   *
+   * It renders as a portal at the end of the document rather than inside the
+   * pill, so anything scoped to the pill's subtree finds nothing.
+   */
+  function findPanel() {
+    for (const box of document.querySelectorAll('input[type="text"], input[type="search"]')) {
+      for (let el = box.parentElement; el && el !== document.body; el = el.parentElement) {
+        const apply = [...el.querySelectorAll('button')].find((b) =>
+          APPLY_LABEL.test(accessibleName(b))
+        );
+        if (apply) return { panel: el, box, apply };
+      }
+    }
+    return null;
+  }
+
+  function optionsIn(panel) {
+    return [...panel.querySelectorAll('input[type="checkbox"]')].map((input) => {
+      const byFor = input.id && document.querySelector(`label[for="${CSS.escape(input.id)}"]`);
+      return {
+        input,
+        value: input.value,
+        label: norm((byFor || input.closest('label') || input.parentElement || {}).textContent),
+      };
+    });
+  }
+
+  /** Type the way a person does, so a framework-bound box actually reacts. */
+  function typeInto(box, text) {
+    const setter = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype,
+      'value'
+    ).set;
+    setter.call(box, text);
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    box.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  const fold = (text) => norm(text).toLowerCase().replace(/[.,]/g, '');
+
+  async function resolveFacet({ facet, label }, { waitFor, sleep }) {
+    const pill = findPill(facet);
+    if (!pill) return { ok: false, reason: `this page has no ${facet} filter` };
+
+    pill.click();
+    const found = await waitFor(findPanel, { timeout: 6000 });
+    if (!found) return { ok: false, reason: 'the filter panel did not open' };
+
+    typeInto(found.box, label);
+    // The list is network-backed: wait for options rather than for a delay.
+    const options = await waitFor(
+      () => {
+        const list = optionsIn(found.panel).filter((o) => o.value && o.label);
+        return list.length ? list : null;
+      },
+      { timeout: 10000 }
+    );
+    if (!options) return { ok: false, reason: `LinkedIn offered nothing for “${label}”` };
+
+    // Exact first. A prefix is the fallback, so "Chennai" finds "Chennai,
+    // Tamil Nadu, India" — but never a substring, which would let "India"
+    // match "Theni, Tamil Nadu, India".
+    const wanted = fold(label);
+    const hit =
+      options.find((o) => fold(o.label) === wanted) ||
+      options.find((o) => fold(o.label).startsWith(wanted));
+
+    // Whatever was offered is worth keeping either way; a near miss now is an
+    // exact hit the next time the user types one of these names.
+    noteBatch(found.panel);
+
+    if (!hit) {
+      return {
+        ok: false,
+        reason: `LinkedIn does not offer “${label}”`,
+        offered: options.map((o) => o.label).slice(0, 8),
+      };
+    }
+
+    // Read the id and leave the page exactly as it was found: this is a
+    // lookup, not a filter the user asked to apply.
+    const id = hit.value;
+    await sleep(150);
+    pill.click();
+    return { ok: true, facet, id, label: hit.label };
+  }
+
   let expectedFingerprint = null;
   let endReason = '';
 
@@ -597,6 +717,8 @@
       }
       return '';
     },
+
+    resolveFacet,
 
     getSearchContext() {
       expectedFingerprint = fingerprint();
