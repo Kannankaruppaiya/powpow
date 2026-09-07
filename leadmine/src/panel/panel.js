@@ -41,16 +41,17 @@ const ui = Object.fromEntries(
   [
     'form', 'statusPill', 'version', 'viewSetup', 'viewResults', 'paneSetup', 'paneResults', 'tabCount',
     'modeSingle', 'modeBatch', 'toggleBatch',
-    'source', 'sourceGroup', 'sourceNote', 'coverageRow', 'coverage',
+    'source', 'sourceGroup', 'sourceNote', 'coverageRow', 'coverage', 'coverageHint',
     'categoryLabel', 'cityLabel', 'limitLabel',
     'optEmails', 'optContact', 'optVerify', 'optDeep',
     'optCurrentTab', 'useCurrentTab', 'currentTabHint',
     'category', 'city', 'batch', 'grid', 'maxResults',
     'categoryFilter', 'categoryFilterRow', 'categoryOptions', 'filterLabel', 'filterHint',
-    'filterNote', 'filterNoteText', 'filterClear',
+    'filterChip', 'filterChipText',
     'deep', 'fetchEmails', 'followContactPage', 'verifyEmails', 'skipSeen', 'seenNote',
     'start', 'resume', 'stop', 'again', 'goResults',
-    'runView', 'spinner', 'runTitle', 'barFill', 'message', 'taskLine',
+    'actionbar', 'barSearch', 'barResults', 'toast',
+    'runView', 'spinner', 'runTitle', 'barFill', 'message', 'taskLine', 'recentBox', 'recentList',
     'statFound', 'statFoundLabel', 'statPhones', 'statEmails', 'statSendable',
     'healthBox', 'healthList', 'error',
     'format', 'download', 'clear', 'filter',
@@ -89,6 +90,25 @@ function syncRadios(name, value) {
 /** Five grid presets were three too many to choose between. */
 const COVERAGE_CHOICES = ['off', 'balanced', 'exhaustive'];
 
+/**
+ * What each level actually costs.
+ *
+ * These three were three stacked cards, a hundred pixels each, for one setting
+ * that has a good default — a third of the panel spent on a question most
+ * people never answer. The names are a segmented control now, and the
+ * consequence of whichever is chosen is spelled out under it, because "Deep"
+ * on its own tells nobody it means an hour.
+ */
+const COVERAGE_HINT = {
+  off: 'About 120 results · a few minutes',
+  balanced: 'About 600 results · around 25 minutes',
+  exhaustive: 'About 1,500 results · an hour or more',
+};
+
+function applyCoverage() {
+  ui.coverageHint.textContent = COVERAGE_HINT[ui.grid.value] || '';
+}
+
 let current = null;
 let batchMode = false;
 /** Every record for the current job, loaded from IndexedDB for the table. */
@@ -105,6 +125,26 @@ let showAside = false;
  * its zeroes were painted straight back over the form.
  */
 let dismissedJobId = null;
+/**
+ * Whether the user has ever opened or closed the planner themselves.
+ *
+ * Until they have, its default follows the key: the planner cannot do anything
+ * without one, and expanded-and-useless was the tallest thing in the panel.
+ */
+let assistChosen = false;
+/**
+ * The state the code last asked the planner to be in.
+ *
+ * `toggle` fires asynchronously and does not say who caused it, so opening or
+ * closing the fold from code looked exactly like the user doing it — which
+ * counted as a choice and froze the default on the first automatic close.
+ */
+let assistIntended = null;
+
+function setAssistOpen(open) {
+  assistIntended = open;
+  ui.assist.open = open;
+}
 
 /* ----------------------------------------------------------------- source */
 
@@ -180,6 +220,7 @@ function applySource() {
   ui.category.placeholder = conf.categoryPlaceholder;
   ui.city.placeholder = conf.cityPlaceholder;
   ui.coverageRow.hidden = !conf.grid;
+  applyCoverage();
   // The detail pass only exists for Maps; a LinkedIn card already carries
   // everything, so offering the option would be a lie about what it does.
   ui.optDeep.hidden = !conf.grid;
@@ -196,15 +237,19 @@ function applySource() {
  * search planned today — a live run found 235 businesses and set aside every
  * one of them against a filter the user had forgotten was there. The form
  * never showed it, because an input holding a value looks like an input.
+ *
+ * A warning inside the form was the first fix, and it scrolled away with the
+ * form. This rides in the action bar instead, beside the button it changes the
+ * meaning of, and clicking it is how you get rid of it.
  */
 function applyFilterNote() {
   const term = ui.categoryFilter.value.trim();
   const conf = SOURCE_UI[ui.source.value] || SOURCE_UI.maps;
-  ui.filterNote.hidden = !term;
+  // The results view has its own bar, and the filter says nothing about rows
+  // that were already collected.
+  ui.filterChip.hidden = !term || !ui.paneResults.hidden;
   if (!term) return;
-  ui.filterNoteText.textContent =
-    `Only keeping results whose ${conf.filterLabel.toLowerCase()} matches “${term}”. ` +
-    'Everything else is set aside. ';
+  ui.filterChipText.textContent = `Only ${conf.filterLabel.toLowerCase()} matches “${term}”`;
 }
 
 /**
@@ -223,7 +268,7 @@ function applyCurrentTab() {
 }
 
 bindRadios('source', ui.source);
-bindRadios('coverage', ui.grid);
+bindRadios('coverage', ui.grid, applyCoverage);
 
 ui.source.addEventListener('change', () => {
   applySource();
@@ -242,6 +287,11 @@ function setView(showResults) {
   ui.paneResults.hidden = !showResults;
   ui.viewSetup.classList.toggle('is-active', !showResults);
   ui.viewResults.classList.toggle('is-active', showResults);
+  // The bar always carries the action of the view above it: Start on the
+  // search side, Download on the results side, in the same place either way.
+  ui.barSearch.hidden = showResults;
+  ui.barResults.hidden = !showResults;
+  applyFilterNote();
   if (showResults) refreshRows();
 }
 
@@ -251,7 +301,7 @@ ui.viewResults.addEventListener('click', () => setView(true));
 function setMode(useBatch) {
   batchMode = useBatch;
   ui.modeBatch.hidden = !useBatch;
-  ui.toggleBatch.textContent = useBatch ? 'Just one search' : 'Search several at once';
+  ui.toggleBatch.textContent = useBatch ? '− Just one search' : '+ Search several at once';
   applyCurrentTab();
 }
 
@@ -265,7 +315,13 @@ ui.toggleBatch.addEventListener('click', () => {
 async function restoreSettings() {
   const stored = await chrome.storage.local.get(SETTINGS_KEY);
   const s = stored[SETTINGS_KEY];
-  if (!s) return;
+  // A first-ever open has nothing stored and still needs the source applied:
+  // the labels, the hints and the coverage line are all derived, never markup.
+  if (!s) {
+    applyCoverage();
+    applySource();
+    return;
+  }
   ui.category.value = s.category ?? '';
   ui.city.value = s.city ?? '';
   ui.batch.value = s.batch ?? '';
@@ -278,12 +334,17 @@ async function restoreSettings() {
   ui.skipSeen.checked = Boolean(s.skipSeen);
   ui.useCurrentTab.checked = Boolean(s.useCurrentTab);
   ui.categoryFilter.value = s.categoryFilter ?? '';
+  // Someone who knows their own searches closes the planner once and should
+  // never have to close it again.
+  assistChosen = typeof s.assistOpen === 'boolean';
+  if (assistChosen) setAssistOpen(s.assistOpen);
   // An older build stored "xls"; the exporter only writes real xlsx now.
   ui.format.value = s.format === 'xls' ? 'xlsx' : s.format || 'xlsx';
   ui.source.value = s.source || 'maps';
   // Only the three offered levels can be restored; anything else falls back.
   ui.grid.value = COVERAGE_CHOICES.includes(s.grid) ? s.grid : 'balanced';
   syncRadios('coverage', ui.grid.value);
+  applyCoverage();
   setMode(Boolean(s.batchMode));
   applySource();
 }
@@ -300,6 +361,7 @@ function readConfig() {
     batch: batchMode ? ui.batch.value : '',
     batchMode,
     grid: ui.grid.value,
+    assistOpen: ui.assist.open,
     maxResults: Math.max(0, Number(ui.maxResults.value) || 0),
     deep: ui.deep.checked,
     fetchEmails: ui.fetchEmails.checked,
@@ -439,6 +501,9 @@ function applyKeyState() {
   const has = Boolean(ui.aiKey.value.trim());
   ui.aiKeyHint.hidden = has;
   ui.aiPlan.disabled = !has;
+  // No key means nothing here can run, so it starts folded — until the user
+  // says otherwise, at which point their choice is the one that counts.
+  if (!assistChosen) setAssistOpen(has);
 }
 
 function setAiStatus(text, kind = '') {
@@ -591,7 +656,6 @@ async function refreshRows() {
   // Nothing kept and something set aside is the filter being wrong, not the
   // scraper finding nothing — so show the rows rather than an empty table.
   if (!rows.length && asideRows.length) showAside = true;
-  relabelColumns();
   refreshCategoryOptions();
   applyFilter();
 }
@@ -637,17 +701,6 @@ function refreshCategoryOptions() {
   );
 }
 
-/** A LinkedIn run fills different columns; say so in the header. */
-function relabelColumns() {
-  const isLinkedIn = rows.some((r) => r.source === 'linkedin');
-  const labels = isLinkedIn
-    ? ['Name', 'Company', 'Headline', 'Location', 'Degree', '']
-    : ['Name', 'Phone', 'Email', 'Area', 'Category', '★'];
-  document.querySelectorAll('.scroller thead th').forEach((th, i) => {
-    th.textContent = labels[i];
-  });
-}
-
 function applyFilter() {
   const needle = ui.filter.value.trim().toLowerCase();
   // What is on screen is what Download writes — no hidden discrepancy.
@@ -677,59 +730,145 @@ function applyFilter() {
 }
 
 /**
- * Render only the rows on screen.
+ * One lead, three lines.
  *
- * A 20,000-row table with every row in the DOM makes the panel unusable; this
- * keeps roughly thirty rows alive and shifts them as the user scrolls.
+ * This was a six-column table. In a 400px panel that is about 55px a column,
+ * so every name, phone, email and area on screen ended after three characters
+ * and an ellipsis — a table you had to download before you could read it.
+ * Reading down instead of across fits all of it.
+ */
+function leadCard(record) {
+  const card = document.createElement('div');
+  card.className = 'lead';
+  const lines =
+    record.source === 'linkedin'
+      ? [
+          [
+            'lead-1',
+            [
+              // A person's profile link is the thing you actually go and do
+              // something with, the way a phone number is for a business.
+              record.profileUrl
+                ? copyable(record.profileUrl, 'lead-name', record.name)
+                : text('lead-name', record.name),
+              text('lead-mark', record.degree),
+            ],
+          ],
+          ['lead-2', [text('lead-sub lead-headline', record.headline)]],
+          [
+            'lead-3',
+            [
+              text('lead-sub lead-area', [record.company, record.location].filter(Boolean).join(' · ')),
+              text('lead-tag', record.openToWork ? 'open to work' : ''),
+            ],
+          ],
+        ]
+      : [
+          [
+            'lead-1',
+            [text('lead-name', record.name), text('lead-mark', record.rating ? `★ ${record.rating}` : '')],
+          ],
+          [
+            'lead-2',
+            [
+              copyable(record.phone, 'lead-phone'),
+              record.area ? text('lead-dot', '·') : null,
+              record.area ? text('lead-sub lead-area', record.area) : null,
+            ],
+          ],
+          ['lead-3', [emailCell(record), text('lead-tag', record.category)]],
+        ];
+
+  for (const [cls, kids] of lines) {
+    const row = document.createElement('div');
+    row.className = `lead-line ${cls}`;
+    row.append(...kids.filter(Boolean));
+    card.appendChild(row);
+  }
+  return card;
+}
+
+function text(cls, value) {
+  const span = document.createElement('span');
+  span.className = cls;
+  span.textContent = value || '';
+  if (value) span.title = value;
+  return span;
+}
+
+/**
+ * A value you are going to paste somewhere else, rendered as the button that
+ * puts it there. Reading a phone number off the screen and typing it back in
+ * is the slowest thing this tool used to ask of anyone.
+ */
+function copyable(value, cls, label) {
+  if (!value) return text(`lead-none ${cls}`, '—');
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = `copy ${cls}`;
+  button.textContent = label || value;
+  button.title = `${value} — click to copy`;
+  button.dataset.copy = value;
+  return button;
+}
+
+function emailCell(record) {
+  const cell = copyable(record.email, 'lead-email');
+  // Verification says this one will bounce. Struck through rather than hidden:
+  // a wrong address is still a lead someone may want to fix by hand.
+  if (
+    record.email &&
+    record.emailStatus &&
+    !['valid', 'role', 'unknown'].includes(record.emailStatus)
+  ) {
+    cell.classList.add('bad');
+    cell.title = `${record.email} — ${record.emailStatusReason || record.emailStatus}`;
+  }
+  return cell;
+}
+
+/**
+ * Render only the cards on screen.
+ *
+ * A 20,000-lead list with every one of them in the DOM makes the panel
+ * unusable; this keeps roughly a screenful alive and shifts the block as the
+ * user scrolls.
  */
 function drawWindow() {
   const scrollTop = ui.viewport.scrollTop;
   const height = ui.viewport.clientHeight || 400;
   const first = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
   const count = Math.ceil(height / ROW_HEIGHT) + OVERSCAN * 2;
-  const slice = visibleRows.slice(first, first + count);
 
   const body = document.createDocumentFragment();
-  for (const record of slice) {
-    const tr = document.createElement('tr');
-    const cells =
-      record.source === 'linkedin'
-        ? [
-            ['c-name', record.name],
-            ['c-phone', record.company],
-            ['c-email', record.headline],
-            ['c-area', record.location],
-            ['c-cat', record.degree],
-            ['c-rating', record.openToWork],
-          ]
-        : [
-            ['c-name', record.name],
-            ['c-phone', record.phone],
-            ['c-email', record.email],
-            ['c-area', record.area],
-            ['c-cat', record.category],
-            ['c-rating', record.rating],
-          ];
-    for (const [cls, value] of cells) {
-      const td = document.createElement('td');
-      td.className = cls;
-      td.textContent = value || '—';
-      td.title = value || '';
-      tr.appendChild(td);
-    }
-    // Flag addresses verification says will bounce.
-    if (record.email && record.emailStatus && !['valid', 'role', 'unknown'].includes(record.emailStatus)) {
-      const cell = tr.querySelector('.c-email');
-      cell.classList.add('bad');
-      cell.title = `${record.email} — ${record.emailStatusReason || record.emailStatus}`;
-    }
-    body.appendChild(tr);
-  }
+  for (const record of visibleRows.slice(first, first + count)) body.appendChild(leadCard(record));
 
   ui.rowBody.replaceChildren(body);
-  // Offset the rendered block so it sits where those rows belong.
-  ui.rowBody.parentElement.style.transform = `translateY(${first * ROW_HEIGHT}px)`;
+  // Offset the rendered block so it sits where those cards belong.
+  ui.rowBody.style.transform = `translateY(${first * ROW_HEIGHT}px)`;
 }
+
+/** Says a value reached the clipboard. Nothing else would. */
+let toastTimer = null;
+function flash(message) {
+  ui.toast.textContent = message;
+  ui.toast.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    ui.toast.hidden = true;
+  }, 1400);
+}
+
+ui.rowBody.addEventListener('click', async (event) => {
+  const target = event.target.closest('.copy');
+  if (!target) return;
+  try {
+    await navigator.clipboard.writeText(target.dataset.copy);
+    flash('Copied');
+  } catch {
+    flash('Could not copy');
+  }
+});
 
 ui.viewport.addEventListener('scroll', () => requestAnimationFrame(drawWindow), { passive: true });
 ui.filter.addEventListener('input', applyFilter);
@@ -770,6 +909,7 @@ const PHASE_TITLE = {
 function render(job) {
   const previousCount = current ? current.count : -1;
   const previousJobId = current ? current.jobId : null;
+  const previousStatus = current ? current.status : null;
   current = job;
 
   const running = job.status === 'running';
@@ -788,11 +928,13 @@ function render(job) {
   ui.form.hidden = showRun;
   ui.runView.hidden = !showRun;
 
-  ui.start.hidden = job.canResume;
+  // The bar answers one question — what do I do now? — so only the answers
+  // that apply are in it. Start belongs to the form; the rest belong to a run.
+  ui.start.hidden = showRun || job.canResume;
   ui.resume.hidden = !job.canResume;
   ui.stop.hidden = !running;
-  ui.again.hidden = running;
-  ui.goResults.hidden = running || !job.count;
+  ui.again.hidden = !showRun || running;
+  ui.goResults.hidden = !showRun || running || !job.count;
   ui.spinner.hidden = !running;
 
   // One primary action per view. A paused run wants resuming; a finished one
@@ -815,8 +957,10 @@ function render(job) {
       job.filteredOut ? `${job.filteredOut} set aside by ${(SOURCE_UI[job.config && job.config.source] || SOURCE_UI.maps).filterLabel.toLowerCase()}` : '',
       job.skippedSeen ? `${job.skippedSeen} already downloaded` : '',
     ].filter(Boolean);
+    const term = job.task && [job.task.term, job.task.city].filter(Boolean).join(', ');
     ui.taskLine.textContent =
       `Search ${Math.min(job.tasksSettled + (running ? 1 : 0), job.tasksTotal)} of ${job.tasksTotal}` +
+      (running && term ? ` · ${term}` : '') +
       (notes.length ? ` · ${notes.join(' · ')}` : '') +
       (!running && job.stoppedBecause ? ` · stopped because ${job.stoppedBecause}` : '');
   }
@@ -844,6 +988,7 @@ function render(job) {
   ui.tabCount.textContent = (job.count || 0).toLocaleString();
 
   renderHealth(job.health);
+  if (job.count !== previousCount || job.status !== previousStatus) void refreshRecent(job);
   // A run can finish with nothing to show; the reason is the useful part —
   // until the user has moved on from it.
   showError(
@@ -854,10 +999,48 @@ function render(job) {
         : job.taskError || ''
   );
 
-  // Reload the table when the result count moved or a new job started.
+  // Reload the list when the result count moved or a new job started.
   if (job.count !== previousCount || job.jobId !== previousJobId) {
     if (!ui.paneResults.hidden) refreshRows();
   }
+
+  // A finished run exists for the rows it produced, and reaching them meant
+  // noticing a tab and clicking it. Hand the user over once, on the edge.
+  if (job.status === 'done' && previousStatus === 'running' && job.count) setView(true);
+}
+
+/**
+ * The last few names to arrive.
+ *
+ * Twenty-five minutes of a spinner and four numbers is indistinguishable from
+ * a hang. A name you recognise landing every few seconds is the proof, and it
+ * fills the screen this run had left empty.
+ */
+let recentNames = [];
+async function refreshRecent(job) {
+  if (!job || job.status !== 'running' || !job.jobId || !job.count) {
+    ui.recentBox.hidden = true;
+    recentNames = [];
+    return;
+  }
+  const tail = await store.pageRecords(job.jobId, Math.max(0, job.count - 5), 5);
+  const names = tail.map((r) => r.name).filter(Boolean).reverse();
+  ui.recentBox.hidden = !names.length;
+  if (!names.length) return;
+
+  // Only what is actually new animates; re-fading the whole list on every
+  // poll would read as a redraw rather than as an arrival.
+  const before = new Set(recentNames);
+  ui.recentList.replaceChildren(
+    ...names.map((name) => {
+      const li = document.createElement('li');
+      li.textContent = name;
+      li.title = name;
+      if (!before.has(name)) li.classList.add('is-new');
+      return li;
+    })
+  );
+  recentNames = names;
 }
 
 function renderHealth(health) {
@@ -918,6 +1101,10 @@ ui.again.addEventListener('click', () => {
   dismissedJobId = (current && current.jobId) || null;
   ui.form.hidden = false;
   ui.runView.hidden = true;
+  // The bar follows the view: the form is back, so Start is the action again.
+  ui.again.hidden = true;
+  ui.goResults.hidden = true;
+  ui.start.hidden = false;
   showError('');
   applyFilterNote();
 });
@@ -944,9 +1131,18 @@ ui.categoryFilter.addEventListener('change', () => {
   saveSettings();
 });
 
-ui.filterClear.addEventListener('click', () => {
+ui.filterChip.addEventListener('click', () => {
   ui.categoryFilter.value = '';
   applyFilterNote();
+  saveSettings();
+});
+
+ui.assist.addEventListener('toggle', () => {
+  if (ui.assist.open === assistIntended) {
+    assistIntended = null;
+    return;
+  }
+  assistChosen = true;
   saveSettings();
 });
 ui.format.addEventListener('change', saveSettings);

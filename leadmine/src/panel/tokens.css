@@ -83,7 +83,9 @@
   --r-lg: 10px;
   --r-pill: 999px;
 
-  --row-h: 32px;
+  /* A lead card: three readable lines. The virtual window multiplies by
+     this, so it is one number in one place. */
+  --row-h: 72px;
 
   /* --- motion ----------------------------------------------------------- */
   --t-fast: 120ms;

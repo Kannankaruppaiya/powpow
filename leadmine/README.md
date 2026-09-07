@@ -110,8 +110,12 @@ npm run package     # -> dist/leadmine-v5.0.0.zip
    filter did it, and which categories were actually found, with a **Show
    them** toggle. If your filter matches nothing at all — 235 found, 235 set
    aside — the rows are shown by default, because that is a wrong filter and
-   not a failed scrape. The download always writes exactly what the table is
+   not a failed scrape. The download always writes exactly what the list is
    showing.
+
+   A filter you have set shows as a chip beside the **Start** button — it is
+   saved between runs, and an input holding a value from three weeks ago looks
+   exactly like an empty one. Click the chip to clear it.
 
 4. Pick a **Coverage** level (see below) and leave **Max per search** at `0`.
 5. Press **Start**. A Google Maps tab opens and drives itself.
@@ -121,9 +125,12 @@ The panel can be closed while it runs — the job lives in the extension's
 background worker, so reopening it shows live progress. **Leave the Google Maps
 tab open**, though; that tab is doing the work.
 
-Switch to the **Results** tab at any point to watch rows arrive, filter them,
-and download. The table is virtualised, so twenty thousand rows scroll as
-smoothly as twenty.
+When a run finishes the panel switches to **Results** by itself — that is what
+the run was for. You can go there at any point during a run too, to watch leads
+arrive, filter them and download. Each lead is a card: name, phone, email,
+area, category, all readable without opening anything, and clicking a phone
+number, an email or a LinkedIn name copies it to the clipboard. The list is
+virtualised, so twenty thousand leads scroll as smoothly as twenty.
 
 If a run is interrupted — you press Stop, Chrome evicts the worker, the browser
 restarts — the queue and everything collected so far are already on disk. Open
@@ -366,8 +373,9 @@ npm run package   # build the distributable zip
 `npm run test:dom` runs everything that needs a real browser: the content
 script against a synthetic Maps-shaped page (selectors, scroll loop, the
 click-into-detail-and-back cycle), the IndexedDB layer against a real database,
-the side panel's virtualised table — including a check that only a window of
-rows is ever in the DOM — and the LinkedIn adapter against a synthetic page
+the side panel's virtualised lead list — including a check that only a window
+of cards is ever in the DOM, and that **Start** is on screen the moment the
+panel opens — and the LinkedIn adapter against a synthetic page
 that hydrates lazily the way the real one does. It needs a browser:
 
 ```bash

@@ -72,6 +72,16 @@ const SETUP = (total) => {
     });
   }
 
+  if (window.__running) {
+    Object.assign(job, {
+      status: 'running', phase: 'listing', jobId: 'job-1',
+      count: 143, phonesFound: 130, emailsFound: 51, sendable: 44,
+      tasksSettled: 3, tasksTotal: 10,
+      task: { term: 'dentists', city: 'Chennai' },
+      message: '',
+    });
+  }
+
   if (window.__paused) {
     Object.assign(job, {
       status: 'paused',
@@ -82,6 +92,11 @@ const SETUP = (total) => {
       message: 'Interrupted — press Resume to carry on where it stopped.',
     });
   }
+  // The poll reads this same object every two seconds, so a test can move the
+  // run on by writing to it — which is the only way to exercise an edge like
+  // running-to-done from outside the worker.
+  window.__job = job;
+
   const AREAS = ['Anna Nagar', 'Adyar', 'T Nagar', 'Velachery'];
   const RECORDS = Array.from({ length: total }, (_, i) => ({
     key: `fid:${String(i).padStart(5, '0')}`,
@@ -92,6 +107,19 @@ const SETUP = (total) => {
     area: AREAS[i % AREAS.length],
     category: 'Dental clinic',
     rating: '4.5',
+    // A people search fills different fields, and the card reads them
+    // differently — that path had no coverage at all while it was a table.
+    ...(window.__linkedin
+      ? {
+          source: 'linkedin',
+          name: `Priya Sharma ${i}`,
+          headline: 'Senior ServiceNow Architect | ITSM',
+          company: 'Tata Consultancy Services',
+          location: 'Chennai, Tamil Nadu, India',
+          degree: '2nd',
+          profileUrl: `https://www.linkedin.com/in/priya-sharma-${i}`,
+        }
+      : {}),
   }));
 
   // A real in-memory store, not a stub that forgets: the planner's key is
@@ -106,7 +134,11 @@ const SETUP = (total) => {
     },
     runtime: {
       getManifest: () => ({ version: '9.9.9' }),
-      sendMessage: async (m) => (m.type === 'GET_JOB' ? { ok: true, job, seen: 0 } : { ok: true }),
+      // Cloned, because a real message is: the panel gets a fresh object every
+      // poll and compares it against the last one. Handing back the same
+      // reference made "what changed since last time" always answer nothing.
+      sendMessage: async (m) =>
+        m.type === 'GET_JOB' ? { ok: true, job: JSON.parse(JSON.stringify(job)), seen: 0 } : { ok: true },
       onMessage: { addListener: () => {} },
     },
     downloads: { download: async () => {} },
@@ -164,7 +196,13 @@ const SETUP = (total) => {
   });
 };
 
-async function openPanel(t, { idle = false, paused = false, aiKey = '', noManifest = false, stale = false } = {}) {
+async function openPanel(
+  t,
+  {
+    idle = false, paused = false, running = false, linkedin = false,
+    aiKey = '', noManifest = false, stale = false,
+  } = {}
+) {
   let chromium;
   try {
     ({ chromium } = await import('playwright-core'));
@@ -182,6 +220,8 @@ async function openPanel(t, { idle = false, paused = false, aiKey = '', noManife
   page.on('pageerror', (e) => errors.push(e.message));
 
   if (paused) await page.addInitScript(() => { window.__paused = true; });
+  if (running) await page.addInitScript(() => { window.__running = true; });
+  if (linkedin) await page.addInitScript(() => { window.__linkedin = true; });
   if (stale) await page.addInitScript(() => { window.__stale = true; });
   if (aiKey) {
     // Deliberately the shape an older build wrote — one key, no provider — so
@@ -238,13 +278,21 @@ test('only a window of rows is in the DOM, not all 2,400', async (t) => {
     await ctx.page.click('#viewResults');
     await ctx.page.waitForTimeout(400);
 
-    const rendered = await ctx.page.locator('#rowBody tr').count();
+    const rendered = await ctx.page.locator('#rowBody .lead').count();
     assert.ok(rendered > 5, `expected some rows, got ${rendered}`);
     assert.ok(rendered < 60, `expected a small window, got ${rendered} of ${TOTAL} in the DOM`);
 
-    // The scroll height must still reflect the whole set.
-    const spacer = await ctx.page.evaluate(() => document.getElementById('spacer').offsetHeight);
-    assert.equal(spacer, TOTAL * 32, 'the spacer should size the scrollbar to every row');
+    // The scroll height must still reflect the whole set. The row height is
+    // read from the stylesheet rather than repeated here — the last time it
+    // was a literal in two places, the two drifted apart.
+    const { spacer, rowHeight } = await ctx.page.evaluate(() => ({
+      spacer: document.getElementById('spacer').offsetHeight,
+      rowHeight: parseInt(
+        getComputedStyle(document.documentElement).getPropertyValue('--row-h'),
+        10
+      ),
+    }));
+    assert.equal(spacer, TOTAL * rowHeight, 'the spacer should size the scrollbar to every row');
   } finally {
     await ctx.close();
   }
@@ -257,21 +305,25 @@ test('scrolling swaps in later rows', async (t) => {
     await ctx.page.click('#viewResults');
     await ctx.page.waitForTimeout(400);
 
-    const firstBefore = await ctx.page.textContent('#rowBody tr:first-child .c-name');
+    const firstBefore = await ctx.page.textContent('#rowBody .lead:first-child .lead-name');
     assert.equal(firstBefore, 'Clinic 0');
 
     await ctx.page.evaluate(() => {
-      document.getElementById('viewport').scrollTop = 32 * 1000;
+      const rowHeight = parseInt(
+        getComputedStyle(document.documentElement).getPropertyValue('--row-h'),
+        10
+      );
+      document.getElementById('viewport').scrollTop = rowHeight * 1000;
     });
     await ctx.page.waitForTimeout(300);
 
-    const firstAfter = await ctx.page.textContent('#rowBody tr:first-child .c-name');
+    const firstAfter = await ctx.page.textContent('#rowBody .lead:first-child .lead-name');
     assert.notEqual(firstAfter, firstBefore, 'the window should have moved');
     const index = Number(firstAfter.replace('Clinic ', ''));
     assert.ok(index > 900 && index < 1010, `expected rows near 1000, got ${firstAfter}`);
 
     // Still a small window after scrolling — no accumulation.
-    assert.ok((await ctx.page.locator('#rowBody tr').count()) < 60);
+    assert.ok((await ctx.page.locator('#rowBody .lead').count()) < 60);
   } finally {
     await ctx.close();
   }
@@ -290,8 +342,9 @@ test('the filter narrows the set and the count follows', async (t) => {
     const note = await ctx.page.textContent('#rowNote');
     assert.match(note, /600 of 2,400 rows/, 'one area in four should be 600 rows');
 
-    const names = await ctx.page.locator('#rowBody tr .c-area').allTextContents();
-    assert.ok(names.every((a) => a === 'Adyar'), 'every visible row should match the filter');
+    const areas = await ctx.page.locator('#rowBody .lead .lead-area').allTextContents();
+    assert.ok(areas.length > 5, `expected a window of cards, got ${areas.length}`);
+    assert.ok(areas.every((a) => a === 'Adyar'), 'every visible card should match the filter');
 
     await ctx.page.fill('#filter', 'nothing-matches-this');
     await ctx.page.waitForTimeout(200);
@@ -309,8 +362,8 @@ test('undeliverable emails are struck through', async (t) => {
     await ctx.page.waitForTimeout(400);
 
     // Every 11th record is no-mx, so at least one is in the first window.
-    const bad = await ctx.page.locator('#rowBody td.c-email.bad').count();
-    assert.ok(bad > 0, 'a no-mx address should be flagged in the table');
+    const bad = await ctx.page.locator('#rowBody .lead-email.bad').count();
+    assert.ok(bad > 0, 'a no-mx address should be flagged in the list');
   } finally {
     await ctx.close();
   }
@@ -417,13 +470,17 @@ test('the three coverage levels drive the underlying setting', async (t) => {
     // offers three named outcomes and maps them onto the real values.
     assert.equal(await ctx.page.inputValue('#grid'), 'balanced');
 
-    await ctx.page.click('label.choice:has(input[value="off"])');
+    await ctx.page.click('#coverage label.seg:has(input[value="off"])');
     await ctx.page.waitForTimeout(150);
     assert.equal(await ctx.page.inputValue('#grid'), 'off');
+    // Naming a level is not telling anyone what it costs, so the consequence
+    // of the chosen one is spelled out beside it.
+    assert.match(await ctx.page.textContent('#coverageHint'), /few minutes/i);
 
-    await ctx.page.click('label.choice:has(input[value="exhaustive"])');
+    await ctx.page.click('#coverage label.seg:has(input[value="exhaustive"])');
     await ctx.page.waitForTimeout(150);
     assert.equal(await ctx.page.inputValue('#grid'), 'exhaustive');
+    assert.match(await ctx.page.textContent('#coverageHint'), /an hour/i);
   } finally {
     await ctx.close();
   }
@@ -561,7 +618,7 @@ test('only one action is styled as primary at a time', async (t) => {
   if (!paused) return;
   try {
     // Paused: resuming is the question, so it is the only primary.
-    assert.equal(await paused.page.getAttribute('#resume', 'class'), 'btn btn--primary');
+    assert.ok((await paused.page.getAttribute('#resume', 'class')).includes('btn--primary'));
     assert.ok(!(await paused.page.getAttribute('#goResults', 'class')).includes('btn--primary'));
   } finally {
     await paused.close();
@@ -617,7 +674,13 @@ test('the planner is offered but locked until a key is added', async (t) => {
   const ctx = await openPanel(t, { idle: true });
   if (!ctx) return;
   try {
+    // Without a key nothing in here can run, so it starts folded — the offer
+    // is the summary, not three hundred pixels of dead form.
     assert.equal(await ctx.page.isVisible('#assist'), true, 'the offer has to be visible to be used');
+    assert.equal(await ctx.page.isVisible('#aiBrief'), false, 'folded until it can do something');
+
+    await ctx.page.click('.assist-summary');
+    await ctx.page.waitForTimeout(150);
     assert.equal(await ctx.page.isDisabled('#aiPlan'), true);
     assert.equal(await ctx.page.isVisible('#aiKeyHint'), true, 'say what is missing');
 
@@ -1049,25 +1112,155 @@ test('the download writes exactly what the table is showing', async (t) => {
   }
 });
 
-test('an active narrowing filter says so, above the button that acts on it', async (t) => {
-  // The filter is saved between runs. A term typed weeks ago silently set
-  // aside all 235 results of a search planned today, and the form gave no
-  // sign it was there — an input holding a value just looks like an input.
+test('the button the panel exists for is on screen the moment it opens', async (t) => {
+  // This is the defect the layout was rebuilt around. The form was 1,050px of
+  // controls in a 760px panel, so opening LeadMine showed no way to start
+  // anything: Start was three hundred pixels below the fold, and nothing in
+  // the suite would have noticed.
   const ctx = await openPanel(t, { idle: true });
   if (!ctx) return;
   try {
-    assert.equal(await ctx.page.isVisible('#filterNote'), false, 'no filter, no noise');
+    const box = await ctx.page.locator('#start').boundingBox();
+    const view = ctx.page.viewportSize();
+    assert.ok(box, 'Start has to be rendered');
+    assert.ok(
+      box.y >= 0 && box.y + box.height <= view.height,
+      `Start must be within the panel without scrolling, was at y=${box.y}`
+    );
+
+    // And it stays there: the bar is pinned, not merely short enough today.
+    await ctx.page.evaluate(() => {
+      document.getElementById('paneSetup').scrollTop = 9999;
+    });
+    await ctx.page.waitForTimeout(150);
+    const after = await ctx.page.locator('#start').boundingBox();
+    assert.equal(Math.round(after.y), Math.round(box.y), 'the bar must not scroll with the form');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('the bar carries the action of whichever view is above it', async (t) => {
+  const ctx = await openPanel(t);
+  if (!ctx) return;
+  try {
+    assert.equal(await ctx.page.isVisible('#barSearch'), true);
+    assert.equal(await ctx.page.isVisible('#download'), false, 'nothing to download from the form');
+
+    await ctx.page.click('#viewResults');
+    await ctx.page.waitForTimeout(400);
+    assert.equal(await ctx.page.isVisible('#download'), true);
+    assert.equal(await ctx.page.isVisible('#barSearch'), false, 'one action per view, one place');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('a finished run hands the user over to its results', async (t) => {
+  // A run exists for the rows it produces, and reaching them used to mean
+  // noticing a tab and clicking it.
+  const ctx = await openPanel(t, { running: true });
+  if (!ctx) return;
+  try {
+    assert.equal(await ctx.page.isVisible('#paneSetup'), true, 'a run keeps the screen while it runs');
+    assert.match(await ctx.page.textContent('#taskLine'), /dentists, Chennai/, 'say which search');
+
+    // The panel polls the worker; move the job on and let it notice.
+    await ctx.page.evaluate(() => {
+      Object.assign(window.__job, { status: 'done', phase: 'done', count: 2400 });
+    });
+    await ctx.page.waitForTimeout(2600);
+
+    assert.equal(await ctx.page.isVisible('#paneResults'), true, 'the rows are the point');
+    assert.equal(await ctx.page.isVisible('#download'), true);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('a phone number is one click away from the clipboard', async (t) => {
+  // Reading a number off the screen and typing it back in somewhere else was
+  // the slowest thing this tool asked of anyone.
+  const ctx = await openPanel(t);
+  if (!ctx) return;
+  try {
+    await ctx.page.click('#viewResults');
+    await ctx.page.waitForTimeout(400);
+
+    // Headless Chromium has no clipboard permission; the button's job is to
+    // hand the right value over, which is what this checks.
+    await ctx.page.evaluate(() => {
+      window.__copied = null;
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: { writeText: async (text) => { window.__copied = text; } },
+      });
+    });
+
+    const first = await ctx.page.textContent('#rowBody .lead:first-child .lead-phone');
+    await ctx.page.click('#rowBody .lead:first-child .lead-phone');
+    await ctx.page.waitForTimeout(200);
+
+    assert.equal(await ctx.page.evaluate(() => window.__copied), first);
+    // A copy with no confirmation reads as a click that did nothing.
+    assert.equal(await ctx.page.isVisible('#toast'), true);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('a person reads as a person, and the name copies their profile link', async (t) => {
+  const ctx = await openPanel(t, { linkedin: true });
+  if (!ctx) return;
+  try {
+    await ctx.page.click('#viewResults');
+    await ctx.page.waitForTimeout(400);
+
+    const first = ctx.page.locator('#rowBody .lead:first-child');
+    assert.equal(await first.locator('.lead-name').textContent(), 'Priya Sharma 0');
+    assert.match(await first.locator('.lead-headline').textContent(), /ServiceNow Architect/);
+    assert.match(await first.locator('.lead-area').textContent(), /Tata Consultancy Services · Chennai/);
+
+    await ctx.page.evaluate(() => {
+      window.__copied = null;
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: { writeText: async (text) => { window.__copied = text; } },
+      });
+    });
+    await first.locator('.lead-name').click();
+    await ctx.page.waitForTimeout(200);
+    assert.equal(
+      await ctx.page.evaluate(() => window.__copied),
+      'https://www.linkedin.com/in/priya-sharma-0'
+    );
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('an active narrowing filter rides beside the button that acts on it', async (t) => {
+  // The filter is saved between runs. A term typed weeks ago silently set
+  // aside all 235 results of a search planned today, and the form gave no
+  // sign it was there — an input holding a value just looks like an input.
+  //
+  // The first fix was a warning inside the form, which scrolled away with the
+  // form. This one is a chip in the action bar, which does not.
+  const ctx = await openPanel(t, { idle: true });
+  if (!ctx) return;
+  try {
+    assert.equal(await ctx.page.isVisible('#filterChip'), false, 'no filter, no noise');
 
     await ctx.page.fill('#categoryFilter', 'housekeeping');
     await ctx.page.waitForTimeout(150);
-    assert.equal(await ctx.page.isVisible('#filterNote'), true);
-    assert.match(await ctx.page.textContent('#filterNote'), /category matches “housekeeping”/);
+    assert.equal(await ctx.page.isVisible('#filterChip'), true);
+    assert.match(await ctx.page.textContent('#filterChip'), /category matches “housekeeping”/);
 
-    // The way out is in the warning itself.
-    await ctx.page.click('#filterClear');
+    // The way out is the chip itself.
+    await ctx.page.click('#filterChip');
     await ctx.page.waitForTimeout(150);
     assert.equal(await ctx.page.inputValue('#categoryFilter'), '');
-    assert.equal(await ctx.page.isVisible('#filterNote'), false);
+    assert.equal(await ctx.page.isVisible('#filterChip'), false);
   } finally {
     await ctx.close();
   }

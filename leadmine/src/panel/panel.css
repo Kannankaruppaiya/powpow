@@ -1,11 +1,15 @@
 /**
  * Side panel styles.
  *
- * Every value comes from tokens.css. The layout follows three rules taken from
- * the design skills this was rebuilt against:
+ * Every value comes from tokens.css. Four rules, and the first one is the one
+ * the earlier version broke:
  *
- *   - one primary action per view, and nothing competing with it;
- *   - a single column, top-aligned labels, fields sized to their content;
+ *   - the primary action is always visible and always in the same place. A
+ *     400px-wide panel scrolls; a pinned bar does not;
+ *   - the panel is narrow, so density comes from shorter rows, not from
+ *     smaller type — nothing here is below 12px;
+ *   - one thing is loud per view, and it is the thing the view exists for.
+ *     An optional aside gets a hairline, not a tint;
  *   - anything with a sensible default is disclosed, not displayed.
  */
 
@@ -48,7 +52,7 @@ body {
   align-items: center;
   gap: var(--s-2);
   flex: none;
-  padding: var(--s-3) var(--s-4);
+  padding: 10px var(--s-4);
 }
 .masthead h1 {
   flex: 1;
@@ -115,8 +119,8 @@ body {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--s-4);
-  padding: var(--s-4);
+  gap: var(--s-3);
+  padding: var(--s-4) var(--s-4) var(--s-3);
   overflow: auto;
   /*
    * A containing block for the visually-hidden inputs inside.
@@ -128,7 +132,7 @@ body {
    */
   position: relative;
 }
-#paneResults { overflow: hidden; gap: var(--s-3); }
+#paneResults { overflow: hidden; gap: var(--s-2); }
 
 .footnote {
   flex: none;
@@ -138,9 +142,50 @@ body {
   border-top: 1px solid var(--hairline);
 }
 
+/* --- the action bar ----------------------------------------------------
+   Pinned below the scrolling pane. The one action a view exists for is
+   reachable the moment the panel opens, whatever the form is doing. */
+
+.actionbar {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-3) var(--s-4);
+  background: var(--canvas);
+  border-top: 1px solid var(--hairline);
+  /* Lifts off the content scrolling under it without a hard shadow. */
+  box-shadow: 0 -8px 16px -12px rgba(12, 14, 20, 0.25);
+}
+.actionbar-row { display: flex; align-items: center; gap: var(--s-2); }
+.actionbar-row > select.input { flex: none; width: 42%; }
+
+/* The filter that quietly zeroed a run, riding beside the button that acts on
+   it. Set means visible; blank means gone. */
+.chip {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px var(--s-2) 4px 10px;
+  font: var(--w-medium) var(--t-small) / 1.4 var(--font);
+  color: var(--warn);
+  background: var(--warn-soft);
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  cursor: pointer;
+}
+.chip span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip:hover { border-color: currentColor; }
+.chip-x { flex: none; opacity: 0.7; font-size: 10px; }
+
 /* --- layout helpers ---------------------------------------------------- */
 
+.pane p { margin: 0; }
+
 .stack { display: flex; flex-direction: column; gap: var(--s-4); }
+.stack.tight { gap: var(--s-3); }
 .row { display: flex; align-items: center; gap: var(--s-2); }
 .grow { flex: 1; }
 .muted { color: var(--ink-2); }
@@ -148,7 +193,7 @@ body {
 
 /* --- form -------------------------------------------------------------- */
 
-.field { display: flex; flex-direction: column; gap: var(--s-2); }
+.field { display: flex; flex-direction: column; gap: 6px; }
 
 /* Top-aligned, always visible: a placeholder is not a label. */
 .label {
@@ -168,7 +213,7 @@ body {
 
 .input {
   width: 100%;
-  padding: 10px var(--s-3);
+  padding: 9px var(--s-3);
   font: var(--w-regular) var(--t-body) / 1.4 var(--font);
   color: var(--ink);
   background: var(--canvas);
@@ -188,13 +233,13 @@ textarea.input { resize: vertical; line-height: 1.6; }
 
 select.input { appearance: auto; }
 
-/* --- segmented control (2 options: cheaper to read than a select) ------ */
+/* --- segmented control (2-3 options: cheaper to read than a select) ---- */
 
 .segmented {
   display: flex;
   gap: var(--s-1);
   margin: 0;
-  padding: var(--s-1);
+  padding: 3px;
   border: 1px solid var(--hairline);
   border-radius: var(--r-md);
   background: var(--surface);
@@ -203,8 +248,8 @@ select.input { appearance: auto; }
 .seg input { position: absolute; opacity: 0; pointer-events: none; }
 .seg span {
   display: block;
-  padding: 7px var(--s-2);
-  font-size: var(--t-body);
+  padding: 6px var(--s-2);
+  font-size: var(--t-label);
   font-weight: var(--w-medium);
   text-align: center;
   color: var(--ink-2);
@@ -218,39 +263,6 @@ select.input { appearance: auto; }
   box-shadow: var(--lift);
 }
 .seg input:focus-visible + span { box-shadow: var(--ring); }
-
-/* --- choice cards (one decision, three named outcomes) ----------------- */
-
-.choices { display: flex; flex-direction: column; gap: var(--s-2); }
-.choice { display: block; cursor: pointer; position: relative; }
-.choice input { position: absolute; opacity: 0; pointer-events: none; }
-.choice-body {
-  display: block;
-  padding: 10px var(--s-3);
-  border: 1px solid var(--hairline-strong);
-  border-radius: var(--r-md);
-}
-.choice-body strong {
-  display: block;
-  font-size: var(--t-body);
-  font-weight: var(--w-medium);
-}
-.choice-body em {
-  display: block;
-  margin-top: 1px;
-  font-style: normal;
-  font-size: var(--t-small);
-  color: var(--ink-3);
-}
-.choice-body {
-  transition: border-color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease);
-}
-.choice:hover .choice-body { border-color: var(--ink-3); }
-.choice input:checked + .choice-body {
-  border-color: var(--accent-line);
-  background: var(--accent-soft);
-}
-.choice input:focus-visible + .choice-body { box-shadow: var(--ring); }
 
 /* --- checkboxes -------------------------------------------------------- */
 
@@ -288,33 +300,52 @@ select.input { appearance: auto; }
 
 /* The toggle sits inside the callout, so it inherits the warning colour and
    reads as part of the sentence rather than as a competing action. */
-#asideNote, #filterNote { display: block; }
-#asideNote .linkish, #filterNote .linkish { color: inherit; text-decoration: underline; }
+#asideNote { display: block; }
+#asideNote .linkish { color: inherit; text-decoration: underline; }
 
 /* --- the search planner ------------------------------------------------ */
 
 /*
- * Framed rather than plain, because it is an aside: the form below is the
- * thing that runs, and this helps you fill it in. A user who already knows
- * their search should be able to skip straight past it.
+ * An aside, styled like one.
+ *
+ * The first version painted it in the accent tint and put it above the two
+ * fields that actually run a search, which made the optional helper the
+ * loudest and tallest thing in the panel. It is now a plain card below those
+ * fields, and it folds away for good once you close it.
  */
 .assist {
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+.assist-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px var(--s-3);
+  cursor: pointer;
+  list-style: none;
+}
+.assist-summary::-webkit-details-marker { display: none; }
+.assist-summary::before {
+  content: "›";
+  width: 12px;
+  color: var(--ink-3);
+  transition: transform var(--t-fast) var(--ease);
+}
+.assist[open] .assist-summary::before { transform: rotate(90deg); }
+.assist-title {
+  font-size: var(--t-label);
+  font-weight: var(--w-medium);
+  color: var(--ink-2);
+}
+.assist-body {
   display: flex;
   flex-direction: column;
-  gap: var(--s-3);
-  padding: var(--s-3);
-  border: 1px solid var(--accent-line);
-  border-radius: var(--r-md);
-  background: var(--accent-soft);
+  gap: var(--s-2);
+  padding: 0 var(--s-3) var(--s-3);
 }
-.assist-head { display: flex; flex-direction: column; gap: var(--s-1); }
-.assist-title {
-  margin: 0;
-  font-size: var(--t-label);
-  font-weight: var(--w-semi);
-  color: var(--accent-ink);
-}
-.assist-sub { margin: 0; font-size: var(--t-small); color: var(--ink-2); }
+.assist-sub { margin: 0; font-size: var(--t-small); color: var(--ink-3); }
 .assist .input { background: var(--canvas); }
 .assist textarea { resize: vertical; }
 
@@ -322,13 +353,13 @@ select.input { appearance: auto; }
 .assist .row > .btn { flex: none; white-space: nowrap; }
 .assist .row > .muted, .assist .row > .assist-error { flex: 1; }
 
-.assist-result { display: flex; flex-direction: column; gap: var(--s-3); }
+.assist-result { display: flex; flex-direction: column; gap: var(--s-2); }
 .assist-understood {
   margin: 0;
   font-size: var(--t-small);
   color: var(--ink-2);
 }
-.assist-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s-1); }
+.assist-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 
 /* Each proposal reads as one line with its reason underneath, so a glance
    down the column compares searches rather than sentences. */
@@ -336,13 +367,13 @@ select.input { appearance: auto; }
   display: flex;
   gap: var(--s-2);
   align-items: flex-start;
-  padding: var(--s-2);
+  padding: 6px var(--s-2);
   border-radius: var(--r-sm);
   cursor: pointer;
 }
 .assist-item:hover { background: var(--canvas); }
 .assist-item input { flex: none; width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--accent); }
-.assist-item strong { display: block; font-weight: var(--w-medium); font-size: var(--t-body); }
+.assist-item strong { display: block; font-weight: var(--w-medium); font-size: var(--t-label); }
 .assist-item em {
   display: block;
   font-style: normal;
@@ -419,10 +450,12 @@ select.input { appearance: auto; }
 .btn--primary:hover:not(:disabled) { background: var(--action-hover); }
 
 /* The one action the whole view exists for. */
-.btn--lg { padding: 12px var(--s-4); font-size: var(--t-body); }
+.btn--lg { padding: 11px var(--s-4); }
+.btn--sm { padding: 6px var(--s-3); font-size: var(--t-label); }
 
 .linkish {
   align-self: flex-start;
+  font-variant-numeric: tabular-nums;
   padding: 0;
   font: var(--w-medium) var(--t-label) / 1.4 var(--font);
   color: var(--ink-2);
@@ -436,7 +469,7 @@ select.input { appearance: auto; }
 
 .callout {
   margin: 0;
-  padding: 10px var(--s-3);
+  padding: 9px var(--s-3);
   font-size: var(--t-small);
   line-height: 1.5;
   color: var(--ink-2);
@@ -475,31 +508,62 @@ select.input { appearance: auto; }
 .bar-fill.indeterminate { width: 35%; animation: slide 1.4s var(--ease) infinite; }
 @keyframes slide { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
 
+/* One row of four. As two-by-two bordered boxes these took a third of the
+   panel to carry four numbers. */
 .figures {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: var(--s-2);
   margin: 0;
-  padding: 0;
+  padding: var(--s-3) 0;
   list-style: none;
-}
-/* Outlined rather than filled: four grey blocks read as heavier than the
-   numbers they carry, which is backwards. */
-.figures li {
-  padding: var(--s-3);
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-md);
+  border-block: 1px solid var(--hairline);
 }
 .figures strong {
   display: block;
   font-family: var(--font-mono);
   font-size: var(--t-figure);
   font-weight: var(--w-medium);
-  line-height: 1.15;
+  line-height: 1.1;
   letter-spacing: -0.03em;
   font-variant-numeric: tabular-nums;
 }
-.figures span { font-size: var(--t-small); color: var(--ink-3); }
+.figures span {
+  display: block;
+  font-size: 11px;
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- what just arrived -------------------------------------------------- */
+
+/* A quarter-hour of a spinner and four still numbers is indistinguishable
+   from a hang. Names landing here are the proof. */
+.recent { display: flex; flex-direction: column; gap: 6px; }
+.recent-head {
+  margin: 0;
+  font-size: var(--t-small);
+  font-weight: var(--w-medium);
+  color: var(--ink-3);
+}
+.recent-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.recent-list li {
+  padding: 5px 0;
+  font-size: var(--t-label);
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--hairline);
+}
+.recent-list li:first-child { color: var(--ink); }
+.recent-list li:last-child { border-bottom: 0; }
+/* Each new arrival fades in, so the list reads as movement rather than as a
+   block that silently changed. */
+.recent-list li.is-new { animation: arrive var(--t-slow) var(--ease-out); }
+@keyframes arrive { from { opacity: 0; transform: translateY(-4px); } }
 
 .ratelist {
   display: flex;
@@ -514,7 +578,7 @@ select.input { appearance: auto; }
 .ratelist li { padding: 2px var(--s-2); background: var(--surface); border-radius: var(--r-sm); }
 .ratelist li.low { color: var(--danger); background: var(--danger-soft); }
 
-/* --- results table ----------------------------------------------------- */
+/* --- results: one card per lead ---------------------------------------- */
 
 .scroller {
   flex: 1;
@@ -529,44 +593,124 @@ select.input { appearance: auto; }
 /* Sized to the full row count so the scrollbar reflects the whole set, while
    only the visible window is actually in the DOM. */
 .spacer { width: 100%; }
-.rows { position: absolute; top: 0; left: 0; will-change: transform; }
+.rows { position: absolute; top: 0; left: 0; right: 0; will-change: transform; }
 
-/* Phone numbers, emails and ratings are machine values; a proportional face
-   makes a column of them impossible to scan down. */
-.grid {
-  width: 100%;
-  border-collapse: collapse;
-  font: var(--w-regular) var(--t-small) / 1.4 var(--font-mono);
-  table-layout: fixed;
-  font-variant-numeric: tabular-nums;
-}
-.grid th, .grid td {
+/*
+ * Three lines, all of them readable.
+ *
+ * The table this replaces gave each of six columns about 55px in a 400px
+ * panel, so every name, phone, email and area on screen ended in an ellipsis.
+ * Height is fixed because the virtual window multiplies by it.
+ */
+.lead {
   height: var(--row-h);
-  padding: 0 10px;
-  text-align: left;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  padding: 9px var(--s-3);
   border-bottom: 1px solid var(--hairline);
 }
-.grid th {
-  height: 30px;
-  font-family: var(--font);
-  font-weight: var(--w-medium);
-  color: var(--ink-3);
-  background: var(--surface);
-}
-/* Names are read, not scanned — keep them in the UI face. */
-.grid td.c-name { font-family: var(--font); }
-.grid tr:hover td { background: var(--surface); }
-.grid td.bad { color: var(--danger); text-decoration: line-through; }
+.lead:hover { background: var(--surface); }
 
-.c-name { width: 26%; }
-.c-phone { width: 18%; }
-.c-email { width: 20%; }
-.c-area { width: 15%; }
-.c-cat { width: 15%; }
-.c-rating { width: 6%; }
+.lead-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.lead-1 { height: 18px; }
+.lead-2, .lead-3 { height: 17px; }
+
+.lead-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--t-label);
+  font-weight: var(--w-medium);
+  color: var(--ink);
+}
+/* A name that copies a profile link is still a name to read: it keeps the UI
+   face and the ink, and only the hover says what the click does. */
+.copy.lead-name {
+  font-family: var(--font);
+  font-size: var(--t-label);
+  font-weight: var(--w-medium);
+  color: var(--ink);
+}
+/* Rating, degree — a short right-hand marker, never the thing you read. */
+.lead-mark {
+  flex: none;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+}
+.lead-sub {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--t-small);
+  color: var(--ink-2);
+}
+/* The email takes the room the category tag does not, and truncates rather
+   than pushing the tag off the card. */
+.lead-email { flex: 1 1 auto; }
+.lead-tag {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.lead-dot { flex: none; color: var(--ink-3); }
+.lead-none {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--t-small);
+  color: var(--ink-3);
+}
+
+/*
+ * A phone number and an email exist to be used somewhere else, so both are
+ * one click from the clipboard. Machine values in the mono face: a column of
+ * them is scanned, not read.
+ */
+.copy {
+  min-width: 0;
+  padding: 0;
+  font: var(--w-regular) var(--t-small) / 1.4 var(--font-mono);
+  color: var(--ink-2);
+  background: none;
+  border: 0;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.copy:hover { color: var(--ink); text-decoration: underline; }
+.copy:focus-visible { outline: none; box-shadow: var(--ring); border-radius: 3px; }
+/* Verification says this one will bounce — struck through, not hidden, since
+   a wrong address is still a lead you may want to fix by hand. */
+.copy.bad { color: var(--danger); text-decoration: line-through; }
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 80px;
+  transform: translateX(-50%);
+  padding: 6px var(--s-3);
+  font-size: var(--t-small);
+  font-weight: var(--w-medium);
+  color: var(--action-ink);
+  background: var(--action);
+  border-radius: var(--r-pill);
+  box-shadow: var(--lift);
+  animation: arrive var(--t-normal) var(--ease-out);
+  pointer-events: none;
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before { animation: none !important; transition: none !important; }

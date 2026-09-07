@@ -6,6 +6,21 @@
     <link rel="stylesheet" href="tokens.css" />
     <link rel="stylesheet" href="panel.css" />
   </head>
+  <!--
+    The panel is ~400px wide and as tall as the browser. That one fact decides
+    the layout, and the first version ignored it:
+
+      - the button the whole app exists for sat 300px below the fold, so
+        opening the panel showed no way to start anything. It now lives in a
+        bar pinned to the bottom, in the same place in every view;
+      - the results were a six-column table in 400px, which ellipsised every
+        single value — a table you have to download before you can read is not
+        a table. Leads are cards now: name, phone, email, each one readable and
+        each one copyable with a click;
+      - the AI planner, an optional aside, was the loudest and tallest thing on
+        the screen and sat above the two fields that actually run a search. It
+        is now below them, quiet, and collapsible.
+  -->
   <body>
     <header class="masthead">
       <img src="../../icons/icon32.png" alt="" width="20" height="20" />
@@ -25,7 +40,8 @@
 
     <!-- ==================================================== search ===== -->
     <section id="paneSetup" class="pane">
-      <!-- --- the form: one question at a time, top to bottom ---------- -->
+      <!-- The form asks for what it cannot guess, in the order you think of
+           it, and nothing else. -->
       <form id="form" class="stack">
         <fieldset class="segmented" id="sourceGroup">
           <legend class="sr-only">Where to search</legend>
@@ -56,46 +72,8 @@
           Everything comes from that page.
         </p>
 
-        <!-- --- the planner: for people who know their business but not
-             which searches find its customers ------------------------- -->
-        <section class="assist" id="assist">
-          <div class="assist-head">
-            <h2 class="assist-title">Not sure what to search for?</h2>
-            <p class="assist-sub" id="assistSub">
-              Describe your business or who you want to reach. I'll work out the
-              searches that find them.
-            </p>
-          </div>
-
-          <label class="field">
-            <span class="sr-only">Describe what you are looking for</span>
-            <textarea id="aiBrief" class="input" rows="3" spellcheck="false"
-              placeholder="I make industrial floor-cleaning chemicals and want bulk buyers around Chennai"></textarea>
-          </label>
-
-          <div class="row">
-            <button type="button" id="aiPlan" class="btn">Plan my searches</button>
-            <span id="aiStatus" class="muted small" role="status" aria-live="polite"></span>
-          </div>
-
-          <p id="aiKeyHint" class="help" hidden>
-            Needs a free API key — add one under
-            <button type="button" id="aiOpenSettings" class="linkish">More options</button>.
-          </p>
-
-          <!-- The plan is a proposal, not a decision: every line can be
-               unticked before it becomes the run. -->
-          <div id="aiResult" class="assist-result" hidden>
-            <p id="aiUnderstood" class="assist-understood"></p>
-            <ul id="aiList" class="assist-list"></ul>
-            <div class="row">
-              <button type="button" id="aiApply" class="btn btn--primary">Use these searches</button>
-              <button type="button" id="aiDiscard" class="linkish">Discard</button>
-            </div>
-          </div>
-        </section>
-
-        <div id="modeSingle" class="stack">
+        <!-- --- what to search: the two fields that decide the run -------- -->
+        <div id="modeSingle" class="stack tight">
           <label class="field">
             <span class="label" id="categoryLabel">What are you looking for?</span>
             <input id="category" class="input" placeholder="dentists" autocomplete="off" />
@@ -107,7 +85,94 @@
           </label>
         </div>
 
-        <!-- Optional throughout: blank keeps everything, exactly as before. -->
+        <div id="modeBatch" class="stack" hidden>
+          <label class="field">
+            <span class="label">One search per line</span>
+            <textarea id="batch" class="input" rows="4" spellcheck="false"
+              placeholder="dentists, Chennai&#10;gyms, Coimbatore"></textarea>
+          </label>
+        </div>
+
+        <button type="button" id="toggleBatch" class="linkish">+ Search several at once</button>
+
+        <!-- --- the planner: an aside, and it now looks like one ---------
+             Below the fields it helps you fill in, not above them; a plain
+             card rather than a tinted block; collapsible, and it remembers
+             being collapsed. Someone who knows their search never sees it
+             again after the first time they close it. -->
+        <details class="assist" id="assist" open>
+          <summary class="assist-summary">
+            <span class="assist-title">Not sure what to search for?</span>
+          </summary>
+          <div class="assist-body">
+            <p class="assist-sub" id="assistSub">
+              Describe your business or who you want to reach. I'll work out the
+              searches that find them.
+            </p>
+
+            <label class="field">
+              <span class="sr-only">Describe what you are looking for</span>
+              <textarea id="aiBrief" class="input" rows="2" spellcheck="false"
+                placeholder="I make industrial floor-cleaning chemicals and want bulk buyers around Chennai"></textarea>
+            </label>
+
+            <div class="row">
+              <button type="button" id="aiPlan" class="btn btn--sm">Plan my searches</button>
+              <span id="aiStatus" class="muted small" role="status" aria-live="polite"></span>
+            </div>
+
+            <p id="aiKeyHint" class="help" hidden>
+              Needs a free API key — add one under
+              <button type="button" id="aiOpenSettings" class="linkish">More options</button>.
+            </p>
+
+            <!-- The plan is a proposal, not a decision: every line can be
+                 unticked before it becomes the run. -->
+            <div id="aiResult" class="assist-result" hidden>
+              <p id="aiUnderstood" class="assist-understood"></p>
+              <ul id="aiList" class="assist-list"></ul>
+              <div class="row">
+                <button type="button" id="aiApply" class="btn btn--sm btn--primary">Use these searches</button>
+                <button type="button" id="aiDiscard" class="linkish">Discard</button>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <!-- Three named outcomes on one row. The consequence of the chosen
+             one is spelled out underneath, because "Deep" on its own does not
+             tell anyone it means an hour. -->
+        <div class="field" id="coverageRow">
+          <span class="label">How thorough?</span>
+          <fieldset class="segmented" id="coverage">
+            <legend class="sr-only">How thorough</legend>
+            <label class="seg">
+              <input type="radio" name="coverage" value="off" />
+              <span>Quick</span>
+            </label>
+            <label class="seg">
+              <input type="radio" name="coverage" value="balanced" checked />
+              <span>Balanced</span>
+            </label>
+            <label class="seg">
+              <input type="radio" name="coverage" value="exhaustive" />
+              <span>Deep</span>
+            </label>
+          </fieldset>
+          <span class="help" id="coverageHint"></span>
+        </div>
+        <select id="grid" class="sr-only" tabindex="-1" aria-hidden="true">
+          <option value="off">off</option>
+          <option value="light">light</option>
+          <option value="balanced" selected>balanced</option>
+          <option value="thorough">thorough</option>
+          <option value="exhaustive">exhaustive</option>
+        </select>
+
+        <!-- Optional throughout: blank keeps everything, exactly as before.
+             Compact, because it is a narrowing tweak rather than a question
+             the run cannot start without — and when it is set, the action bar
+             carries a chip so it can never be forgotten again. -->
         <label class="field" id="categoryFilterRow">
           <span class="label">
             <span id="filterLabel">Category</span>
@@ -120,51 +185,6 @@
             Pick one, or type your own. Separate several with commas.
           </span>
         </label>
-
-        <div id="modeBatch" class="stack" hidden>
-          <label class="field">
-            <span class="label">One search per line</span>
-            <textarea id="batch" class="input" rows="4" spellcheck="false"
-              placeholder="dentists, Chennai&#10;gyms, Coimbatore"></textarea>
-          </label>
-        </div>
-
-        <button type="button" id="toggleBatch" class="linkish">Search several at once</button>
-
-        <!-- Three named outcomes, not five settings with jargon. -->
-        <div class="field" id="coverageRow">
-          <span class="label">How thorough?</span>
-          <div class="choices" id="coverage" role="radiogroup" aria-label="How thorough">
-            <label class="choice">
-              <input type="radio" name="coverage" value="off" />
-              <span class="choice-body">
-                <strong>Quick</strong>
-                <em>~120 results · a few minutes</em>
-              </span>
-            </label>
-            <label class="choice">
-              <input type="radio" name="coverage" value="balanced" checked />
-              <span class="choice-body">
-                <strong>Balanced</strong>
-                <em>~600 results · about 25 minutes</em>
-              </span>
-            </label>
-            <label class="choice">
-              <input type="radio" name="coverage" value="exhaustive" />
-              <span class="choice-body">
-                <strong>Deep</strong>
-                <em>~1,500 results · an hour or more</em>
-              </span>
-            </label>
-          </div>
-        </div>
-        <select id="grid" class="sr-only" tabindex="-1" aria-hidden="true">
-          <option value="off">off</option>
-          <option value="light">light</option>
-          <option value="balanced" selected>balanced</option>
-          <option value="thorough">thorough</option>
-          <option value="exhaustive">exhaustive</option>
-        </select>
 
         <!-- Everything below has a sensible default. Hidden until wanted. -->
         <details class="advanced">
@@ -236,19 +256,12 @@
         </details>
 
         <p id="sourceNote" class="callout callout--warn" hidden></p>
-
-        <!-- The narrowing filter is the one setting that can turn a good run
-             into zero rows, and it persists between runs. It says so here,
-             next to the button that acts on it. -->
-        <p id="filterNote" class="callout callout--warn" hidden>
-          <span id="filterNoteText"></span>
-          <button type="button" id="filterClear" class="linkish">Clear it</button>
-        </p>
-
-        <button type="submit" id="start" class="btn btn--primary btn--lg">Start</button>
       </form>
 
-      <!-- --- the run: replaces the form, because nothing else matters -->
+      <!-- --- the run: replaces the form, because nothing else matters ----
+           This is the screen you look at for twenty-five minutes, so it has
+           to keep proving it is alive: which search is running, and the leads
+           arriving as they arrive. -->
       <div id="runView" class="stack" hidden>
         <div class="runhead">
           <div id="spinner" class="spinner" hidden></div>
@@ -261,6 +274,8 @@
         <div class="bar"><div id="barFill" class="bar-fill"></div></div>
         <p id="taskLine" class="muted small"></p>
 
+        <!-- One row, four numbers. Four bordered boxes stacked two-by-two ate
+             a third of the screen to say the same thing. -->
         <ul class="figures">
           <li><strong id="statFound">0</strong><span id="statFoundLabel">businesses</span></li>
           <li><strong id="statPhones">0</strong><span>phones</span></li>
@@ -268,13 +283,12 @@
           <li><strong id="statSendable">0</strong><span>usable</span></li>
         </ul>
 
-        <div class="row">
-          <button type="button" id="stop" class="btn" hidden>Stop</button>
-          <!-- Resume belongs here, not on the form: a paused run hides the
-               form, and the button was unreachable when it was over there. -->
-          <button type="button" id="resume" class="btn btn--primary" hidden>Resume</button>
-          <button type="button" id="again" class="btn" hidden>New search</button>
-          <button type="button" id="goResults" class="btn btn--primary" hidden>See results</button>
+        <!-- The empty space under the stats used to be the whole rest of the
+             panel. Names landing here are the difference between "it is
+             working" and "it has hung". -->
+        <div id="recentBox" class="recent" hidden>
+          <p class="recent-head">Latest</p>
+          <ul id="recentList" class="recent-list"></ul>
         </div>
 
         <details id="healthBox" class="advanced" hidden>
@@ -288,15 +302,6 @@
 
     <!-- =================================================== results ===== -->
     <section id="paneResults" class="pane" hidden>
-      <div class="row">
-        <select id="format" class="input" aria-label="File type">
-          <option value="xlsx">Excel (.xlsx)</option>
-          <option value="csv">CSV (.csv)</option>
-          <option value="json">JSON (.json)</option>
-        </select>
-        <button type="button" id="download" class="btn btn--primary">Download</button>
-      </div>
-
       <input id="filter" class="input" type="search" placeholder="Filter these results…" />
 
       <!-- Rows the category filter set aside are kept, not deleted, so this is
@@ -313,24 +318,14 @@
         <button type="button" id="emptyGoSearch" class="btn">Go to search</button>
       </div>
 
+      <!-- A card per lead, not a row per lead. Six columns in 400px truncated
+           every value on screen; three lines each shows all of them. -->
       <div id="scroller" class="scroller">
-        <table class="grid">
-          <thead>
-            <tr>
-              <th class="c-name">Name</th>
-              <th class="c-phone">Phone</th>
-              <th class="c-email">Email</th>
-              <th class="c-area">Area</th>
-              <th class="c-cat">Category</th>
-              <th class="c-rating">★</th>
-            </tr>
-          </thead>
-        </table>
-        <!-- Virtualised body: a spacer sized to the whole set, with only the
-             visible window of rows actually in the DOM. -->
         <div id="viewport" class="viewport">
           <div id="spacer" class="spacer"></div>
-          <table class="grid rows"><tbody id="rowBody"></tbody></table>
+          <!-- Virtualised: a spacer sized to the whole set, with only the
+               visible window of cards actually in the DOM. -->
+          <div id="rowBody" class="rows"></div>
         </div>
       </div>
 
@@ -340,9 +335,45 @@
       </div>
     </section>
 
+    <!-- ================================================ action bar ===== -->
+    <!--
+      One bar, pinned to the bottom, carrying whatever this view's single
+      action is. Before this, Start was at the end of a 1,050px form in a
+      760px panel: the app opened with no visible way to start anything.
+    -->
+    <div class="actionbar" id="actionbar">
+      <!-- The narrowing filter is the one setting that can turn a good run
+           into zero rows, and it persists between runs. It rides next to the
+           button that acts on it, where it cannot be missed. -->
+      <button type="button" id="filterChip" class="chip" hidden>
+        <span id="filterChipText"></span>
+        <span class="chip-x" aria-hidden="true">✕</span>
+      </button>
+
+      <div class="actionbar-row" id="barSearch">
+        <button type="submit" form="form" id="start" class="btn btn--primary btn--lg grow">Start</button>
+        <button type="button" id="resume" class="btn btn--lg grow" hidden>Resume</button>
+        <button type="button" id="stop" class="btn btn--lg grow" hidden>Stop</button>
+        <button type="button" id="again" class="btn btn--lg" hidden>New search</button>
+        <button type="button" id="goResults" class="btn btn--lg grow" hidden>See results</button>
+      </div>
+
+      <div class="actionbar-row" id="barResults" hidden>
+        <select id="format" class="input" aria-label="File type">
+          <option value="xlsx">Excel (.xlsx)</option>
+          <option value="csv">CSV (.csv)</option>
+          <option value="json">JSON (.json)</option>
+        </select>
+        <button type="button" id="download" class="btn btn--primary btn--lg grow">Download</button>
+      </div>
+    </div>
+
     <footer class="footnote" id="footnote" hidden>
       Keep the search tab open while it runs.
     </footer>
+
+    <!-- Says a value reached the clipboard. Nothing else confirms a copy. -->
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
     <script type="module" src="panel.js"></script>
   </body>

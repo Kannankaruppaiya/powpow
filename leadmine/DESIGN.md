@@ -147,26 +147,48 @@ that shifts layout.
 **Segmented control** — for exactly two options (the source). Cheaper to read
 than a select: both choices are visible without opening anything.
 
-**Choice cards** — for three options with consequences (how thorough). Each
-card names the outcome and its cost in time. A select would hide two of the
-three and make the user open it to compare.
+**Segmented control, three up** — for how thorough. This was three stacked
+cards, a hundred pixels each: a third of the panel spent on one setting that
+has a good default. The three names sit on one row now, and the consequence of
+whichever is chosen is written underneath — "Deep" on its own tells nobody it
+means an hour.
 
 **Disclosure** — everything with a working default. Five checkboxes behind
 "More options" is not five fewer features; it is five fewer decisions before
 the first run.
 
-**Stat tiles** — a 2×2 grid of large numbers with small labels. This is the
-only place `--t-figure` is used, so progress is legible from across a desk.
+**Stat tiles** — one row of four large numbers with small labels, ruled above
+and below. This is the only place `--t-figure` is used, so progress is legible
+from across a desk. As a 2×2 grid of bordered boxes they cost a third of the
+screen to carry four numbers.
+
+**Lead cards** — one card per result, three lines: name and its marker, then
+the contact line, then the email and the category. This replaced a
+six-column table, which in a 400px panel gave each column about 55px and
+ellipsised every value on screen — a table you had to download before you
+could read it. Reading down instead of across fits all of it. Phone, email and
+a LinkedIn profile link are buttons that put themselves on the clipboard,
+because that is what anyone does with a lead next.
 
 **Callouts** — a left rule in the semantic colour, never a filled box. The
 LinkedIn account-risk notice is `--warn` and sits directly above the Start
 button, where the decision is actually made.
 
-**The planner panel** — the one filled, tinted block in the interface, in
-`--accent-soft` inside `--accent-line`. It is the only element that is not part
-of the form it sits above, and the tint says so: this is an aside that helps
-you fill the form in, not another field to complete. Someone who already knows
-their search reads past it in one glance.
+**The planner panel** — a plain hairline card *below* the fields it helps you
+fill in, folded shut until it can do something. The first version had this
+backwards: tinted in `--accent-soft`, three hundred pixels tall, and sitting
+above the two fields that actually run a search, which made the optional
+helper the loudest and tallest thing in the panel. Without an API key it can
+do nothing, so it starts folded and its summary is the whole offer; once a key
+is there it opens by default, and whichever state the user puts it in is
+remembered and never overridden again.
+
+**The action bar** — one row pinned below the pane, carrying that view's single
+action: Start on the search side, Download on the results side. See below.
+
+**The filter chip** — a `--warn` pill in the action bar, shown only when the
+narrowing filter holds a term, and clicking it clears the term. It rides beside
+the button whose meaning it changes.
 
 ---
 
@@ -198,19 +220,26 @@ settings that started it are not what the user needs.
 | State | What is on screen | Primary action |
 | --- | --- | --- |
 | **Idle** | Source, the search, how thorough, disclosure | **Start** |
-| **Running** | Spinner, what it is doing now, progress, live counts | **Stop** |
+| **Running** | Spinner, which search, progress, live counts, latest arrivals | **Stop** |
 | **Paused** | Why it stopped, what was collected so far | **Resume** |
 | **Finished** | Counts, what was found per field | **See results** |
-| **Results** | Virtualised table, filter | **Download** |
+| **Results** | Virtualised lead cards, filter | **Download** |
 | **Results, empty** | The mark, one line, a way back | **Go to search** |
 
 One primary action per state is enforced in code, not by convention: Resume and
-See results share a row, and only the one that answers the current question is
-indigo.
+See results share the bar, and only the one that answers the current question
+carries `--action`.
 
-Resume lives in the run view, not on the form. It was on the form once, and a
-paused run hides the form — so the only button that mattered was unreachable
-exactly when it was needed.
+Every one of these lives in the action bar, so none of them can be scrolled
+away from. Resume was on the form once, and a paused run hides the form — the
+only button that mattered was unreachable exactly when it was needed. The bar
+makes that class of bug structurally impossible.
+
+**A run has to keep proving it is alive.** Twenty-five minutes of a spinner and
+four numbers that tick is indistinguishable from a hang, and the rest of that
+screen was empty. So the run says which search it is on — "Search 4 of 10 ·
+dentists, Chennai" — and lists the last few names to arrive, each one fading in
+as it lands.
 
 **A finished run stops owning the screen once the extension restarts.** The
 run view is for a run you are watching; after a reload you are not watching it
@@ -234,6 +263,35 @@ The running state says what it is doing in words — "Opening each listing…",
 | Generate search queries with AI | Not sure what to search for? |
 | Invalid API key (401) | That API key was rejected. Check it in More options. |
 | 1 searches failed | *the actual reason the search failed* |
+
+## The action never scrolls away
+
+The form was 1,050px of controls in a 760px panel, so opening LeadMine showed
+no way to start anything: **Start** was three hundred pixels below the fold, at
+the end of a form most people had not finished reading. Every other view had
+the same shape — the buttons that end a run were at the bottom of the run view,
+and Download was above a table that pushed it off screen.
+
+So the bar comes out of the panes and is pinned under them, and it carries
+exactly one question: *what do I do now?* Only the answers that apply are in
+it — Start belongs to the form, Stop to a run, New search and See results to a
+finished one, Download to the results view. One primary at a time, in the same
+place every time.
+
+Two things follow from this. The form no longer has to fit above a button, so
+it can be as long as it needs to be; and the filter chip has somewhere to live
+where it cannot scroll out of sight.
+
+---
+
+## A finished run hands over
+
+A run exists for the rows it produced. Reaching them used to mean noticing a
+tab and clicking it, so the panel now switches to Results on the
+running → done edge — once, on the transition, never on a later poll, and
+never over a run the user has already dismissed.
+
+---
 
 ## One scroller per view
 
