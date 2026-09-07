@@ -39,7 +39,7 @@ const OVERSCAN = 8; // rows rendered above and below the viewport
 const el = (id) => document.getElementById(id);
 const ui = Object.fromEntries(
   [
-    'form', 'statusPill', 'viewSetup', 'viewResults', 'paneSetup', 'paneResults', 'tabCount',
+    'form', 'statusPill', 'version', 'viewSetup', 'viewResults', 'paneSetup', 'paneResults', 'tabCount',
     'modeSingle', 'modeBatch', 'toggleBatch',
     'source', 'sourceGroup', 'sourceNote', 'coverageRow', 'coverage',
     'categoryLabel', 'cityLabel', 'limitLabel',
@@ -987,7 +987,21 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg && msg.type === 'JOB_UPDATE') render(msg.job);
 });
 
+/**
+ * Stamp the running version into the masthead.
+ *
+ * Reloading an unpacked extension gives no feedback inside the panel, so
+ * "did the reload land?" meant opening chrome://extensions to check. Reading
+ * it from the manifest means it cannot drift from what is actually loaded.
+ */
+function showVersion() {
+  const manifest =
+    chrome.runtime && chrome.runtime.getManifest ? chrome.runtime.getManifest() : null;
+  ui.version.textContent = manifest ? `v${manifest.version}` : '';
+}
+
 (async function init() {
+  showVersion();
   await restoreSettings();
   await restoreAi();
   applyFilterNote();

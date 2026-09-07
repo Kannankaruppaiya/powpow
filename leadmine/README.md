@@ -81,6 +81,10 @@ npm run package     # -> dist/leadmine-v5.0.0.zip
 1. Click the extension icon. The **side panel** opens on the right and stays
    there while you work — unlike a popup, it does not close when you click into
    the Maps tab the run is driving.
+   The version LeadMine is actually running is shown next to the name in the
+   panel's header. After a `git pull` and a **Reload** in `chrome://extensions`,
+   check that number changed — it is read from the manifest, so it cannot
+   disagree with what is loaded.
 2. On the **One search** tab, enter a **Category** (`dentists`, `gyms`,
    `IT training institutes`) and a **City** (`Chennai`, `Austin, TX`).
    Or switch to **Batch** and paste one search per line:

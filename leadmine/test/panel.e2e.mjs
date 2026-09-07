@@ -96,6 +96,7 @@ const SETUP = (total) => {
       },
     },
     runtime: {
+      getManifest: () => ({ version: '9.9.9' }),
       sendMessage: async (m) => (m.type === 'GET_JOB' ? { ok: true, job, seen: 0 } : { ok: true }),
       onMessage: { addListener: () => {} },
     },
@@ -154,7 +155,7 @@ const SETUP = (total) => {
   });
 };
 
-async function openPanel(t, { idle = false, paused = false, aiKey = '' } = {}) {
+async function openPanel(t, { idle = false, paused = false, aiKey = '', noManifest = false } = {}) {
   let chromium;
   try {
     ({ chromium } = await import('playwright-core'));
@@ -180,6 +181,8 @@ async function openPanel(t, { idle = false, paused = false, aiKey = '' } = {}) {
     }, aiKey);
   }
   await page.addInitScript(SETUP, idle ? 0 : TOTAL);
+  // After SETUP, which is what defines window.chrome in the first place.
+  if (noManifest) await page.addInitScript(() => { delete chrome.runtime.getManifest; });
   await page.goto(`http://localhost:${port}/src/panel/panel.html`);
   await page.evaluate(() => window.__seed);
   await page.waitForTimeout(700);
@@ -918,6 +921,7 @@ const SET_ASIDE = (kept) => {
       },
     },
     runtime: {
+      getManifest: () => ({ version: '9.9.9' }),
       sendMessage: async (m) => (m.type === 'GET_JOB' ? { ok: true, job, seen: 0 } : { ok: true }),
       onMessage: { addListener: () => {} },
     },
@@ -1088,6 +1092,32 @@ test('New search leaves the finished run behind instead of repainting it', async
     await ctx.page.waitForTimeout(2500);
     assert.equal(await ctx.page.isVisible('#form'), true, 'the poll repainted the old run');
     assert.equal(await ctx.page.isVisible('#error'), false);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('the panel shows which version is loaded', async (t) => {
+  // Reloading an unpacked extension gives no feedback inside the panel, so
+  // "did my reload land?" meant opening chrome://extensions to find out.
+  const ctx = await openPanel(t, { idle: true });
+  if (!ctx) return;
+  try {
+    assert.equal(await ctx.page.textContent('#version'), 'v9.9.9');
+    assert.equal(await ctx.page.isVisible('#version'), true);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('a panel with no manifest to read still loads', async (t) => {
+  // The version is a convenience; it must never be what breaks the panel.
+  const ctx = await openPanel(t, { idle: true, noManifest: true });
+  if (!ctx) return;
+  try {
+    assert.deepEqual(ctx.errors, [], 'a missing manifest must not throw');
+    assert.equal(await ctx.page.textContent('#version'), '');
+    assert.equal(await ctx.page.isVisible('#form'), true, 'and the form still works');
   } finally {
     await ctx.close();
   }
