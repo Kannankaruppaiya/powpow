@@ -782,7 +782,13 @@
 
       // Scroll first: it hydrates lazily-rendered cards, and it is also what
       // brings the pagination control into the DOM at the foot of the page.
+      //
+      // Twice, with a wait between, because LinkedIn renders in chunks: one
+      // jump to the bottom moves the bottom, and the footer that carries the
+      // pagination is the last thing to arrive.
       const before = idsNow();
+      scrollToEnd(liveList(list));
+      await sleep(700);
       scrollToEnd(liveList(list));
       await sleep(700);
 
@@ -790,8 +796,14 @@
       // the start and hydrating one fills it in without adding an element.
       if (idsNow().length > before.length) return true;
 
-      const next = findNextButton();
-      if (!next) return false;
+      // Wait for the control rather than looking once. A single check the
+      // moment scrolling stops finds nothing on a page that renders its
+      // footer late, and the run then ends after one page of ten.
+      const next = await waitFor(findNextButton, { timeout: 4000 });
+      if (!next) {
+        endReason = 'LinkedIn offered no next page';
+        return false;
+      }
 
       next.click();
       // Wait for the list to actually turn over rather than guessing at a
@@ -804,6 +816,7 @@
         { timeout: 15000 }
       );
       window.scrollTo({ top: 0, behavior: 'auto' });
+      if (!turned) endReason = 'the next page did not load';
       return Boolean(turned);
     },
 

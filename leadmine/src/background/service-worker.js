@@ -284,6 +284,33 @@ async function runTask(task, config, tabId) {
 }
 
 /**
+ * Turn a filter's name into LinkedIn's id for it, by asking LinkedIn.
+ *
+ * `geoUrn` wants 102784390, not "Chennai", and that number is LinkedIn's own —
+ * undocumented, and not derivable from anything held here. But the page has a
+ * resolver already: the filter panel's typeahead. This drives it, on whichever
+ * LinkedIn search tab is open, and stores the answer so it happens once per
+ * name and never again.
+ */
+async function resolveFacet(want) {
+  const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!active || !String(active.url || '').includes('/search/results/')) {
+    return {
+      ok: false,
+      reason:
+        'Open a LinkedIn people search in this window first — that page is where the answer lives.',
+    };
+  }
+
+  await ensureContentScript(active.id);
+  const result = await chrome.tabs.sendMessage(active.id, { type: 'RESOLVE_FACET', want });
+  if (result && result.ok) {
+    await rememberUrns([{ facet: result.facet, id: result.id, label: result.label }]);
+  }
+  return result || { ok: false, reason: 'the tab did not answer' };
+}
+
+/**
  * Store filter-name-to-id pairs the page handed back.
  *
  * Written only when something is genuinely new, because this runs after every

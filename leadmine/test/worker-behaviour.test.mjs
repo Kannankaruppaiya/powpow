@@ -80,3 +80,48 @@ test('a new run clears the stale flag rather than inheriting it', () => {
   const start = WORKER.slice(WORKER.indexOf('async function startJob'), WORKER.indexOf('async function startJob') + 900);
   assert.match(start, /\.\.\.DEFAULT_JOB/, 'a new job starts from the defaults');
 });
+
+test('every handler the message switch calls actually exists', () => {
+  // A live panel answered "Uncaught ReferenceError: resolveFacet is not
+  // defined". The route had been added to the switch and the function it calls
+  // had not — the edit that was supposed to add it failed silently. Nothing
+  // caught it, because the panel's tests stub sendMessage and never reach the
+  // worker at all.
+  const switchBlock = WORKER.slice(
+    WORKER.indexOf('switch (msg.type) {'),
+    WORKER.indexOf('/* ------', WORKER.indexOf('switch (msg.type) {'))
+  );
+  assert.ok(switchBlock.includes('RESOLVE_FACET'), 'the block being scanned is the right one');
+
+  // Bare calls only: a method on an imported namespace (store.countSeen) is
+  // that module's business, not this one's.
+  const called = new Set(
+    [...switchBlock.matchAll(/(?<![.\w$])([a-z][A-Za-z0-9_]*)\s*\(/g)].map((m) => m[1])
+  );
+  // Keywords and things the platform provides, not this module.
+  const builtin = new Set([
+    'async', 'await', 'if', 'for', 'while', 'switch', 'catch', 'return',
+    'typeof', 'new', 'do', 'else',
+    'sendResponse', 'reply', 'respond', 'then', 'String', 'Number', 'Boolean',
+    'Promise', 'slice', 'map', 'filter', 'push', 'join',
+  ]);
+
+  for (const name of called) {
+    if (builtin.has(name)) continue;
+    const declared = new RegExp(
+      `(async\\s+)?function\\s+${name}\\b|(const|let|var)\\s+${name}\\s*=|import\\s*\\{[^}]*\\b${name}\\b[^}]*\\}`
+    );
+    assert.ok(declared.test(WORKER), `the switch calls ${name}(), which is never declared`);
+  }
+});
+
+test('asking LinkedIn for an id needs a LinkedIn tab, and says so', () => {
+  const block = WORKER.slice(
+    WORKER.indexOf('async function resolveFacet'),
+    WORKER.indexOf('async function rememberUrns')
+  );
+  assert.ok(block.includes('/search/results/'), 'it checks the tab is a search page');
+  assert.match(block, /Open a LinkedIn people search/i, 'and says what to do when it is not');
+  // Whatever it learns is kept, or the next run asks all over again.
+  assert.ok(block.includes('rememberUrns'), 'a resolved id is stored');
+});

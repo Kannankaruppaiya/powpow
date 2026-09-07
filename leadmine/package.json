@@ -1,6 +1,6 @@
 {
   "name": "leadmine",
-  "version": "5.8.0",
+  "version": "5.8.1",
   "private": true,
   "description": "Chrome extension that scrapes Google Maps business listings and LinkedIn people search into one downloadable file.",
   "type": "module",

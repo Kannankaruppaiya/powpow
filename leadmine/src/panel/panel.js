@@ -524,6 +524,28 @@ function applyFacets() {
   ui.cityIgnored.hidden = !places;
 }
 
+/**
+ * Take up anything typed but not added.
+ *
+ * A live run went out with `chennai` sitting in this box and no filter applied
+ * at all, because the value had never been turned into a chip. A box holding a
+ * value reads as a value that will be used — the same mistake as the category
+ * filter that silently set aside 235 rows. So pressing Add is a convenience,
+ * not a requirement: the text counts either way.
+ *
+ * Returns false when something typed could not be resolved, so Start can stop
+ * and point at it rather than running a search the user did not ask for.
+ */
+async function flushFacets() {
+  let ok = true;
+  for (const [facet, ui_] of Object.entries(FACET_UI)) {
+    if (!ui[ui_.input].value.trim()) continue;
+    await addFacet(facet);
+    if (ui[ui_.input].value.trim()) ok = false;
+  }
+  return ok;
+}
+
 for (const [facet, ui_] of Object.entries(FACET_UI)) {
   ui[`${facet === 'geoUrn' ? 'geo' : 'svc'}Add`].addEventListener('click', () => addFacet(facet));
   ui[ui_.input].addEventListener('keydown', (event) => {
@@ -531,6 +553,10 @@ for (const [facet, ui_] of Object.entries(FACET_UI)) {
     // The form would otherwise take this as "start the run".
     event.preventDefault();
     addFacet(facet);
+  });
+  // Looking away is as clear a signal as pressing the button.
+  ui[ui_.input].addEventListener('blur', () => {
+    if (ui[ui_.input].value.trim()) addFacet(facet);
   });
 }
 
@@ -1351,6 +1377,13 @@ function renderSeen(count) {
 ui.form.addEventListener('submit', async (event) => {
   event.preventDefault();
   showError('');
+
+  // A filter typed and left in its box is a filter the user meant. Take it up
+  // before starting, and stop rather than run without it.
+  if (ui.source.value === 'linkedin' && !ui.liFilters.hidden && !(await flushFacets())) {
+    showError('That filter could not be added — see the message under it.');
+    return;
+  }
 
   const config = readConfig();
   const conf = SOURCE_UI[config.source] || SOURCE_UI.maps;

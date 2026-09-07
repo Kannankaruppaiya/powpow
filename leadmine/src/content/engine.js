@@ -162,7 +162,10 @@
 
       const more = await adapter.loadMore(container);
       if (more === false) {
-        stopped = 'there was no next page';
+        // The adapter knows which of several things happened — no control on
+        // the page, or one that did not turn the page over. "There was no next
+        // page" for all of them sends everyone to look at the wrong thing.
+        stopped = adapter.endReason || 'there was no next page';
         break;
       }
       await sleep(scrollDelay);
