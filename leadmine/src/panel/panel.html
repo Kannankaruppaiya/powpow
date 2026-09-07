@@ -288,6 +288,13 @@
 
       <input id="filter" class="input" type="search" placeholder="Filter these results…" />
 
+      <!-- Rows the category filter set aside are kept, not deleted, so this is
+           a view switch rather than a re-run. -->
+      <p id="asideNote" class="callout callout--warn" hidden>
+        <span id="asideText"></span>
+        <button type="button" id="asideToggle" class="linkish"></button>
+      </p>
+
       <div id="emptyResults" class="empty" hidden>
         <img src="../../icons/icon48.png" alt="" width="40" height="40" />
         <p class="empty-title">No results yet</p>

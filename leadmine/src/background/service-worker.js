@@ -219,6 +219,19 @@ async function readMapCentre(tabId, attempts = 8) {
 
 /* ---------------------------------------------------------------- the queue */
 
+/**
+ * A failure that is about the tab rather than about the page.
+ *
+ * These come from Chrome's own messaging layer when the tab navigates, is
+ * discarded, or goes into the back/forward cache mid-scrape. The scrape was
+ * never wrong; the channel it was speaking over went away.
+ */
+function isTransient(message) {
+  return /back\/forward cache|message channel is closed|message port closed|Receiving end does not exist|No tab with id|Frame with ID/i.test(
+    String(message || '')
+  );
+}
+
 async function runTask(task, config, tabId) {
   const source = sourceFor(config.source);
 
@@ -319,6 +332,18 @@ async function drainQueue(config, tabId) {
         task.status = 'pending'; // leave it for a resume
         return;
       }
+      // Some failures are the tab moving, not the scrape being wrong: Chrome
+      // closes the message channel when the page it belongs to is put into
+      // the back/forward cache. Losing a whole search to that is a bad trade
+      // when re-running it costs one navigation.
+      task.attempts = (task.attempts || 0) + 1;
+      if (isTransient(message) && task.attempts < 3) {
+        task.status = 'pending';
+        await save({ tasks: job.tasks, message: `Retrying search: ${task.term}…` });
+        console.warn('[leadmine] task retrying', task.id, message);
+        continue;
+      }
+
       // One failed cell must not sink the whole run.
       task.status = 'failed';
       task.error = message;
@@ -410,15 +435,22 @@ async function finishRun(config) {
   // below: there is no point fetching a website for a listing the user has
   // already said they do not want.
   const source = sourceFor(config.source);
-  if (config.categoryFilter && String(config.categoryFilter).trim()) {
+  const filterText = String(config.categoryFilter || '').trim();
+  if (filterText) {
     const { kept, dropped } = filterByCategory(records, config.categoryFilter, source.filterField);
     if (dropped.length) {
-      await store.deleteRecords(dropped.map((r) => r.key));
+      // Marked, never deleted. A filter that sets aside everything is almost
+      // always the wrong filter, and deleting the rows destroys the evidence
+      // at exactly the moment the user needs it — along with an hour of
+      // scraping they would have to repeat to get it back.
+      await store.putRecords(job.id, dropped.map((r) => ({ ...r, setAside: filterText })));
       records = kept;
       await save({
         filteredOut: dropped.length,
         found: records.length,
-        message: `${dropped.length} listings set aside — ${source.filterLabel.toLowerCase()} did not match.`,
+        message: kept.length
+          ? `${dropped.length} listings set aside — ${source.filterLabel.toLowerCase()} did not match.`
+          : `All ${dropped.length} were set aside by the ${source.filterLabel.toLowerCase()} filter “${filterText}”. They are kept — open Results to see them.`,
       });
     }
   }

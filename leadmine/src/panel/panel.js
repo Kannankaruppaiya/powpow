@@ -13,7 +13,7 @@
 
 import { buildFile } from '../lib/export.js';
 import { summariseRates } from '../lib/health.js';
-import { suggestionsFor } from '../lib/categories.js';
+import { suggestionsFor, observedCategories } from '../lib/categories.js';
 import { planSearches, listModels, planToBatch, providerFor, DEFAULT_PROVIDER } from '../lib/ai.js';
 import * as store from '../lib/store.js';
 
@@ -54,6 +54,7 @@ const ui = Object.fromEntries(
     'healthBox', 'healthList', 'error',
     'format', 'download', 'clear', 'filter',
     'scroller', 'viewport', 'spacer', 'rowBody', 'rowNote', 'footnote',
+    'asideNote', 'asideText', 'asideToggle',
     'emptyResults', 'emptyGoSearch',
     'assist', 'assistSub', 'aiBrief', 'aiPlan', 'aiStatus', 'aiKeyHint', 'aiOpenSettings',
     'aiResult', 'aiUnderstood', 'aiList', 'aiApply', 'aiDiscard',
@@ -92,6 +93,9 @@ let batchMode = false;
 /** Every record for the current job, loaded from IndexedDB for the table. */
 let rows = [];
 let visibleRows = [];
+/** Rows the category filter set aside. Kept, so this is a view, not a re-run. */
+let asideRows = [];
+let showAside = false;
 
 /* ----------------------------------------------------------------- source */
 
@@ -109,6 +113,7 @@ const SOURCE_UI = {
     cityPlaceholder: 'Chennai',
     noun: 'businesses',
     limitLabel: 'Stop after this many per search',
+    filterField: 'category',
     assistSub:
       "Describe your business or who you want to reach. I'll work out the searches that find them.",
     assistPlaceholder:
@@ -130,6 +135,7 @@ const SOURCE_UI = {
     // per-page cap and made a limit of 100 look like it had been ignored.
     noun: 'people',
     limitLabel: 'Stop after this many profiles',
+    filterField: 'headline',
     assistSub:
       "Describe the person you need. I'll work out the titles and skills to search for.",
     assistPlaceholder:
@@ -551,10 +557,36 @@ ui.aiModelToggle.addEventListener('click', () => {
 /** Load this job's records from IndexedDB and redraw the table. */
 async function refreshRows() {
   const jobId = current && current.jobId;
-  rows = jobId ? await store.getRecords(jobId) : [];
+  const all = jobId ? await store.getRecords(jobId) : [];
+  rows = all.filter((r) => !r.setAside);
+  asideRows = all.filter((r) => r.setAside);
+  // Nothing kept and something set aside is the filter being wrong, not the
+  // scraper finding nothing — so show the rows rather than an empty table.
+  if (!rows.length && asideRows.length) showAside = true;
   relabelColumns();
   refreshCategoryOptions();
   applyFilter();
+}
+
+/**
+ * What the filter set aside, and what it could have matched.
+ *
+ * "0 businesses" reads as "the scraper found nothing", which sends people to
+ * debug the wrong thing. Naming the filter and listing the categories that
+ * were actually there turns it into a one-click fix.
+ */
+function renderAside() {
+  ui.asideNote.hidden = !asideRows.length;
+  if (!asideRows.length) return;
+
+  const conf = SOURCE_UI[(current && current.config && current.config.source)] || SOURCE_UI.maps;
+  const term = asideRows[0].setAside;
+  const found = observedCategories(asideRows, conf.filterField).slice(0, 4);
+
+  ui.asideText.textContent =
+    `${asideRows.length.toLocaleString()} set aside by ${conf.filterLabel.toLowerCase()} “${term}”` +
+    (rows.length ? '. ' : ` — nothing else matched. What was found: ${found.join(', ')}. `);
+  ui.asideToggle.textContent = showAside ? 'Hide them' : 'Show them';
 }
 
 /**
@@ -590,23 +622,27 @@ function relabelColumns() {
 
 function applyFilter() {
   const needle = ui.filter.value.trim().toLowerCase();
+  // What is on screen is what Download writes — no hidden discrepancy.
+  const source = showAside ? [...rows, ...asideRows] : rows;
   visibleRows = !needle
-    ? rows
-    : rows.filter((r) =>
+    ? source
+    : source.filter((r) =>
         [r.name, r.area, r.category, r.city, r.email, r.phone]
           .some((v) => String(v || '').toLowerCase().includes(needle))
       );
 
+  renderAside();
+
   // An empty results view gets a designed state, not a bare sentence.
-  const bare = !rows.length;
+  const bare = !visibleRows.length && !ui.filter.value.trim();
   ui.emptyResults.hidden = !bare;
   ui.scroller.hidden = bare;
   ui.rowNote.hidden = bare;
 
   ui.spacer.style.height = `${visibleRows.length * ROW_HEIGHT}px`;
   ui.rowNote.textContent = visibleRows.length
-    ? `${visibleRows.length.toLocaleString()}${needle ? ` of ${rows.length.toLocaleString()}` : ''} rows`
-    : rows.length
+    ? `${visibleRows.length.toLocaleString()}${needle ? ` of ${source.length.toLocaleString()}` : ''} rows`
+    : source.length
       ? 'Nothing matches that filter.'
       : 'Nothing collected yet — run a search first.';
   drawWindow();
@@ -858,6 +894,11 @@ ui.clear.addEventListener('click', async () => {
   applyFilter();
 });
 
+ui.asideToggle.addEventListener('click', () => {
+  showAside = !showAside;
+  applyFilter();
+});
+
 ui.categoryFilter.addEventListener('change', saveSettings);
 ui.format.addEventListener('change', saveSettings);
 
@@ -868,7 +909,10 @@ ui.download.addEventListener('click', async () => {
   ui.download.textContent = 'Building…';
   try {
     // Straight from the database: no message-size ceiling on a big export.
-    const all = current && current.jobId ? await store.getRecords(current.jobId) : [];
+    // Set-aside rows are included only when they are on screen, so the file
+    // is always what the table showed.
+    const stored = current && current.jobId ? await store.getRecords(current.jobId) : [];
+    const all = showAside ? stored : stored.filter((r) => !r.setAside);
     if (!all.length) {
       showError('Nothing to download yet.');
       return;

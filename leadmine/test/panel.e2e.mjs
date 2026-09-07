@@ -886,3 +886,151 @@ test('the results view scrolls in the table, not the page', async (t) => {
     await ctx.close();
   }
 });
+
+/* --------------------------------------------------- rows the filter set aside */
+
+/** Seed a finished job whose category filter set every row aside. */
+const SET_ASIDE = (kept) => {
+  const job = {
+    status: 'done', phase: 'done', jobId: 'job-1',
+    message: 'All 235 were set aside by the category filter “housekeeping”.',
+    count: kept, filteredOut: 235, tasksSettled: 10, tasksTotal: 10,
+    config: { source: 'maps', category: 'Departmental store', city: 'Chennai',
+              categoryFilter: 'housekeeping' },
+  };
+  const CATS = ['Department store', 'Supermarket', 'Grocery store'];
+  const records = [
+    ...Array.from({ length: kept }, (_, i) => ({
+      key: `keep:${i}`, name: `Kept ${i}`, category: 'Housekeeping service', area: 'Adyar',
+    })),
+    ...Array.from({ length: 235 }, (_, i) => ({
+      key: `aside:${i}`, name: `Store ${i}`, category: CATS[i % CATS.length],
+      area: 'Adyar', setAside: 'housekeeping',
+    })),
+  ];
+
+  window.__storage = window.__storage || {};
+  window.chrome = {
+    storage: {
+      local: {
+        get: async (k) => (k in window.__storage ? { [k]: window.__storage[k] } : {}),
+        set: async (o) => Object.assign(window.__storage, o),
+      },
+    },
+    runtime: {
+      sendMessage: async (m) => (m.type === 'GET_JOB' ? { ok: true, job, seen: 0 } : { ok: true }),
+      onMessage: { addListener: () => {} },
+    },
+    downloads: { download: async () => {} },
+  };
+
+  window.__seed = new Promise((resolve) => {
+    const req = indexedDB.open('maps-lead-scraper', 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      db.createObjectStore('meta');
+      db.createObjectStore('records', { keyPath: 'key' }).createIndex('jobId', 'jobId');
+      db.createObjectStore('seen', { keyPath: 'key' });
+    };
+    req.onsuccess = () => {
+      const tx = req.result.transaction('records', 'readwrite');
+      const os = tx.objectStore('records');
+      for (const r of records) os.put({ ...r, jobId: 'job-1' });
+      tx.oncomplete = resolve;
+    };
+    req.onerror = resolve;
+  });
+};
+
+async function openSetAside(t, kept) {
+  let chromium;
+  try {
+    ({ chromium } = await import('playwright-core'));
+  } catch {
+    t.skip('playwright-core is not installed (npm i -D playwright-core)');
+    return null;
+  }
+  const bin = findChromium();
+  const browser = await chromium.launch({ headless: true, ...(bin ? { executablePath: bin } : {}) });
+  const { server, port } = await serve();
+  const page = await browser.newPage({ viewport: { width: 400, height: 720 } });
+  await page.addInitScript(SET_ASIDE, kept);
+  await page.goto(`http://localhost:${port}/src/panel/panel.html`);
+  await page.evaluate(() => window.__seed);
+  await page.waitForTimeout(700);
+  return { page, close: async () => { await browser.close(); server.close(); } };
+}
+
+test('a filter that keeps nothing shows the rows, not an empty table', async (t) => {
+  // The live run: 235 found, every one set aside, and the panel said
+  // "0 businesses" — which reads as the scraper having failed.
+  const ctx = await openSetAside(t, 0);
+  if (!ctx) return;
+  try {
+    await ctx.page.click('#viewResults');
+    await ctx.page.waitForTimeout(400);
+
+    assert.equal(await ctx.page.isVisible('#emptyResults'), false, 'the rows exist — show them');
+    assert.match(await ctx.page.textContent('#rowNote'), /235 rows/);
+
+    // The notice names the filter and what it could have matched instead.
+    const note = await ctx.page.textContent('#asideNote');
+    assert.match(note, /235 set aside by category “housekeeping”/);
+    assert.match(note, /Department store/, 'what was actually found is the fix');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('set-aside rows are hidden by default when something was kept', async (t) => {
+  const ctx = await openSetAside(t, 12);
+  if (!ctx) return;
+  try {
+    await ctx.page.click('#viewResults');
+    await ctx.page.waitForTimeout(400);
+    assert.match(await ctx.page.textContent('#rowNote'), /12 rows/);
+
+    await ctx.page.click('#asideToggle');
+    await ctx.page.waitForTimeout(200);
+    assert.match(await ctx.page.textContent('#rowNote'), /247 rows/, '12 kept plus 235 set aside');
+
+    await ctx.page.click('#asideToggle');
+    await ctx.page.waitForTimeout(200);
+    assert.match(await ctx.page.textContent('#rowNote'), /12 rows/);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('the download writes exactly what the table is showing', async (t) => {
+  const ctx = await openSetAside(t, 12);
+  if (!ctx) return;
+  try {
+    await ctx.page.click('#viewResults');
+    await ctx.page.waitForTimeout(400);
+    await ctx.page.evaluate(() => {
+      window.__rowsWritten = null;
+      chrome.downloads.download = async () => {};
+      const blob = window.Blob;
+      window.Blob = class extends blob {
+        constructor(parts, opts) {
+          super(parts, opts);
+          // Non-empty lines minus the header; the file ends with a newline.
+          window.__rowsWritten = String(parts[0]).split('\n').filter(Boolean).length - 1;
+        }
+      };
+    });
+
+    await ctx.page.selectOption('#format', 'csv');
+    await ctx.page.click('#download');
+    await ctx.page.waitForTimeout(600);
+    assert.equal(await ctx.page.evaluate(() => window.__rowsWritten), 12);
+
+    await ctx.page.click('#asideToggle');
+    await ctx.page.click('#download');
+    await ctx.page.waitForTimeout(600);
+    assert.equal(await ctx.page.evaluate(() => window.__rowsWritten), 247);
+  } finally {
+    await ctx.close();
+  }
+});

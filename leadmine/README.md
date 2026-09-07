@@ -101,6 +101,14 @@ npm run package     # -> dist/leadmine-v5.0.0.zip
    standing list — a guess at category names is far less useful than the ones
    Google really used.
 
+   **Nothing is deleted by narrowing.** Rows that do not match are *set aside*,
+   not thrown away: the Results tab shows a notice saying how many, which
+   filter did it, and which categories were actually found, with a **Show
+   them** toggle. If your filter matches nothing at all — 235 found, 235 set
+   aside — the rows are shown by default, because that is a wrong filter and
+   not a failed scrape. The download always writes exactly what the table is
+   showing.
+
 4. Pick a **Coverage** level (see below) and leave **Max per search** at `0`.
 5. Press **Start**. A Google Maps tab opens and drives itself.
 6. When it finishes, choose Excel / CSV / JSON and press **Download**.

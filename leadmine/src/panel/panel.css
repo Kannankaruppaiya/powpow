@@ -275,6 +275,13 @@ select.input { appearance: auto; }
   background: var(--accent-soft);
 }
 
+/* --- set-aside notice --------------------------------------------------- */
+
+/* The toggle sits inside the callout, so it inherits the warning colour and
+   reads as part of the sentence rather than as a competing action. */
+#asideNote { display: block; }
+#asideNote .linkish { color: inherit; text-decoration: underline; }
+
 /* --- the search planner ------------------------------------------------ */
 
 /*
