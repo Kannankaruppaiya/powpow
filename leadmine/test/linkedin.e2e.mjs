@@ -281,6 +281,44 @@ test('the name LinkedIn gives a filter is learned alongside its id', async (t) =
   ]);
 });
 
+test('one applied filter teaches the whole list it was chosen from', async (t) => {
+  // Typing "usa" into LinkedIn's own location box renders ten places at once,
+  // every one of them carrying its id. Learning only the one that gets ticked
+  // throws the other nine away, and then LeadMine's own list stays almost
+  // empty however much the user browses. Options rendered together belong to
+  // one facet, so the moment any of them turns up in the URL the whole batch
+  // is attributable — which is an observation, not a guess: they were on
+  // screen together.
+  const result = await run(t, {
+    mutate: async (page) => {
+      await page.evaluate(() => {
+        const panel = document.createElement('div');
+        for (const [id, label] of [
+          ['102713980', 'India'],
+          ['103644278', 'United States'],
+          ['104035573', 'US Virgin Islands'],
+          ['105015875', 'Uşak, Türkiye'],
+        ]) {
+          panel.insertAdjacentHTML(
+            'beforeend',
+            `<input type="checkbox" id="o_${id}" value="${id}">` +
+              `<label for="o_${id}">${label}</label>`
+          );
+        }
+        document.body.appendChild(panel);
+      });
+      // The observer is debounced, as a network-backed typeahead needs.
+      await page.waitForTimeout(400);
+    },
+  });
+  if (!result) return;
+
+  // The URL applies only India, and all four come back.
+  const labels = result.context.learned.map((p) => p.label).sort();
+  assert.deepEqual(labels, ['India', 'US Virgin Islands', 'United States', 'Uşak, Türkiye']);
+  assert.ok(result.context.learned.every((p) => p.facet === 'geoUrn'));
+});
+
 test('an id with no name attached is not learned', async (t) => {
   // Half an observation is a guess, and a guessed geoUrn does not fail — it
   // searches somewhere else and hands back a plausible spreadsheet.

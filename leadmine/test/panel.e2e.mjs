@@ -1410,6 +1410,13 @@ test('LinkedIn’s own filters are offered — and only the ones ever observed',
     assert.match(await ctx.page.textContent('#geoHelp'), /not known yet/i);
     assert.match(await ctx.page.textContent('#geoHelp'), /apply it once on LinkedIn/i);
     assert.equal(await ctx.page.textContent('#geoChips'), 'India✕', 'and nothing was added');
+
+    // And the resting state says where the list comes from. A list of one
+    // reads as a broken feature unless it is clear what fills it.
+    await ctx.page.fill('#geoInput', 'India');
+    await ctx.page.click('#geoAdd');
+    await ctx.page.waitForTimeout(150);
+    assert.match(await ctx.page.textContent('#geoHelp'), /learns these from LinkedIn/i);
   } finally {
     await ctx.close();
   }

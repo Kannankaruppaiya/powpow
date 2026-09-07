@@ -410,9 +410,17 @@ async function restoreUrns() {
 
 function fillFacetOptions(facet) {
   const ui_ = FACET_UI[facet];
-  ui[ui_.options].replaceChildren(
-    ...labelsFor(urns, facet).map((label) => new Option(label))
-  );
+  const labels = labelsFor(urns, facet);
+  ui[ui_.options].replaceChildren(...labels.map((label) => new Option(label)));
+  if (!ui_.help) return;
+
+  // Say where the list comes from. Two entries on a fresh install looks like a
+  // broken feature unless it is clear that browsing LinkedIn is what fills it.
+  ui[ui_.help].textContent = labels.length
+    ? `${labels.length} known. LeadMine learns these from LinkedIn — open its ` +
+      'Locations filter, type a place, and every option it offers is remembered.'
+    : 'None known yet. Open LinkedIn’s Locations filter, type a place and apply ' +
+      'one — every option it showed you is remembered.';
 }
 
 function renderChips(facet) {
@@ -459,7 +467,7 @@ function addFacet(facet) {
 
   if (!chosen[facet].some((v) => v.id === id)) chosen[facet].push({ id, label });
   ui[ui_.input].value = '';
-  if (ui_.help) ui[ui_.help].textContent = '';
+  fillFacetOptions(facet);
   renderChips(facet);
   applyFacets();
   saveSettings();

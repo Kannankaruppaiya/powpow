@@ -387,6 +387,13 @@ apply a filter on LinkedIn by hand, the content script sees both halves at
 once — the label on the checkbox you ticked and the id that lands in the URL —
 and pairs them. One filter, applied once, is known forever after.
 
+**One applied filter teaches the whole list it came from.** Typing "usa" into
+LinkedIn's location box renders ten places at once, each carrying its id;
+learning only the one you tick throws the other nine away. Options rendered
+together belong to the same facet, so the moment any of them lands in the URL
+the whole batch is attributable — which is an observation, not a guess: they
+were on screen together.
+
 Ask for a value it has never seen and it says so, naming exactly what to do:
 
 > LinkedIn's id for "Munnar" is not known yet. Apply it once on LinkedIn —

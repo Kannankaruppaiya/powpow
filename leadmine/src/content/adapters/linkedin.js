@@ -409,13 +409,45 @@
    */
   const seenLabels = new Map();
 
-  function noteOption(input) {
+  /**
+   * Options that appeared together, which is what makes one applied filter
+   * teach ten.
+   *
+   * Typing "usa" into LinkedIn's location box renders United States, US Virgin
+   * Islands, Uşak, Worcester and half a dozen more — every one of them with
+   * its id sitting on the checkbox. Learning only the one that gets ticked
+   * throws the other nine away, and then the panel's own list stays almost
+   * empty however much the user browses.
+   *
+   * Options rendered in the same panel belong to the same facet, so the moment
+   * *any* of them turns up in the URL, the whole batch is attributable — and
+   * that is an observation, not a guess: they were on screen together.
+   */
+  const batches = [];
+
+  function noteOption(input, batch) {
     if (!input || input.type !== 'checkbox' || !input.value) return;
     const byFor = input.id && document.querySelector(`label[for="${CSS.escape(input.id)}"]`);
     const label = norm((byFor || input.closest('label') || input.parentElement || {}).textContent);
     // A bare number is the id echoed back, not a name for it.
     if (!label || /^\d+$/.test(label)) return;
     seenLabels.set(input.value, label);
+    if (batch) batch.set(input.value, label);
+  }
+
+  /** Record the options a filter panel is showing right now, as one batch. */
+  function noteBatch(root) {
+    const boxes = (root || document).querySelectorAll('input[type="checkbox"]');
+    if (!boxes.length) return;
+    const batch = new Map();
+    for (const input of boxes) noteOption(input, batch);
+    // Two identical batches in a row are the same list re-rendered.
+    if (!batch.size) return;
+    const last = batches[batches.length - 1];
+    if (last && last.size === batch.size && [...batch].every(([k, v]) => last.get(k) === v)) return;
+    batches.push(batch);
+    // A page visit does not need unbounded history.
+    if (batches.length > 40) batches.shift();
   }
 
   document.addEventListener(
@@ -427,9 +459,51 @@
     true
   );
 
-  /** Every id in the current URL that we now have a name for. */
+  /*
+   * Watch for filter options arriving.
+   *
+   * LinkedIn's typeahead is network-backed, so the options appear well after
+   * any click. Scanning only when a run starts would miss every list the user
+   * scrolled past on the way here.
+   */
+  if (typeof MutationObserver === 'function') {
+    let pending = null;
+    new MutationObserver((mutations) => {
+      const added = mutations.some((m) =>
+        [...m.addedNodes].some(
+          (node) =>
+            node.nodeType === 1 &&
+            (node.matches('input[type="checkbox"]') ||
+              node.querySelector('input[type="checkbox"]'))
+        )
+      );
+      if (!added || pending) return;
+      // Debounced: a typeahead renders its rows one mutation at a time.
+      pending = setTimeout(() => {
+        pending = null;
+        noteBatch(document);
+      }, 250);
+    }).observe(document.documentElement, { childList: true, subtree: true });
+  }
+
+  /**
+   * Everything the current URL lets us attribute to a facet.
+   *
+   * An id in the URL names its own facet. Any other option that was on screen
+   * beside it belongs to the same one, so a single applied filter teaches the
+   * whole list it was chosen from.
+   */
   function learnedUrns() {
     const out = [];
+    const seenPair = new Set();
+
+    const add = (facet, id, label) => {
+      const token = `${facet}|${id}`;
+      if (!label || seenPair.has(token)) return;
+      seenPair.add(token);
+      out.push({ facet, id: String(id), label });
+    };
+
     for (const [facet, raw] of new URLSearchParams(location.search)) {
       if (!raw || raw[0] !== '[') continue;
       let values;
@@ -439,9 +513,14 @@
         continue;
       }
       if (!Array.isArray(values)) continue;
+
       for (const id of values) {
-        const label = seenLabels.get(String(id));
-        if (label) out.push({ facet, id: String(id), label });
+        add(facet, id, seenLabels.get(String(id)));
+        // Whatever shared a panel with it shares its facet.
+        for (const batch of batches) {
+          if (!batch.has(String(id))) continue;
+          for (const [value, label] of batch) add(facet, value, label);
+        }
       }
     }
     return out;
@@ -450,8 +529,8 @@
   function searchContext() {
     const params = new URLSearchParams(location.search);
     // Anything already on screen when a run starts is worth recording too —
-    // a panel left open, or options rendered before the listener attached.
-    for (const input of document.querySelectorAll('input[type="checkbox"]')) noteOption(input);
+    // a panel left open, or options rendered before the observer attached.
+    noteBatch(document);
     return {
       query: norm(params.get('keywords') || ''),
       filters: readFilters(),
