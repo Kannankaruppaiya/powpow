@@ -12,12 +12,12 @@
  * public LinkedIn profiles, and a result carries the name and the headline in
  * its title. No LinkedIn login, no connection degree, no anonymising.
  *
- * Everything here is found by SHAPE, because the three engines this has to
- * survive lay their results out differently and all of them change:
+ * Everything here is found by SHAPE, because the engines this has to survive
+ * lay their results out differently and all of them change:
  *
  *   - a result is any link that resolves to linkedin.com/in/<slug>
- *   - its title is the link's own text
- *   - its snippet is whatever text sits around it
+ *   - its title is a heading inside that link, or the link's own text
+ *   - its snippet is whatever text sits around it, up to the next person
  *
  * Profiles are never opened. The title already carries the name and headline,
  * and opening each one multiplies the request count for very little — the same
@@ -33,9 +33,9 @@
   /**
    * The profile URL a link points at, following one layer of redirect.
    *
-   * DuckDuckGo wraps every result in `/l/?uddg=<encoded>`; Bing and Google
-   * mostly link straight out. Unwrapping one layer covers all three without
-   * knowing which engine this is.
+   * DuckDuckGo wraps every result in `/l/?uddg=<encoded>`; Google mostly links
+   * straight out. Unwrapping one layer covers both without knowing which
+   * engine this is.
    */
   function profileFrom(anchor) {
     const raw = anchor.getAttribute('href') || '';
@@ -99,15 +99,15 @@
    * the whole document when there are too few results for a majority to mean
    * anything.
    */
-  function resultsRoot() {
-    const anchors = profileAnchors(document);
+  function resultsRoot(doc = document) {
+    const anchors = profileAnchors(doc);
     const total = new Set(anchors.map((a) => a.slug)).size;
     const need = Math.max(2, Math.ceil(total / 2));
 
     const holds = (el) =>
       new Set(anchors.filter((a) => el.contains(a.anchor)).map((a) => a.slug)).size >= need;
 
-    let best = document.body || document.documentElement;
+    let best = doc.body || doc.documentElement;
     let bestDepth = -1;
     for (const { anchor } of anchors) {
       for (let el = anchor.parentElement; el; el = el.parentElement) {
@@ -123,15 +123,52 @@
     return best;
   }
 
+  /**
+   * Is this link a result, or is it part of the page?
+   *
+   * The cluster rule alone cannot tell: on a page where the query matched
+   * nothing, the engine's own header link to a profile is the ONLY profile
+   * link, so it is trivially the majority and came back as a person named
+   * "LinkedIn" — a fabricated row on an empty search, which is the worst
+   * failure this adapter has.
+   *
+   * A result is titled. Every engine puts that title in a heading, on one
+   * side of the link or the other, and gives it a line of text underneath. A
+   * navigation link has neither.
+   */
+  const looksLikeResult = (anchor) => Boolean(headingOf(anchor)) || Boolean(snippetFor(anchor));
+
   function resultLinks() {
     const best = new Map();
     for (const { anchor, ...profile } of profileAnchors(resultsRoot())) {
-      const score = isUrlish(norm(anchor.textContent)) ? 0 : norm(anchor.textContent).length;
+      if (!looksLikeResult(anchor)) continue;
+      const title = titleOf(anchor);
+      const score = isUrlish(title) ? 0 : title.length;
       const held = best.get(profile.slug);
       if (held && held.score >= score) continue;
       best.set(profile.slug, { anchor, score, ...profile });
     }
     return [...best.values()];
+  }
+
+  /**
+   * The title text of a result.
+   *
+   * DuckDuckGo puts the anchor inside the heading, so the anchor's own text is
+   * the title. Google does the opposite: the anchor wraps the site line AND
+   * the heading, so its text reads "LinkedIn · K P Ranjith Kumar 4.8K+
+   * followers K P Ranjith Kumar - Transforming corporate teams…" and the Name
+   * column gets all of it. A heading inside the link is the title whenever
+   * there is one — that is what a heading means.
+   */
+  const HEADING = 'h1, h2, h3, h4, h5, h6';
+
+  /** The heading a result is titled by, whichever side of the link it is on. */
+  const headingOf = (anchor) => anchor.querySelector(HEADING) || anchor.closest(HEADING);
+
+  function titleOf(anchor) {
+    const heading = headingOf(anchor);
+    return norm(heading ? heading.textContent : anchor.textContent);
   }
 
   /**
@@ -232,16 +269,40 @@
     let text = norm(best.textContent);
     for (const link of best.querySelectorAll('a[href]')) {
       if (!profileFrom(link)) continue;
-      const label = norm(link.textContent);
-      if (label) text = text.replace(label, ' ');
+      for (const label of new Set([norm(link.textContent), titleOf(link)])) {
+        if (label) text = text.replace(label, ' ');
+      }
     }
     return norm(text);
   }
 
+  /*
+   * A challenge page, in the words the engines actually use.
+   *
+   * The first version of this looked for "unusual traffic" and "captcha" —
+   * Google's words. Bing's challenge says "One last step / Please solve the
+   * challenge below to continue / Verifying…" and matched none of them, so a
+   * live run read the challenge page as an empty result set and reported
+   * "the search engine offered no next page". A wrong reason is worse than no
+   * reason: it sends everyone to look at the query.
+   */
+  const CHALLENGE =
+    /unusual traffic|are you a robot|verify (?:you are|that you are) (?:a )?human|captcha|solve the challenge|one last step|before you continue|automated queries|access denied|too many requests/i;
+
+  function challengeIn(doc) {
+    const body = doc && doc.body;
+    if (!body) return false;
+    // innerText is layout-dependent and empty in a parsed document, so the
+    // fetched next page needs textContent. Either way only the top of the
+    // page matters: a challenge is all a challenge page has on it.
+    const text = norm(body.innerText || body.textContent || '').slice(0, 600);
+    return CHALLENGE.test(text);
+  }
+
   const MORE_LABEL = /^next\b|next page|more results|show more/i;
 
-  function findNext() {
-    for (const el of document.querySelectorAll('a[href], button')) {
+  function findNext(doc = document) {
+    for (const el of doc.querySelectorAll('a[href], button')) {
       if (el.disabled || el.getAttribute('aria-disabled') === 'true') continue;
       const label = norm(`${el.getAttribute('aria-label') || ''} ${el.textContent || ''}`);
       if (MORE_LABEL.test(label)) return el;
@@ -249,7 +310,33 @@
     return null;
   }
 
+  /** The URL a Next control leads to, or '' if it is not a plain link. */
+  function nextUrl(doc) {
+    const el = findNext(doc);
+    if (!el) return '';
+    const href = el.getAttribute('href') || '';
+    if (!href || href.startsWith('#') || /^javascript:/i.test(href)) return '';
+    try {
+      return new URL(href, location.href).href;
+    } catch {
+      return '';
+    }
+  }
+
   let endReason = '';
+
+  /*
+   * The page the next Next link is read from.
+   *
+   * Paging here does not click. On an engine, Next is a full navigation, and a
+   * navigation destroys the content script mid-run — the scrape would be
+   * abandoned with whatever page one gave and no error anywhere. So the next
+   * page is fetched and its results are appended to the ones already on
+   * screen, which is also what the harvest loop upstream expects: a list that
+   * grows. This holds the last page fetched, so page three is found from page
+   * two rather than from the page still in the tab.
+   */
+  let latest = null;
 
   globalThis.MLSAdapters = globalThis.MLSAdapters || {};
   globalThis.MLSAdapters.web = {
@@ -259,9 +346,9 @@
       // A results page on one of the engines — never Maps, which has its own
       // adapter and also lives on google.com.
       // DuckDuckGo's results live at the site root ("/?q="), not under
-      // /search, so a single path pattern does not cover all three engines.
+      // /search, so one path pattern does not cover both engines.
       return (
-        /^https?:\/\/(?:[\w-]+\.)?(?:bing\.com|google\.[a-z.]+)\/(?:html\/)?search\b/i.test(url) ||
+        /^https?:\/\/(?:[\w-]+\.)?google\.[a-z.]+\/search\b/i.test(url) ||
         /^https?:\/\/(?:[\w-]+\.)?duckduckgo\.com\/(?:html\/?)?\?.*\bq=/i.test(url)
       );
     },
@@ -271,8 +358,7 @@
     },
 
     blockedReason() {
-      const body = norm(document.body ? document.body.innerText : '').slice(0, 400);
-      if (/unusual traffic|are you a robot|verify you are human|captcha/i.test(body)) {
+      if (challengeIn(document)) {
         return 'The search engine is asking for a CAPTCHA. Solve it in the tab, then press Resume.';
       }
       return '';
@@ -280,6 +366,7 @@
 
     getSearchContext() {
       endReason = '';
+      latest = null;
       const params = new URLSearchParams(location.search);
       return { query: norm(params.get('q') || ''), filters: {}, url: location.href };
     },
@@ -301,7 +388,7 @@
       const hit = resultLinks().find((r) => r.slug === slug);
       if (!hit) return null;
 
-      const { name, headline } = splitTitle(hit.anchor.textContent);
+      const { name, headline } = splitTitle(titleOf(hit.anchor));
       if (!name) return null;
 
       const snippet = snippetFor(hit.anchor);
@@ -325,28 +412,49 @@
     },
 
     async loadMore() {
-      const { waitFor } = globalThis.MLSEngine;
-      const before = new Set(this.getResultIds());
-
-      const next = findNext();
-      if (!next) {
-        endReason = 'the search engine offered no next page';
+      const url = nextUrl(latest || document);
+      if (!url) {
+        // "No next page" is only true if there was a page. An engine that
+        // answered nothing at all is a different problem and needs saying so,
+        // or the query is the first thing everyone re-reads.
+        endReason = this.getResultIds().length
+          ? 'the search engine offered no next page'
+          : 'the search engine returned no results for this query';
         return false;
       }
 
-      next.click();
-      // Turned over means a person who was not here before. Watching only the
-      // top row misses a page whose first result repeats, and waits out the
-      // full timeout for nothing.
-      const turned = await waitFor(
-        () => {
-          const ids = this.getResultIds();
-          return ids.some((id) => !before.has(id)) ? ids : null;
-        },
-        { timeout: 15000 }
-      );
-      if (!turned) endReason = 'the next page of results did not load';
-      return Boolean(turned);
+      let doc = null;
+      try {
+        const response = await fetch(url, { credentials: 'include' });
+        if (!response.ok) {
+          endReason = `the search engine answered ${response.status} for the next page`;
+          return false;
+        }
+        doc = new DOMParser().parseFromString(await response.text(), 'text/html');
+      } catch (err) {
+        endReason = `the next page could not be read (${err && err.message})`;
+        return false;
+      }
+
+      if (challengeIn(doc)) {
+        endReason = 'the search engine asked for a CAPTCHA on the next page';
+        return false;
+      }
+
+      const before = new Set(this.getResultIds());
+      // Appended INTO the results, never beside them: resultsRoot picks the
+      // element holding a majority of the profiles, so a second cluster
+      // somewhere else in the page would push it back up to <body> and the
+      // header's own profile link would start counting as a person again.
+      const into = resultsRoot(document);
+      for (const node of [...resultsRoot(doc).children]) {
+        into.appendChild(document.importNode(node, true));
+      }
+      latest = doc;
+
+      const gained = this.getResultIds().some((id) => !before.has(id));
+      if (!gained) endReason = 'the next page repeated the results already collected';
+      return gained;
     },
 
     // The title already carries the name and the headline. Opening every

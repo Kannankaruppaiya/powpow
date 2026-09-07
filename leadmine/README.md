@@ -475,8 +475,20 @@ The **Public web** source searches for public profiles instead of asking
 LinkedIn:
 
 ```
-site:linkedin.com/in "corporate trainer" Chennai
+site:linkedin.com/in corporate trainer Chennai
 ```
+
+**Google, and nothing is quoted.** Both were decided by running them, not by
+reasoning about them. Bing was the first choice, on the argument that Google
+challenges automated queries hardest — the live run had Bing answer with *"One
+last step — please solve the challenge"* while Google returned a full page of
+trainers. And the quoted form, `"kotlin corporate trainer"`, came back from
+Google as **No results found**, because almost nobody writes those three words
+in that order; it then quietly re-ran the query without the quotes and found
+plenty. A query that only works because the engine ignored it is not a query.
+Unquoted, the engine ranks on all the words and LeadMine's own **Category**
+filter does the narrowing — the same division of labour the LinkedIn source
+uses.
 
 A result already carries what a card would have: the title is LinkedIn's own
 page title, `Priya Sharma - Corporate Trainer at Acme Corp | LinkedIn`, and the
@@ -499,11 +511,16 @@ without warning. So nothing here is named:
 
 - **A result is any link that resolves to `linkedin.com/in/<slug>`** — through
   DuckDuckGo's `/l/?uddg=` wrapper, a generic `?url=` redirect, or straight out.
+- **A result is titled, and page furniture is not.** Every engine puts the
+  title in a heading, on one side of the link or the other, with a line of
+  text underneath; a navigation link has neither. Without this rule, a search
+  that matched nothing came back with one row — the engine's own header link,
+  named "LinkedIn".
 - **The results region is the deepest element holding a majority of them.**
-  Every engine's header links to something, and on a `site:linkedin.com/in`
-  query that link is sometimes a profile — which then walks into the export as
-  a person nobody searched for. Chrome is a lone link; results come in a
-  cluster.
+  Chrome is a lone link; results come in a cluster.
+- **The title is the heading, not the link text.** Google wraps the site line
+  *and* the heading in one anchor, so reading the link put "LinkedIn · Priya
+  Sharma 500+ followers Priya Sharma - Corporate Trainer…" in the Name column.
 - **A result's own links are all of them, not the first.** The same profile is
   linked two or three times per result — the title, the breadcrumb URL under
   it, a thumbnail. Taking the first put `linkedin.com › in › priya-sharma` in
@@ -511,6 +528,10 @@ without warning. So nothing here is named:
   Location column.
 - **A snippet stops where the next person starts** — the block is climbed
   until it links to a second person, not until it exceeds a character count.
+- **The next page is fetched, not clicked.** On a search engine Next is a full
+  navigation, and a navigation destroys the content script mid-run: the scrape
+  would be abandoned with page one and no error anywhere. LeadMine requests
+  the next page's URL and appends its results to the ones already on screen.
 
 Profiles are never opened. The title already carries the name and the
 headline, so opening each result would multiply the request count for very
@@ -569,9 +590,11 @@ the side panel's virtualised lead list — including a check that only a window
 of cards is ever in the DOM, and that **Start** is on screen the moment the
 panel opens — the LinkedIn adapter against a synthetic page that hydrates
 lazily the way the real one does, and the public-web adapter against a
-synthetic results page that blends all three engines' quirks (a `uddg`
-redirect, a breadcrumb URL above every title, a profile link in the header,
-and a Next control that replaces the list in place). It needs a browser:
+synthetic results page that blends both engines' quirks (a Google anchor
+wrapping the site line and the title heading together, a DuckDuckGo `uddg`
+redirect, a breadcrumb URL above the title, a profile link in the header, a
+challenge page in Bing's wording, and a Next that is a real link to a page
+served over the network). It needs a browser:
 
 ```bash
 npm i -D playwright-core     # then either set PLAYWRIGHT_BROWSERS_PATH
@@ -609,7 +632,8 @@ Common problems:
 | LinkedIn results stop early | The adapter stops if the query or filters change mid-run, rather than blending two searches into one file. |
 | LinkedIn cards say "LinkedIn Member" | They are outside your network, and LinkedIn will not name them. Run the same search on the **Public web** source instead. |
 | Public web: "asking for a CAPTCHA" | Solve it in the tab, then press Resume. Fewer, slower runs avoid it. |
-| Public web finds nobody | The engine matched nothing for that `site:` query. Try the rarer word alone, or a different city spelling. |
+| Public web: "returned no results for this query" | The engine matched nothing — not a pagination problem. Try the rarer word alone, or a different city spelling. |
+| Public web finds far fewer than LinkedIn | Only public, indexed profiles are there at all. It is a different set, not a smaller copy of the same one. |
 
 ---
 

@@ -237,9 +237,9 @@ const SOURCE_UI = {
     emails: false,
     currentTab: false,
     note:
-      'Reads public LinkedIn profiles out of a search engine — no LinkedIn login, and ' +
-      'no connection-degree limit, so it names people a signed-in search would show ' +
-      'only as “LinkedIn Member”. Public profiles only.',
+      'Searches Google for public LinkedIn profiles — no LinkedIn login and no ' +
+      'connection-degree limit, so it names people a signed-in search would show only ' +
+      'as “LinkedIn Member”. Public, indexed profiles only.',
   },
 };
 
