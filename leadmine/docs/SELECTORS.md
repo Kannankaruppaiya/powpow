@@ -161,16 +161,40 @@ of expected filters — whatever the user applied is what gets reported.
 
 Maps is driven by the extension, so the query cannot drift. LinkedIn is driven
 by the *user*, who can retype the search or change a filter while a run is
-going. `fingerprint()` hashes the query plus the applied filters and is checked
-every round; if it changes, the run stops rather than blending two different
-searches into one export. If you see a LinkedIn run ending early, check that
-first — it is usually correct behaviour, not a bug.
+going. `fingerprint()` is checked every round; if it changes, the run stops
+rather than blending two different searches into one export.
+
+**It must never be built from the whole URL.** It was, once — every query
+parameter except a four-item denylist — and that is what capped every run at
+exactly 20 profiles. LinkedIn rewrites its own URL as you page, appending
+tracking and session parameters (`searchId`, `heroEntityKey` and friends). The
+fingerprint changed on its own at page two, the adapter concluded the user had
+changed the search, and the run ended reporting *"the source said there are no
+more"* — a sentence about LinkedIn describing a decision this file had made.
+
+Two rules came out of that:
+
+- The fingerprint reads **keywords, an allowlist of real facet parameters
+  (`FACET_PARAMS`), and the applied filter pills**. An allowlist fails in the
+  right direction: a parameter nobody has heard of cannot end a run. At worst
+  an unknown facet edit goes unnoticed, and the pills catch most of those.
+- When an adapter stops for a reason of its own it says so, through
+  `endReason`. "The source said there are no more" is reserved for the source
+  actually saying it.
+
+A denylist cannot work here. It has to be complete to be correct, and it is
+competing with a site that adds parameters whenever it likes.
 
 
 ## LinkedIn pagination
 
 Two things broke a live run here, and both are worth knowing before touching
 this code.
+
+**`window.scrollTo` is a guess that the page scrolls.** When the results sit in
+their own scrollable panel it does nothing, and the lazy list never hydrates
+past the first screenful. `scrollToEnd()` scrolls the window *and* the nearest
+scrolling ancestor of the list.
 
 **The list node does not survive paging.** LinkedIn replaces the results
 wholesale, so a container captured on page one is detached on page two and
@@ -180,8 +204,12 @@ and the adapter's `liveList()` does the same for any node handed to it. If a
 run stops at exactly one page, suspect this first.
 
 **`button[aria-label="Next"]` matched nothing.** The control is now found by
-what it says — `aria-label` or text starting with "next" — scoped to a
-pagination container when one exists. After clicking it the adapter waits for
+what it says — `aria-label` or text matching "next", and also "show more
+results" / "see more results", because LinkedIn ships both a numbered
+pagination layout and a list that grows behind a button. A pagination
+container is a *hint about where to look first*, never a restriction: scoping
+the search to it meant that if any other element happened to carry a
+"pagination" class, the real button was invisible. After clicking it the adapter waits for
 the *first result to change* rather than sleeping, because a fixed delay is
 either too short on a slow connection or wasted on a fast one.
 

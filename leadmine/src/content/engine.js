@@ -147,7 +147,10 @@
         break;
       }
       if (adapter.reachedEnd(container)) {
-        stopped = 'the source said there are no more';
+        // An adapter that stopped for a reason of its own says so. Reporting
+        // "the source said there are no more" for a decision this code made
+        // sends everyone to look at the wrong place.
+        stopped = adapter.endReason || 'the source said there are no more';
         break;
       }
 

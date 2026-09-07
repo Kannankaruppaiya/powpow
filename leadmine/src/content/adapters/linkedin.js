@@ -139,17 +139,49 @@
   }
 
   /**
-   * The pagination control, found by what it says rather than by an exact
-   * aria-label. `button[aria-label="Next"]` matched nothing on the live site.
+   * The control that brings the next results, found by what it says rather
+   * than by an exact aria-label. `button[aria-label="Next"]` matched nothing
+   * on the live site.
+   *
+   * Two labels, because LinkedIn ships two layouts: numbered pagination with
+   * a Next button, and a list that grows behind a "Show more results" button.
+   * Matching only "next" left the second one stuck at whatever had already
+   * loaded.
    */
+  const MORE_LABEL = /^next\b|next page|show more result|see more result|load more/i;
+
   function findNextButton() {
-    const scope = document.querySelector('[class*="pagination" i]') || document;
-    for (const el of scope.querySelectorAll('button, a[role="button"]')) {
-      if (el.disabled || el.getAttribute('aria-disabled') === 'true') continue;
-      const label = norm(`${el.getAttribute('aria-label') || ''} ${el.textContent || ''}`);
-      if (/^next\b|next page/i.test(label)) return el;
+    // The pagination container is a hint about where to look first, never a
+    // restriction: scoping the search to it meant that if any *other* element
+    // happened to carry a "pagination" class, the real button was invisible.
+    const pagination = document.querySelector('[class*="pagination" i]');
+    for (const scope of [pagination, document].filter(Boolean)) {
+      for (const el of scope.querySelectorAll('button, a[role="button"]')) {
+        if (el.disabled || el.getAttribute('aria-disabled') === 'true') continue;
+        const label = norm(`${el.getAttribute('aria-label') || ''} ${el.textContent || ''}`);
+        if (MORE_LABEL.test(label)) return el;
+      }
     }
     return null;
+  }
+
+  /**
+   * Scroll to the foot of whatever is actually scrolling.
+   *
+   * `window.scrollTo` alone is a guess that the page scrolls. When the results
+   * sit in their own scrollable panel it does nothing at all, and the lazy
+   * list never hydrates past the first screenful.
+   */
+  function scrollToEnd(list) {
+    window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'auto' });
+    for (let el = list; el; el = el.parentElement) {
+      const style = getComputedStyle(el);
+      const scrolls = /auto|scroll/.test(`${style.overflowY} ${style.overflow}`);
+      if (scrolls && el.scrollHeight > el.clientHeight + 1) {
+        el.scrollTop = el.scrollHeight;
+        return;
+      }
+    }
   }
 
   /** The result cards inside a list, whatever element type they happen to be. */
@@ -329,21 +361,8 @@
    * are read and merged.
    */
   function readFilters() {
-    const filters = {};
-
-    for (const pill of document.querySelectorAll(SEL.filterPills)) {
-      const label = norm(pill.getAttribute('aria-label') || pill.textContent);
-      if (!label) continue;
-      const applied =
-        pill.getAttribute('aria-pressed') === 'true' ||
-        /\bfilter\b.*\bapplied\b/i.test(label) ||
-        pill.classList.contains('artdeco-pill--selected');
-      if (!applied) continue;
-
-      // "Current company filter. Clicking this button displays..." → keep the head.
-      const key = label.split(/filter|\./i)[0].trim();
-      if (key) filters[key] = true;
-    }
+    // "Current company filter. Clicking this button displays..." → keep the head.
+    const filters = { ...readPills() };
 
     // The URL is the authoritative record of an applied facet.
     const params = new URLSearchParams(location.search);
@@ -353,6 +372,26 @@
     }
     return filters;
   }
+
+  /**
+   * The URL parameters that are actually a facet the user chose.
+   *
+   * The fingerprint used to be built from *every* parameter except a four-item
+   * denylist, and that is what stopped every paginated run at page two:
+   * LinkedIn rewrites the URL as you page, adding its own tracking and session
+   * parameters, so the fingerprint changed on its own and the adapter
+   * concluded the user had changed the search.
+   *
+   * An allowlist fails in the right direction. A parameter we have not heard
+   * of can no longer end a run; at worst a facet edit goes unnoticed — and the
+   * filter pills below catch almost all of those anyway.
+   */
+  const FACET_PARAMS = new Set([
+    'geoUrn', 'currentCompany', 'pastCompany', 'industry', 'network',
+    'schoolFilter', 'schoolFreetext', 'serviceCategory', 'titleFreeText',
+    'firstName', 'lastName', 'company', 'title', 'connectionOf', 'followerOf',
+    'profileLanguage', 'openToVolunteer', 'contactInterest',
+  ]);
 
   function searchContext() {
     const params = new URLSearchParams(location.search);
@@ -368,11 +407,38 @@
    * notices rather than silently mixing two searches into one file.
    */
   function fingerprint() {
-    const { query, filters } = searchContext();
-    return `${nameKey(query)}|${Object.keys(filters).sort().map((k) => `${k}=${filters[k]}`).join('&')}`;
+    const params = new URLSearchParams(location.search);
+    const parts = [nameKey(params.get('keywords') || '')];
+
+    // Only the facets, and only the pills the user has actually applied —
+    // nothing the site rewrites while paging.
+    for (const [key, value] of [...params].sort()) {
+      if (FACET_PARAMS.has(key)) parts.push(`${key}=${value}`);
+    }
+    for (const key of Object.keys(readPills()).sort()) parts.push(`pill:${key}`);
+
+    return parts.join('|');
+  }
+
+  /** The applied filter pills, which is how a mid-run filter change shows up. */
+  function readPills() {
+    const pills = {};
+    for (const pill of document.querySelectorAll(SEL.filterPills)) {
+      const label = norm(pill.getAttribute('aria-label') || pill.textContent);
+      if (!label) continue;
+      const applied =
+        pill.getAttribute('aria-pressed') === 'true' ||
+        /\bfilter\b.*\bapplied\b/i.test(label) ||
+        pill.classList.contains('artdeco-pill--selected');
+      if (!applied) continue;
+      const key = label.split(/filter|\./i)[0].trim();
+      if (key) pills[key] = true;
+    }
+    return pills;
   }
 
   let expectedFingerprint = null;
+  let endReason = '';
 
   /* ---------------------------------------------------------- the adapter */
 
@@ -396,6 +462,7 @@
 
     getSearchContext() {
       expectedFingerprint = fingerprint();
+      endReason = '';
       return searchContext();
     },
 
@@ -423,11 +490,20 @@
       return item ? extractItem(item) : null;
     },
 
+    // Why this adapter stopped, when the reason is its own rather than the
+    // page's. "The source said there are no more" was reported for a search
+    // the adapter itself had decided to abandon, which sent everyone looking
+    // at LinkedIn instead of at this file.
+    get endReason() {
+      return endReason;
+    },
+
     reachedEnd() {
       // The user changing the query is an end condition too — better to stop
       // than to blend two different searches into one export.
       if (expectedFingerprint !== null && fingerprint() !== expectedFingerprint) {
         console.warn('[leadmine] LinkedIn search changed mid-run; stopping.');
+        endReason = 'the search on the page changed';
         return true;
       }
       // Exhaustion is loadMore's call: no Next button does not mean this page
@@ -447,7 +523,7 @@
       // Scroll first: it hydrates lazily-rendered cards, and it is also what
       // brings the pagination control into the DOM at the foot of the page.
       const before = idsNow();
-      window.scrollTo({ top: document.body.scrollHeight, behavior: 'auto' });
+      scrollToEnd(liveList(list));
       await sleep(700);
 
       // Count *usable* results, not raw children: skeleton items exist from

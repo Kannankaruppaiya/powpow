@@ -36,6 +36,26 @@ function findChromium() {
   return undefined;
 }
 
+/*
+ * Three pages, not two.
+ *
+ * With two, "stopped after page two" and "finished" produce the same rows, so
+ * the fixture could not tell them apart — which is exactly the bug the live
+ * run had, and exactly what a two-page fixture is blind to.
+ */
+const PAGE_THREE = [
+  {
+    slug: 'arun-p', name: 'Arun P',
+    headline: 'Site Reliability Engineer at Soylent',
+    location: 'Kochi, Kerala, India', degree: '2nd', openToWork: false,
+  },
+  {
+    slug: 'divya-n', name: 'Divya N',
+    headline: 'Data Engineer at Cyberdyne',
+    location: 'Mysuru, Karnataka, India', degree: '2nd', openToWork: false,
+  },
+];
+
 const PAGE_TWO = [
   {
     slug: 'vikram-s', name: 'Vikram S',
@@ -117,7 +137,7 @@ function fixture() {
     </div>
   </main>
   <script>
-    const PAGES = [${JSON.stringify(PEOPLE)}, ${JSON.stringify(PAGE_TWO)}];
+    const PAGES = [${JSON.stringify(PEOPLE)}, ${JSON.stringify(PAGE_TWO)}, ${JSON.stringify(PAGE_THREE)}];
     let page = 0;
     let DATA = PAGES[0];
     let list = document.querySelector('ul[role="list"]');
@@ -170,6 +190,11 @@ function fixture() {
     document.getElementById('next').addEventListener('click', () => {
       if (page >= PAGES.length - 1) return;
       page += 1;
+      // Paging rewrites the URL, and not only with "page": LinkedIn appends
+      // its own tracking and session parameters. This is what used to change
+      // the search fingerprint and end every run at page two.
+      history.replaceState(null, '', location.pathname + location.search +
+        '&page=' + (page + 1) + '&searchId=' + Date.now() + '&heroEntityKey=urn%3Ali%3Afsd_profile%3AABC');
       DATA = PAGES[page];
       hydrated = 0;
       const fresh = document.createElement('ul');
@@ -240,9 +265,9 @@ test('the LinkedIn adapter is chosen for a People search URL', async (t) => {
 test('lazily hydrated results are all collected', async (t) => {
   const result = await run(t);
   if (!result) return;
-  // Two of four render at load, the rest arrive on scroll, and paging
-  // brings two more.
-  assert.equal(result.records.length, 6, 'the scroll loop must pick up late arrivals');
+  // Two of four render at load, the rest arrive on scroll, and two more
+  // pages bring two each.
+  assert.equal(result.records.length, 8, 'the scroll loop must pick up late arrivals');
 });
 
 test('each person’s fields are read off the card', async (t) => {
@@ -353,7 +378,7 @@ test('the results list is found by shape, without relying on class names', async
   const result = await run(t);
   if (!result) return;
   assert.equal(result.ok, true, result.error);
-  assert.equal(result.records.length, 6);
+  assert.equal(result.records.length, 8);
 });
 
 test('a mutual-connection link is not mistaken for the result', async (t) => {
@@ -411,7 +436,7 @@ test('results are found even when they sit outside <main>', async (t) => {
   });
   if (!result) return;
   assert.equal(result.ok, true, result.error);
-  assert.equal(result.records.length, 6);
+  assert.equal(result.records.length, 8);
 });
 
 test('cards that are not list items are still grouped correctly', async (t) => {
@@ -436,6 +461,45 @@ test('cards that are not list items are still grouped correctly', async (t) => {
   assert.ok(!result.records.some((r) => r.profileUrl.includes('mutual-friend')));
 });
 
+test('paging is not stopped by LinkedIn rewriting its own URL', async (t) => {
+  // The live symptom: exactly 20 profiles, every time — two pages, then stop.
+  //
+  // The search fingerprint was built from *every* URL parameter bar a
+  // four-item denylist, and LinkedIn appends its own tracking and session
+  // parameters as you page. So the fingerprint changed on its own, the adapter
+  // concluded the user had changed the search underneath it, and the run ended
+  // at page two reporting "the source said there are no more".
+  const result = await run(t);
+  if (!result) return;
+
+  assert.equal(result.ok, true, result.error);
+  const names = result.records.map((r) => r.name);
+  assert.ok(names.includes('Arun P'), 'page three must be reached');
+  assert.ok(names.includes('Divya N'), 'page three must be reached');
+  assert.equal(result.records.length, 8);
+  assert.match(result.stoppedBecause, /no next page/i, 'it ran out of pages, not out of nerve');
+});
+
+test('a search the user really does change mid-run stops, and says so', async (t) => {
+  // The fingerprint still has to do its job: two different searches must not
+  // be blended into one export.
+  const result = await run(t, {
+    mutate: async (page) => {
+      await page.evaluate(() => {
+        const next = document.getElementById('next');
+        next.addEventListener('click', () => {
+          // A real change: the keywords the search is for.
+          history.replaceState(null, '', '?keywords=python%20developer');
+        });
+      });
+    },
+  });
+  if (!result) return;
+  assert.equal(result.ok, true, result.error);
+  assert.match(result.stoppedBecause, /search on the page changed/i);
+  assert.ok(result.records.length < 8, 'it stopped rather than mixing two searches');
+});
+
 test('it pages past the first ten instead of stopping there', async (t) => {
   // The live run stopped at exactly one page. Two faults did it: the engine
   // held the list node from page one, which paging detaches, and the Next
@@ -448,7 +512,7 @@ test('it pages past the first ten instead of stopping there', async (t) => {
   assert.ok(names.includes('Priya Sharma'), 'page one');
   assert.ok(names.includes('Vikram S'), 'page two');
   assert.ok(names.includes('Meera T'), 'page two');
-  assert.equal(result.records.length, 6, 'both pages, deduplicated');
+  assert.equal(result.records.length, 8, 'all three pages, deduplicated');
 });
 
 test('paging stops when there is no next page', async (t) => {
