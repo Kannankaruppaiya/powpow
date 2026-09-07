@@ -61,3 +61,22 @@ async function loadTransient() {
   );
   return module;
 }
+
+test('a run that finished before a restart no longer owns the screen', () => {
+  // Every extension reload was painting a dead run's error back over the
+  // form, which reads as "the reload did nothing" — three reloads in a row.
+  const block = WORKER.slice(WORKER.indexOf('async function loadJob'), WORKER.indexOf('const ready'));
+  assert.match(block, /\['done', 'error', 'cancelled'\]\.includes\(job\.status\)/);
+  assert.match(block, /job\.stale = true/);
+
+  // A paused run is unfinished and Resume lives in the run view, so it keeps
+  // the screen. Marking it stale would strand it.
+  assert.ok(!/paused/.test(block.slice(block.indexOf('job.stale = true') - 120, block.indexOf('job.stale = true'))),
+    'paused must not be in the stale list');
+});
+
+test('a new run clears the stale flag rather than inheriting it', () => {
+  assert.match(WORKER, /stale: false/, 'DEFAULT_JOB carries it, so every reset clears it');
+  const start = WORKER.slice(WORKER.indexOf('async function startJob'), WORKER.indexOf('async function startJob') + 900);
+  assert.match(start, /\.\.\.DEFAULT_JOB/, 'a new job starts from the defaults');
+});

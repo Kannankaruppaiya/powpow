@@ -212,6 +212,13 @@ Resume lives in the run view, not on the form. It was on the form once, and a
 paused run hides the form — so the only button that mattered was unreachable
 exactly when it was needed.
 
+**A finished run stops owning the screen once the extension restarts.** The
+run view is for a run you are watching; after a reload you are not watching it
+any more, and the form is what you need. Three reloads in a row showed the
+same dead run's error, which reads as the reload having done nothing. The rows
+stay in Results and the tab count is the way back to them. A *paused* run is
+the exception — it is unfinished, and Resume lives in the run view.
+
 The running state says what it is doing in words — "Opening each listing…",
 "Looking for emails…" — not the internal phase name.
 

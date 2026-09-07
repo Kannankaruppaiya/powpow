@@ -47,6 +47,9 @@ const DEFAULT_JOB = {
   sendable: 0,
   skippedSeen: 0,
   filteredOut: 0,
+  // Set when a settled run survives a restart. It stays readable, but it
+  // stops owning the screen — see loadJob().
+  stale: false,
   health: null,
   tabId: null,
   startedAt: null,
@@ -95,6 +98,16 @@ async function loadJob() {
       ? 'Interrupted — press Resume to carry on where it stopped.'
       : `Recovered ${records.length} results from the previous run.`;
   }
+
+  // A run that had already finished before this restart is history. Its rows
+  // stay in Results and its file is still downloadable, but it does not get
+  // to own the screen: every extension reload was painting a dead run's error
+  // back over the form, which reads as "the reload did nothing".
+  //
+  // A paused run is the exception — it is unfinished, and Resume lives in the
+  // run view, so it keeps the screen.
+  if (['done', 'error', 'cancelled'].includes(job.status)) job.stale = true;
+
   return job;
 }
 

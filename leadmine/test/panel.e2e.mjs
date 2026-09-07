@@ -63,6 +63,15 @@ const SETUP = (total) => {
     // An untouched panel: the form is the view, nothing has run yet.
     : { status: 'idle', count: 0, tasksTotal: 0, tasksSettled: 0 };
 
+  // What the worker sets when it restarts on a run that had already finished.
+  if (window.__stale) {
+    Object.assign(job, {
+      stale: true,
+      message: '0 businesses from 10 searches, 1 of them failed.',
+      taskError: 'The page keeping the extension port is moved into back/forward cache.',
+    });
+  }
+
   if (window.__paused) {
     Object.assign(job, {
       status: 'paused',
@@ -155,7 +164,7 @@ const SETUP = (total) => {
   });
 };
 
-async function openPanel(t, { idle = false, paused = false, aiKey = '', noManifest = false } = {}) {
+async function openPanel(t, { idle = false, paused = false, aiKey = '', noManifest = false, stale = false } = {}) {
   let chromium;
   try {
     ({ chromium } = await import('playwright-core'));
@@ -173,6 +182,7 @@ async function openPanel(t, { idle = false, paused = false, aiKey = '', noManife
   page.on('pageerror', (e) => errors.push(e.message));
 
   if (paused) await page.addInitScript(() => { window.__paused = true; });
+  if (stale) await page.addInitScript(() => { window.__stale = true; });
   if (aiKey) {
     // Deliberately the shape an older build wrote — one key, no provider — so
     // the migration path is exercised on every planner test.
@@ -1118,6 +1128,37 @@ test('a panel with no manifest to read still loads', async (t) => {
     assert.deepEqual(ctx.errors, [], 'a missing manifest must not throw');
     assert.equal(await ctx.page.textContent('#version'), '');
     assert.equal(await ctx.page.isVisible('#form'), true, 'and the form still works');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('a finished run does not reclaim the screen after a restart', async (t) => {
+  // The live symptom: pull, reload, reopen — and the same dead run's error is
+  // still there, so the reload looks like it did nothing.
+  const ctx = await openPanel(t, { stale: true });
+  if (!ctx) return;
+  try {
+    assert.equal(await ctx.page.isVisible('#form'), true, 'the form is what you need on a reload');
+    assert.equal(await ctx.page.isVisible('#runView'), false);
+    assert.equal(await ctx.page.isVisible('#error'), false, 'a dead run’s error is not news');
+
+    // The results are still there, and the tab count is the way back to them.
+    assert.equal(await ctx.page.textContent('#tabCount'), '2,400');
+    await ctx.page.click('#viewResults');
+    await ctx.page.waitForTimeout(400);
+    assert.match(await ctx.page.textContent('#rowNote'), /2,400 rows/);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('a paused run still keeps the screen, because Resume lives there', async (t) => {
+  const ctx = await openPanel(t, { paused: true });
+  if (!ctx) return;
+  try {
+    assert.equal(await ctx.page.isVisible('#runView'), true);
+    assert.equal(await ctx.page.isVisible('#resume'), true, 'stranding a resumable run would be worse');
   } finally {
     await ctx.close();
   }

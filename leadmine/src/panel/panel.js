@@ -781,7 +781,9 @@ function render(job) {
 
   // The form and the run never share the screen: while a scrape is going,
   // the settings that started it are not what the user needs to look at.
-  const dismissed = !running && job.jobId && job.jobId === dismissedJobId;
+  // "Done with this run": either the user said so, or the extension restarted
+  // and the run finished before that.
+  const dismissed = !running && job.jobId && (job.stale || job.jobId === dismissedJobId);
   const showRun = !dismissed && (running || (settled && job.status !== 'idle' && job.tasksTotal > 0));
   ui.form.hidden = showRun;
   ui.runView.hidden = !showRun;
