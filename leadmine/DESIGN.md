@@ -186,6 +186,16 @@ do nothing, so it starts folded and its summary is the whole offer; once a key
 is there it opens by default, and whichever state the user puts it in is
 remembered and never overridden again.
 
+**The place picker** — a country select and a state select on one row, above
+the town box they feed. It is deliberately *only* an input aid: the two selects
+decide what the town box suggests, the box stays typeable, and whatever ends up
+in the box is exactly what runs. Nothing downstream — the queue, the grid,
+dedupe, the export filename — learns that a picker exists, so browsing to a
+town and typing it are the same run. A list that shows one thing and fills in
+another is a list nobody can trust, so a town for Maps is offered already
+qualified ("Chennai, Tamil Nadu") and a town for LinkedIn is offered bare,
+because LinkedIn matches keywords literally.
+
 **The action bar** — one row pinned below the pane, carrying that view's single
 action: Start on the search side, Download on the results side. See below.
 

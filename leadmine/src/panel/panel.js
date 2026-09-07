@@ -15,6 +15,7 @@ import { buildFile } from '../lib/export.js';
 import { summariseRates } from '../lib/health.js';
 import { suggestionsFor, observedCategories } from '../lib/categories.js';
 import { planSearches, listModels, planToBatch, providerFor, DEFAULT_PROVIDER } from '../lib/ai.js';
+import { loadCountries, loadCountry, citiesFor, regionsFor, CITY_LIMIT } from '../lib/places.js';
 import * as store from '../lib/store.js';
 
 const SETTINGS_KEY = 'mls.settings';
@@ -46,6 +47,7 @@ const ui = Object.fromEntries(
     'optEmails', 'optContact', 'optVerify', 'optDeep',
     'optCurrentTab', 'useCurrentTab', 'currentTabHint',
     'category', 'city', 'batch', 'grid', 'maxResults',
+    'country', 'region', 'cityOptions', 'placeRow', 'placeHint',
     'categoryFilter', 'categoryFilterRow', 'categoryOptions', 'filterLabel', 'filterHint',
     'filterChip', 'filterChipText',
     'deep', 'fetchEmails', 'followContactPage', 'verifyEmails', 'skipSeen', 'seenNote',
@@ -226,6 +228,7 @@ function applySource() {
   ui.cityLabel.textContent = conf.cityLabel;
   ui.category.placeholder = conf.categoryPlaceholder;
   ui.city.placeholder = conf.cityPlaceholder;
+  applyCityOptions();
   ui.coverageRow.hidden = !conf.grid;
   applyCoverage();
   // The detail pass only exists for Maps; a LinkedIn card already carries
@@ -287,6 +290,86 @@ ui.useCurrentTab.addEventListener('change', () => {
   saveSettings();
 });
 
+/* ----------------------------------------------------------------- places */
+
+/*
+ * Country → state → town, as an aid to filling one box.
+ *
+ * "Where?" was a text field, which is fine when you know the town and useless
+ * when you are working a region you do not — you cannot browse a text field,
+ * and a misremembered spelling is a run that finds nothing. So the two selects
+ * narrow what the box offers, and the box itself is unchanged: whatever ends
+ * up in it is what gets searched, and it can still be typed straight into.
+ */
+
+/** The country file for whatever is selected, or null for "Any country". */
+let country = null;
+
+async function fillCountries() {
+  let list = [];
+  try {
+    list = await loadCountries();
+  } catch {
+    // The picker is an aid. Losing it leaves a text box, which is what this
+    // was before it existed — so say nothing and let people type.
+    ui.placeRow.hidden = true;
+    return;
+  }
+  const any = new Option('Any country', '');
+  ui.country.replaceChildren(
+    any,
+    ...list.map((item) => new Option(`${item.e ? `${item.e}  ` : ''}${item.n}`, item.c))
+  );
+}
+
+/** Load the chosen country and rebuild the state list and the town list. */
+async function applyCountry({ keepRegion = false } = {}) {
+  const code = ui.country.value;
+  country = code ? await loadCountry(code).catch(() => null) : null;
+
+  const regions = regionsFor(country);
+  const wanted = keepRegion ? ui.region.value : '';
+  ui.region.hidden = !regions.length;
+  ui.region.replaceChildren(
+    new Option(regions.length ? 'Any state' : '', ''),
+    ...regions.map((name) => new Option(name, name))
+  );
+  // A state from another country is not a state here.
+  ui.region.value = regions.includes(wanted) ? wanted : '';
+
+  applyCityOptions();
+}
+
+/**
+ * The towns the box offers.
+ *
+ * Offered as the exact string that will be searched, because a list showing
+ * one thing and filling in another is a list nobody can trust.
+ */
+function applyCityOptions() {
+  const towns = citiesFor(country, ui.region.value, { source: ui.source.value });
+  ui.cityOptions.replaceChildren(...towns.map((name) => new Option(name)));
+
+  // Only worth saying when the list is the reason something is missing.
+  const capped = towns.length >= CITY_LIMIT;
+  ui.placeHint.hidden = !capped;
+  if (capped) {
+    ui.placeHint.textContent =
+      `Showing the first ${CITY_LIMIT.toLocaleString()} towns — pick a state to narrow it, ` +
+      'or just type the town.';
+  }
+}
+
+ui.country.addEventListener('change', async () => {
+  await applyCountry();
+  saveSettings();
+});
+
+ui.region.addEventListener('change', () => {
+  applyCityOptions();
+  saveSettings();
+});
+
 /* ------------------------------------------------------------------- tabs */
 
 function setView(showResults) {
@@ -331,6 +414,8 @@ async function restoreSettings() {
   }
   ui.category.value = s.category ?? '';
   ui.city.value = s.city ?? '';
+  ui.country.value = s.country ?? '';
+  ui.region.value = s.region ?? '';
   ui.batch.value = s.batch ?? '';
   ui.grid.value = s.grid || 'balanced';
   // Blank and zero mean the same thing to `readConfig`, and blank is the one
@@ -365,6 +450,10 @@ function readConfig() {
     useCurrentTab: ui.useCurrentTab.checked && !ui.optCurrentTab.hidden,
     category: ui.category.value.trim(),
     city: ui.city.value.trim(),
+    // Kept so the picker comes back where it was left. The run itself only
+    // ever reads `city`, which is the box these two helped fill in.
+    country: ui.country.value,
+    region: ui.region.value,
     // Only send the batch text when the batch tab is active, so a leftover
     // draft cannot hijack a single search.
     batch: batchMode ? ui.batch.value : '',
@@ -1235,7 +1324,12 @@ function showVersion() {
 
 (async function init() {
   showVersion();
+  // Before the settings, which restore a country by its code — an <option>
+  // that does not exist yet cannot be selected.
+  await fillCountries();
   await restoreSettings();
+  // And after them: this is what reads the country file the saved code names.
+  await applyCountry({ keepRegion: true });
   await restoreAi();
   applyFilterNote();
   const res = await chrome.runtime.sendMessage({ type: 'GET_JOB' });

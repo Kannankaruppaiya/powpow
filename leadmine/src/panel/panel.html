@@ -79,10 +79,25 @@
             <input id="category" class="input" placeholder="dentists" autocomplete="off" />
           </label>
 
-          <label class="field">
-            <span class="label" id="cityLabel">Where?</span>
-            <input id="city" class="input" placeholder="Chennai" autocomplete="off" />
-          </label>
+          <!--
+            Browse down to the town, or just type it.
+
+            The box is the search — the two selects above it only decide what
+            the list under it offers, so nothing downstream has to know a
+            picker exists. Picking India → Tamil Nadu → Chennai and typing
+            "Chennai, Tamil Nadu" are the same run.
+          -->
+          <div class="field" id="whereField">
+            <label class="label" id="cityLabel" for="city">Where?</label>
+            <div class="row" id="placeRow">
+              <select id="country" class="input grow" aria-label="Country"></select>
+              <select id="region" class="input grow" aria-label="State or region" hidden></select>
+            </div>
+            <input id="city" class="input" list="cityOptions"
+                   placeholder="Chennai" autocomplete="off" />
+            <datalist id="cityOptions"></datalist>
+            <span class="help" id="placeHint" hidden></span>
+          </div>
         </div>
 
         <div id="modeBatch" class="stack" hidden>

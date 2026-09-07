@@ -85,9 +85,9 @@ npm run package     # -> dist/leadmine-v5.0.0.zip
    panel's header. After a `git pull` and a **Reload** in `chrome://extensions`,
    check that number changed — it is read from the manifest, so it cannot
    disagree with what is loaded.
-2. On the **One search** tab, enter a **Category** (`dentists`, `gyms`,
-   `IT training institutes`) and a **City** (`Chennai`, `Austin, TX`).
-   Or switch to **Batch** and paste one search per line:
+2. Type what you are looking for — `dentists`, `gyms`, `IT training
+   institutes`. Or press **+ Search several at once** and paste one search per
+   line:
 
    ```
    dentists, Chennai
@@ -95,7 +95,14 @@ npm run package     # -> dist/leadmine-v5.0.0.zip
    orthodontists in Coimbatore
    ```
 
-3. Optionally narrow by **Category**. A search like `wholesale store` comes
+3. **Where?** — pick a country, then a state, then the town, or just type the
+   town if you already know it (`Chennai`, `Austin, TX`). The two dropdowns
+   only decide what the town box suggests; the box is what gets searched, and
+   it stays editable. A town picked for Maps comes qualified with its state
+   ("Chennai, Tamil Nadu"), because "dentists in Springfield" is a question
+   with twenty answers.
+
+4. Optionally narrow by **Category**. A search like `wholesale store` comes
    back as furniture wholesalers, produce markets and phone-accessory shops;
    typing `wholesale` keeps only the ones you meant. Pick from the list or
    type your own, separate several with commas, and **leave it blank to keep
@@ -117,13 +124,13 @@ npm run package     # -> dist/leadmine-v5.0.0.zip
    saved between runs, and an input holding a value from three weeks ago looks
    exactly like an empty one. Click the chip to clear it.
 
-4. Pick a **Coverage** level (see below).
+5. Pick a **Coverage** level (see below).
 
    On a **LinkedIn** search there is no grid, so the panel asks **How many
    profiles?** instead — leave it blank for every profile LinkedIn will show
    you, or type a number to stop there.
-5. Press **Start**. A Google Maps tab opens and drives itself.
-6. When it finishes, choose Excel / CSV / JSON and press **Download**.
+6. Press **Start**. A Google Maps tab opens and drives itself.
+7. When it finishes, choose Excel / CSV / JSON and press **Download**.
 
 The panel can be closed while it runs — the job lives in the extension's
 background worker, so reopening it shows live progress. **Leave the Google Maps
@@ -319,6 +326,7 @@ popup  ──START_JOB──▶  service worker  ──RUN_SCRAPE──▶  cont
 | `src/lib/parse.js` | Pure text parsing (addresses, phones, ratings) — shared with the tests |
 | `src/background/service-worker.js` | Owns the run, drives the queue and the tab, persists state |
 | `src/lib/geo.js` | Web Mercator maths: map centre, viewport span, the search grid |
+| `src/lib/places.js` | The country / state / town lists behind the "Where?" picker |
 | `src/lib/tasks.js` | The search queue — batch parsing, grid expansion, resume points |
 | `src/lib/dedupe.js` | Stable business identity, record merging, the cross-run seen index |
 | `src/lib/email.js` | Fetches business websites, extracts/ranks emails, finds social links |
@@ -326,6 +334,7 @@ popup  ──START_JOB──▶  service worker  ──RUN_SCRAPE──▶  cont
 | `src/lib/store.js` | IndexedDB: job metadata, records, the cross-run seen index |
 | `src/lib/health.js` | Extraction fill rates and the gate that stops a broken run |
 | `src/lib/categories.js` | Optional category narrowing, and the suggestions behind the picker |
+| `src/data/geo/` | Generated: one small file per country, plus an index. See below |
 | `src/lib/export.js` | CSV / JSON serialisation and file naming |
 | `src/lib/xlsx.js` | A real .xlsx writer — OOXML in a ZIP, no dependencies |
 | `src/content/engine.js` | The source-agnostic half: harvest loop, detail pass, progress, cancellation |
@@ -354,6 +363,30 @@ Three design notes worth knowing:
   message.
 - **The file is built in the panel, not the worker.** Blob URLs need a
   document, and service workers do not have one.
+
+---
+
+## Where the place lists come from
+
+The "Where?" picker offers 250 countries, ~5,300 states and ~152,000 towns.
+They come from the [Countries States Cities
+Database](https://github.com/dr5hn/countries-states-cities-database), which is
+a 46 MB JSON file — almost all of it ids, coordinates, timezones, currencies
+and translations that a dropdown has no use for.
+
+`scripts/build-geo.mjs` strips it to names and splits it by country into
+`src/data/geo/`, so choosing India reads 48 KB and choosing nothing reads the
+11 KB index. The output is committed; the script only needs re-running to
+refresh the data:
+
+```bash
+node scripts/build-geo.mjs                 # downloads the source
+node scripts/build-geo.mjs path/to/csc.json # or reuses a local copy
+```
+
+`test/places.test.mjs` checks the generated data as well as the code that
+reads it — every country in the index has a file, the index is in reading
+order, and no state lists the same town twice.
 
 ---
 

@@ -134,6 +134,8 @@ const SETUP = (total) => {
     },
     runtime: {
       getManifest: () => ({ version: '9.9.9' }),
+      // The packaged geo data is served by the test server like any other file.
+      getURL: (path) => `/${path}`,
       // Cloned, because a real message is: the panel gets a fresh object every
       // poll and compares it against the last one. Handing back the same
       // reference made "what changed since last time" always answer nothing.
@@ -163,7 +165,10 @@ const SETUP = (total) => {
       ],
     },
   };
+  const realFetch = window.fetch.bind(window);
   window.fetch = async (url, init = {}) => {
+    // The "Where?" picker reads packaged JSON, not a provider. Let it through.
+    if (String(url).includes('/src/data/geo/')) return realFetch(url, init);
     const listing = (init.method || 'GET') === 'GET';
     const next = listing ? window.__aiModels : window.__aiNext;
     (listing ? window.__aiModelCalls : window.__aiCalls).push({
@@ -1268,6 +1273,101 @@ test('a people search asks how many profiles, where you can see it', async (t) =
     await ctx.page.waitForTimeout(200);
     assert.equal(await ctx.page.isVisible('#maxResults'), false);
     assert.equal(await ctx.page.inputValue('#maxResults'), '250');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('the town list narrows from a country to a state', async (t) => {
+  // "Where?" was a text field. You cannot browse a text field, and a town you
+  // half remember the spelling of is a run that finds nothing.
+  const ctx = await openPanel(t, { idle: true });
+  if (!ctx) return;
+  try {
+    const state = () =>
+      ctx.page.evaluate(() => ({
+        regionHidden: document.getElementById('region').hidden,
+        regions: document.getElementById('region').options.length,
+        towns: document.getElementById('cityOptions').options.length,
+        first: (document.getElementById('cityOptions').options[0] || {}).value,
+      }));
+
+    // Nothing chosen is the behaviour this replaced: a box you type into.
+    const fresh = await state();
+    assert.ok(await ctx.page.locator('#country option').count() > 200, 'the world is offered');
+    assert.equal(fresh.regionHidden, true, 'no country, no states');
+    assert.equal(fresh.towns, 0, 'and nothing to suggest');
+
+    await ctx.page.selectOption('#country', 'IN');
+    await ctx.page.waitForTimeout(700);
+    const india = await state();
+    assert.equal(india.regionHidden, false);
+    assert.ok(india.regions > 25, `expected India's states, got ${india.regions - 1}`);
+    assert.ok(india.towns > 100, 'a country on its own still suggests towns');
+
+    await ctx.page.selectOption('#region', 'Tamil Nadu');
+    await ctx.page.waitForTimeout(300);
+    const tn = await state();
+    assert.ok(tn.towns < india.towns, 'a state narrows the list');
+    assert.match(tn.first, /, Tamil Nadu$/, 'and every town in it is in that state');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('a town is offered as the exact text that will be searched', async (t) => {
+  const ctx = await openPanel(t, { idle: true });
+  if (!ctx) return;
+  try {
+    await ctx.page.selectOption('#country', 'IN');
+    await ctx.page.waitForTimeout(700);
+    await ctx.page.selectOption('#region', 'Tamil Nadu');
+    await ctx.page.waitForTimeout(300);
+
+    const towns = () =>
+      ctx.page.evaluate(() =>
+        [...document.getElementById('cityOptions').options].map((o) => o.value)
+      );
+
+    // Maps: "dentists in Chennai, Tamil Nadu" is one place. "Springfield" is
+    // twenty.
+    assert.ok((await towns()).includes('Chennai, Tamil Nadu'));
+
+    await ctx.page.click('#sourceGroup label.seg:has(input[value="linkedin"])');
+    await ctx.page.waitForTimeout(400);
+    // LinkedIn matches keywords literally: no profile contains "Tamil Nadu"
+    // just because the person is in Chennai.
+    const people = await towns();
+    assert.ok(people.includes('Chennai'));
+    assert.ok(!people.some((name) => name.includes(',')));
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('the picker only fills the box — typing a town still runs it', async (t) => {
+  // The whole design rests on this: nothing downstream knows a picker exists,
+  // so a place you type and a place you browse to are the same run.
+  const ctx = await openPanel(t, { idle: true });
+  if (!ctx) return;
+  try {
+    await ctx.page.evaluate(() => {
+      window.__started = null;
+      const send = chrome.runtime.sendMessage;
+      chrome.runtime.sendMessage = async (m) => {
+        if (m.type === 'START_JOB') window.__started = m.config;
+        return send(m);
+      };
+    });
+
+    await ctx.page.fill('#category', 'dentists');
+    await ctx.page.fill('#city', 'Kumbakonam');
+    await ctx.page.click('#start');
+    await ctx.page.waitForTimeout(400);
+
+    const config = await ctx.page.evaluate(() => window.__started);
+    assert.equal(config.city, 'Kumbakonam', 'what is in the box is what runs');
+    assert.equal(config.country, '', 'and no country was needed to get there');
   } finally {
     await ctx.close();
   }
