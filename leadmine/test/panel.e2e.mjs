@@ -103,11 +103,30 @@ const SETUP = (total) => {
   };
 
   // Stand in for Gemini/Groq. The test sets window.__aiNext before clicking.
+  // The model listing is a GET and answered separately, so a planner test does
+  // not have to care that the picker also talks to the provider.
   window.__aiCalls = [];
+  window.__aiModelCalls = [];
   window.__aiNext = { status: 200, body: {} };
-  window.fetch = async (url, init) => {
-    window.__aiCalls.push({ url, headers: init.headers, body: JSON.parse(init.body) });
-    const next = window.__aiNext;
+  window.__aiModels = {
+    status: 200,
+    body: {
+      models: [
+        { name: 'models/gemini-2.5-flash', displayName: 'Gemini 2.5 Flash',
+          supportedGenerationMethods: ['generateContent'] },
+        { name: 'models/gemini-2.5-pro', displayName: 'Gemini 2.5 Pro',
+          supportedGenerationMethods: ['generateContent'] },
+        { name: 'models/text-embedding-004', displayName: 'Embedding',
+          supportedGenerationMethods: ['embedContent'] },
+      ],
+    },
+  };
+  window.fetch = async (url, init = {}) => {
+    const listing = (init.method || 'GET') === 'GET';
+    const next = listing ? window.__aiModels : window.__aiNext;
+    (listing ? window.__aiModelCalls : window.__aiCalls).push({
+      url, headers: init.headers, body: init.body ? JSON.parse(init.body) : null,
+    });
     return {
       ok: next.status < 300,
       status: next.status,
@@ -749,7 +768,7 @@ test('each provider keeps its own key and model', async (t) => {
   }
 });
 
-test('the model box is out of the way until it is asked for', async (t) => {
+test('the model picker is out of the way, and lists what the key can use', async (t) => {
   const ctx = await openPanel(t, { idle: true, aiKey: 'AIza-test' });
   if (!ctx) return;
   try {
@@ -757,10 +776,40 @@ test('the model box is out of the way until it is asked for', async (t) => {
     // An unlabelled box under the key box is a box people paste keys into.
     assert.equal(await ctx.page.isVisible('#aiModel'), false);
     assert.equal(await ctx.page.isVisible('#aiModelToggle'), true);
+    assert.equal(await ctx.page.evaluate(() => window.__aiModelCalls.length), 0,
+      'an ordinary run must not spend a request on a list nobody opened');
 
     await ctx.page.click('#aiModelToggle');
+    await ctx.page.waitForTimeout(300);
     assert.equal(await ctx.page.isVisible('#aiModel'), true);
-    assert.equal(await ctx.page.getAttribute('#aiModel', 'placeholder'), 'gemini-2.5-flash');
+
+    // Names are never typed or remembered — they come from the provider.
+    const options = await ctx.page.evaluate(() =>
+      [...document.getElementById('aiModel').options].map((o) => o.value)
+    );
+    assert.equal(options[0], '', 'the recommended model is the empty choice');
+    assert.deepEqual(options.slice(1), ['gemini-2.5-flash', 'gemini-2.5-pro']);
+    assert.ok(!options.includes('text-embedding-004'), 'a model that cannot answer is not offered');
+    assert.match(await ctx.page.textContent('#aiModelHelp'), /2 models/);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('the model listing failure is shown where the picker is', async (t) => {
+  const ctx = await openPanel(t, { idle: true, aiKey: 'AIza-test' });
+  if (!ctx) return;
+  try {
+    await openAdvanced(ctx);
+    await ctx.page.evaluate(() => {
+      window.__aiModels = { status: 401, body: {} };
+    });
+    await ctx.page.click('#aiModelToggle');
+    await ctx.page.waitForTimeout(300);
+
+    assert.match(await ctx.page.textContent('#aiModelHelp'), /key was rejected/i);
+    // The recommended model is still selectable, so the planner still works.
+    assert.equal(await ctx.page.inputValue('#aiModel'), '');
   } finally {
     await ctx.close();
   }

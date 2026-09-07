@@ -19,16 +19,19 @@ import {
   providerFor,
   cleanModel,
   wrongProviderFor,
+  toGeminiSchema,
+  listModels,
   PROVIDERS,
 } from '../src/lib/ai.js';
-import { buildUserPrompt, DEPTH_LIMITS } from '../src/lib/plan-prompt.js';
+import { buildUserPrompt, DEPTH_LIMITS, RESPONSE_SCHEMA } from '../src/lib/plan-prompt.js';
 
 /* ------------------------------------------------------------- fake server */
 
 function fakeFetch(handler) {
   const calls = [];
   const fn = async (url, init) => {
-    calls.push({ url, init, body: JSON.parse(init.body) });
+    // A model listing is a GET and carries no body.
+    calls.push({ url, init, body: init.body ? JSON.parse(init.body) : null });
     const res = await handler(calls.length, calls[calls.length - 1]);
     return {
       ok: res.status >= 200 && res.status < 300,
@@ -396,7 +399,7 @@ test('the matching key is not mistaken for the wrong provider’s', async () => 
   assert.equal(wrongProviderFor('some-other-format'), null, 'an unknown shape is not blocked');
 });
 
-test('a model the provider rejects points at the box to clear', async () => {
+test('a model the provider rejects names it and points at the picker', async () => {
   const fetchImpl = fakeFetch(() => ({
     status: 400,
     json: {},
@@ -404,6 +407,151 @@ test('a model the provider rejects points at the box to clear', async () => {
   }));
   await assert.rejects(
     planSearches({ ...base, apiKey: 'AIza-test', model: 'gemini-9-turbo', fetchImpl }),
-    /rejected the model "gemini-9-turbo".*Clear the Model box/is
+    /rejected the model "gemini-9-turbo".*Pick another/is
+  );
+});
+
+/* --------------------------------------------- the providers' actual specs */
+
+test('the Gemini body matches the discovery document, not a guess at it', async () => {
+  const fetchImpl = fakeFetch(() => geminiReply(READY));
+  await planSearches({ ...base, apiKey: 'AIza-test', fetchImpl });
+  const { body, url } = fetchImpl.calls[0];
+
+  // camelCase is the canonical JSON name; `system_instruction` was a guess.
+  assert.ok(body.systemInstruction, 'systemInstruction is a sibling of contents');
+  assert.equal(body.systemInstruction.parts[0].text.length > 0, true);
+  assert.ok(!('system_instruction' in body));
+  // The path parameter is constrained to ^models/[^/]+$ by the spec.
+  assert.match(url, /\/v1beta\/models\/[^/]+:generateContent$/);
+});
+
+test('Gemini gets its own schema dialect, not JSON Schema', async () => {
+  const fetchImpl = fakeFetch(() => geminiReply(READY));
+  await planSearches({ ...base, apiKey: 'AIza-test', fetchImpl });
+  const schema = fetchImpl.calls[0].body.generationConfig.responseSchema;
+
+  // Schema.type is an uppercase enum in the OpenAPI subset Gemini accepts.
+  // Lowercase "object" is rejected outright.
+  assert.equal(schema.type, 'OBJECT');
+  assert.equal(schema.properties.searches.type, 'ARRAY');
+  assert.equal(schema.properties.searches.items.type, 'OBJECT');
+  assert.equal(schema.properties.searches.items.properties.tier.type, 'INTEGER');
+  // A list of allowed values is only valid as a STRING with format "enum".
+  assert.equal(schema.properties.status.type, 'STRING');
+  assert.equal(schema.properties.status.format, 'enum');
+  assert.deepEqual(schema.properties.status.enum, ['ready', 'needs_clarification']);
+  assert.deepEqual(schema.required, ['status']);
+  assert.ok(Array.isArray(schema.propertyOrdering));
+});
+
+test('toGeminiSchema leaves the standard schema alone for everyone else', () => {
+  // The source of truth stays ordinary JSON Schema — Groq and the prompt use
+  // it, so the conversion must not mutate it in place.
+  assert.equal(toGeminiSchema({ type: 'string' }).type, 'STRING');
+  assert.equal(RESPONSE_SCHEMA.type, 'object', 'the original must be untouched');
+  assert.equal(RESPONSE_SCHEMA.properties.searches.type, 'array');
+});
+
+test('a Gemini key of either issued shape is recognised', () => {
+  // AI Studio issues both; treating only AIza as real rejected live keys.
+  assert.equal(wrongProviderFor('AIzaSyAbc').id, 'gemini');
+  assert.equal(wrongProviderFor('AQ.Ab8dEf_gh-1234').id, 'gemini');
+  assert.equal(wrongProviderFor('gsk_abc').id, 'groq');
+});
+
+test('a blocked prompt says it was blocked, not that the answer was unreadable', async () => {
+  const fetchImpl = fakeFetch(() => ({
+    status: 200,
+    json: { promptFeedback: { blockReason: 'SAFETY' } },
+  }));
+  await assert.rejects(
+    planSearches({ ...base, apiKey: 'AIza-test', fetchImpl }),
+    /declined to answer/i
+  );
+  // A refusal is final; retrying spends a request to be told the same thing.
+  assert.equal(fetchImpl.calls.length, 1);
+});
+
+test('a truncated answer says so rather than blaming the JSON', async () => {
+  const fetchImpl = fakeFetch(() => ({
+    status: 200,
+    json: { candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [] } }] },
+  }));
+  await assert.rejects(
+    planSearches({ ...base, apiKey: 'AIza-test', fetchImpl }),
+    /ran out of room/i
+  );
+});
+
+test('an empty Groq answer reports its finish reason', async () => {
+  const fetchImpl = fakeFetch(() => ({
+    status: 200,
+    json: { choices: [{ finish_reason: 'length', message: { content: '' } }] },
+  }));
+  await assert.rejects(
+    planSearches({ ...base, provider: 'groq', apiKey: 'gsk_test', fetchImpl }),
+    /ran out of room/i
+  );
+});
+
+/* ------------------------------------------------------ listing the models */
+
+test('Gemini models come from the provider, filtered to ones that can answer', async () => {
+  const fetchImpl = fakeFetch(() => ({
+    status: 200,
+    json: {
+      models: [
+        { name: 'models/gemini-2.5-flash', displayName: 'Gemini 2.5 Flash',
+          supportedGenerationMethods: ['generateContent', 'countTokens'] },
+        { name: 'models/text-embedding-004', displayName: 'Embedding',
+          supportedGenerationMethods: ['embedContent'] },
+      ],
+    },
+  }));
+  const models = await listModels({ provider: 'gemini', apiKey: 'AIza-test', fetchImpl });
+
+  assert.deepEqual(models, [{ id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' }]);
+  // The "models/" prefix belongs to the URL, not to the id.
+  assert.match(fetchImpl.calls[0].url, /\/v1beta\/models\?/);
+  assert.equal(fetchImpl.calls[0].init.headers['x-goog-api-key'], 'AIza-test');
+});
+
+test('Groq models come from its list endpoint', async () => {
+  const fetchImpl = fakeFetch(() => ({
+    status: 200,
+    json: {
+      object: 'list',
+      data: [
+        { id: 'llama-3.3-70b-versatile', object: 'model' },
+        { id: 'whisper-large-v3', object: 'model' },
+        { id: 'llama-guard-4-12b', object: 'model' },
+      ],
+    },
+  }));
+  const models = await listModels({ provider: 'groq', apiKey: 'gsk_test', fetchImpl });
+
+  // Groq's list carries no capability field, so the id is the only signal for
+  // dropping the ones that cannot hold a conversation.
+  assert.deepEqual(models.map((m) => m.id), ['llama-3.3-70b-versatile']);
+  assert.equal(fetchImpl.calls[0].url, 'https://api.groq.com/openai/v1/models');
+  assert.equal(fetchImpl.calls[0].init.headers.authorization, 'Bearer gsk_test');
+});
+
+test('listing without a key, or with the wrong one, never leaves the browser', async () => {
+  const fetchImpl = fakeFetch(() => ({ status: 200, json: { models: [] } }));
+  await assert.rejects(listModels({ provider: 'gemini', apiKey: '', fetchImpl }), /Add an API key/i);
+  await assert.rejects(
+    listModels({ provider: 'gemini', apiKey: 'gsk_wrong', fetchImpl }),
+    /looks like a Groq key/i
+  );
+  assert.equal(fetchImpl.calls.length, 0);
+});
+
+test('a rejected key while listing says so, in the same words as elsewhere', async () => {
+  const fetchImpl = fakeFetch(() => ({ status: 401, json: {}, text: 'unauthorised' }));
+  await assert.rejects(
+    listModels({ provider: 'gemini', apiKey: 'AIza-bad', fetchImpl }),
+    /key was rejected/i
   );
 });

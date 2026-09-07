@@ -7,18 +7,34 @@
  * per-minute one — and having the other to switch to is worth the small amount
  * of code that costs.
  *
- * Three things are deliberate here:
+ * Everything here is written against the providers' own machine-readable
+ * specs rather than from memory, because guessing at this cost several rounds
+ * of "unexpected model name format":
+ *
+ *   - Gemini: the v1beta discovery document
+ *     (generativelanguage.googleapis.com/$discovery/rest?version=v1beta), which
+ *     is the authority on field names, the Schema dialect and the enums.
+ *   - Groq: their own TypeScript SDK, which is generated from their OpenAPI
+ *     spec (github.com/groq/groq-typescript).
+ *
+ * Four things are deliberate:
  *
  *   1. **The key never leaves the browser.** It lives in chrome.storage.local,
  *      goes out in a request header, and is kept out of `readConfig()` so it
  *      cannot reach the service worker, a saved job, or an exported file. It
  *      is never put in a URL — query strings end up in logs and history.
  *
- *   2. **JSON is enforced by the API, not requested in prose.** Gemini gets a
- *      responseSchema, Groq gets JSON mode. Asking politely for JSON works
- *      most of the time, and "most of the time" is a bug report.
+ *   2. **Model names are never guessed.** Both providers list their own
+ *      models; the panel offers that list. Every model failure so far came
+ *      from a name typed or remembered rather than read from the provider.
  *
- *   3. **The model's output is untrusted input.** Everything that comes back
+ *   3. **JSON is enforced by the API, not requested in prose.** Gemini gets a
+ *      responseSchema in *its* dialect (uppercase type enums — an OpenAPI
+ *      subset, not JSON Schema); Groq gets JSON mode plus the shape in the
+ *      prompt, since its endpoint takes standard JSON Schema only on some
+ *      models.
+ *
+ *   4. **The model's output is untrusted input.** Everything that comes back
  *      is re-checked here: shape, length, duplicates, count. A planner that
  *      returns forty near-identical searches would quietly turn a five-minute
  *      run into an hour.
@@ -26,17 +42,92 @@
 
 import { SYSTEM_PROMPT, RESPONSE_SCHEMA, DEPTH_LIMITS, buildUserPrompt } from './plan-prompt.js';
 
+/**
+ * Gemini's `Schema` is an OpenAPI 3.0 subset, not JSON Schema: `type` is an
+ * uppercase enum, and a list of allowed values needs `format: "enum"` on a
+ * STRING. Sending lowercase `"object"` is rejected. The schema is written once
+ * as ordinary JSON Schema and converted here, so Groq and the prompt can keep
+ * using the standard form.
+ */
+const GEMINI_TYPES = {
+  string: 'STRING', number: 'NUMBER', integer: 'INTEGER',
+  boolean: 'BOOLEAN', array: 'ARRAY', object: 'OBJECT', null: 'NULL',
+};
+
+export function toGeminiSchema(schema) {
+  if (!schema || typeof schema !== 'object') return schema;
+  const out = {};
+  if (schema.type) out.type = GEMINI_TYPES[schema.type] || String(schema.type).toUpperCase();
+  if (schema.description) out.description = schema.description;
+  if (Array.isArray(schema.enum)) {
+    // An enum is only valid on a STRING, and only with format "enum".
+    out.type = 'STRING';
+    out.format = 'enum';
+    out.enum = schema.enum.map(String);
+  }
+  if (schema.items) out.items = toGeminiSchema(schema.items);
+  if (schema.properties) {
+    out.properties = {};
+    for (const [key, value] of Object.entries(schema.properties)) {
+      out.properties[key] = toGeminiSchema(value);
+    }
+    // Field order is part of the contract: it is the order the model fills
+    // them in, and "status" before "searches" is what makes a refusal cheap.
+    out.propertyOrdering = Object.keys(schema.properties);
+  }
+  if (Array.isArray(schema.required)) out.required = [...schema.required];
+  return out;
+}
+
+const GEMINI_SCHEMA = toGeminiSchema(RESPONSE_SCHEMA);
+
+/** Why a candidate came back with no text. The enum is from the spec. */
+const GEMINI_STOPPED = {
+  MAX_TOKENS: 'The planner ran out of room before it finished. Try a shorter description.',
+  SAFETY: 'Gemini declined to answer this one. Try describing the business differently.',
+  PROHIBITED_CONTENT: 'Gemini declined to answer this one. Try describing the business differently.',
+  BLOCKLIST: 'Gemini declined to answer this one. Try describing the business differently.',
+  SPII: 'Gemini declined to answer this one — it read the description as personal data.',
+  RECITATION: 'Gemini stopped itself repeating source material. Try rewording the description.',
+  MALFORMED_RESPONSE: 'The planner returned something unreadable. Try again.',
+};
+
 export const PROVIDERS = {
   gemini: {
     id: 'gemini',
     label: 'Google Gemini',
     defaultModel: 'gemini-2.5-flash',
     keyUrl: 'https://aistudio.google.com/apikey',
-    keyHint: 'Starts with AIza',
-    keyLooks: /^AIza/,
+    // AI Studio has issued both shapes; a key of either is a Gemini key.
+    keyHint: 'starts with AIza or AQ.',
+    keyLooks: /^(AIza|AQ\.)/,
+
+    /** GET v1beta/models — the provider's own list, so nothing is guessed. */
+    modelsRequest(key) {
+      return {
+        url: 'https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000',
+        headers: { 'x-goog-api-key': key },
+      };
+    },
+
+    parseModels(json) {
+      return (json.models || [])
+        // Only models that can answer this call at all. The list also carries
+        // embedding and legacy text models, which cannot.
+        .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
+        .map((m) => ({
+          // Names come back as "models/gemini-2.5-flash"; the URL adds that.
+          id: String(m.name || '').replace(/^models\//, ''),
+          label: m.displayName || String(m.name || '').replace(/^models\//, ''),
+        }))
+        .filter((m) => m.id);
+    },
 
     request(model, key, system, user) {
       return {
+        // The path parameter is `models/{model}` and the spec constrains it to
+        // ^models/[^/]+$ — a name with a slash in it is the "unexpected model
+        // name format" error, not a missing model.
         url: `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
           model
         )}:generateContent`,
@@ -44,20 +135,43 @@ export const PROVIDERS = {
         // everything it passes through.
         headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
         body: {
-          system_instruction: { parts: [{ text: system }] },
+          // camelCase is the canonical JSON name in the discovery document.
+          systemInstruction: { parts: [{ text: system }] },
           contents: [{ role: 'user', parts: [{ text: user }] }],
           generationConfig: {
             temperature: 0.3,
             responseMimeType: 'application/json',
-            responseSchema: RESPONSE_SCHEMA,
+            responseSchema: GEMINI_SCHEMA,
           },
         },
       };
     },
 
-    text(json) {
-      const parts = ((json.candidates || [])[0] || {}).content || {};
-      return (parts.parts || []).map((p) => p.text || '').join('');
+    /**
+     * The answer, or why there isn't one.
+     *
+     * A blocked or truncated response is a well-formed 200 with no text in it.
+     * Reading only `candidates[0].content.parts` turns every one of those into
+     * "returned something unreadable", which sends the user looking in the
+     * wrong place.
+     */
+    read(json) {
+      const blocked = (json.promptFeedback || {}).blockReason;
+      if (blocked) {
+        return { error: GEMINI_STOPPED[blocked] || `Gemini blocked the request (${blocked}).` };
+      }
+      const candidate = (json.candidates || [])[0];
+      if (!candidate) return { error: 'Gemini returned no answer at all. Try again.' };
+
+      const text = ((candidate.content || {}).parts || []).map((p) => p.text || '').join('');
+      if (text.trim()) return { text };
+
+      const reason = candidate.finishReason || '';
+      return {
+        error:
+          GEMINI_STOPPED[reason] ||
+          `Gemini returned an empty answer${reason ? ` (${reason})` : ''}. Try again.`,
+      };
     },
   },
 
@@ -66,8 +180,24 @@ export const PROVIDERS = {
     label: 'Groq',
     defaultModel: 'llama-3.3-70b-versatile',
     keyUrl: 'https://console.groq.com/keys',
-    keyHint: 'Starts with gsk_',
+    keyHint: 'starts with gsk_',
     keyLooks: /^gsk_/,
+
+    modelsRequest(key) {
+      return {
+        url: 'https://api.groq.com/openai/v1/models',
+        headers: { authorization: `Bearer ${key}` },
+      };
+    },
+
+    parseModels(json) {
+      return (json.data || [])
+        .map((m) => ({ id: String(m.id || ''), label: String(m.id || '') }))
+        // Groq's model list carries no capability field — their own SDK types
+        // it as id/created/object/owned_by and nothing else — so the id is the
+        // only signal for which of these can hold a conversation at all.
+        .filter((m) => m.id && !/whisper|tts|guard|^distil/i.test(m.id));
+    },
 
     request(model, key, system, user) {
       return {
@@ -76,8 +206,9 @@ export const PROVIDERS = {
         body: {
           model,
           temperature: 0.3,
-          // JSON mode here is shape-only, so the schema has to be described in
-          // the prompt as well; Gemini enforces it server-side and does not.
+          // json_object, not json_schema: the schema form is only accepted on
+          // some of Groq's models, and a planner that fails on the model the
+          // user picked is worse than one that states the shape in the prompt.
           response_format: { type: 'json_object' },
           messages: [
             { role: 'system', content: `${system}\n\n${SCHEMA_HINT}` },
@@ -87,8 +218,17 @@ export const PROVIDERS = {
       };
     },
 
-    text(json) {
-      return (((json.choices || [])[0] || {}).message || {}).content || '';
+    read(json) {
+      const choice = (json.choices || [])[0];
+      if (!choice) return { error: 'Groq returned no answer at all. Try again.' };
+      const text = (choice.message || {}).content || '';
+      if (text.trim()) return { text };
+      return {
+        error:
+          choice.finish_reason === 'length'
+            ? 'The planner ran out of room before it finished. Try a shorter description.'
+            : `Groq returned an empty answer${choice.finish_reason ? ` (${choice.finish_reason})` : ''}. Try again.`,
+      };
     },
   },
 };
@@ -275,17 +415,73 @@ function httpError(status, body, model) {
   if (status === 401 || status === 403) {
     return new Error('That API key was rejected. Check it in More options.');
   }
-  if (status === 404 || /model/i.test(body)) {
+  if (model && (status === 404 || /model/i.test(body))) {
     return new Error(
-      `The provider rejected the model "${model}". Clear the Model box under More options to use the default.`
+      `The provider rejected the model "${model}". Pick another under More options.`
     );
   }
+  if (status === 404) return new Error('That endpoint was not found for this provider.');
   if (status === 429) {
     return new Error('The provider is rate-limiting this key. Wait a minute, or switch provider.');
   }
   if (status >= 500) return new Error('The provider is having trouble. Try again in a moment.');
   // The body can echo the request, so it is truncated rather than shown whole.
   return new Error(`The planner failed (HTTP ${status}). ${clip(body, 160)}`);
+}
+
+/**
+ * The models this key can actually use, straight from the provider.
+ *
+ * This exists so that no model name is ever typed or remembered. Every model
+ * failure in this feature so far came from a name that was not read from the
+ * provider's own list.
+ */
+export async function listModels({
+  provider = DEFAULT_PROVIDER,
+  apiKey = '',
+  timeout = 20000,
+  fetchImpl = typeof fetch === 'function' ? fetch : null,
+} = {}) {
+  const key = String(apiKey).trim();
+  if (!key) throw new Error('Add an API key first.');
+  if (!fetchImpl) throw new Error('This browser cannot reach the planner.');
+
+  const conf = providerFor(provider);
+  const wrong = wrongProviderFor(key);
+  if (wrong && wrong.id !== conf.id) throw mismatchError(wrong, conf);
+
+  const req = conf.modelsRequest(key);
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), timeout) : null;
+
+  let response;
+  try {
+    response = await fetchImpl(req.url, {
+      method: 'GET',
+      headers: req.headers,
+      ...(controller ? { signal: controller.signal } : {}),
+    });
+  } catch (err) {
+    throw err && err.name === 'AbortError'
+      ? new Error('Listing models took too long. Try again.')
+      : new Error('Could not reach the provider. Check your connection.');
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+
+  if (!response.ok) {
+    throw httpError(response.status, await response.text().catch(() => ''), '');
+  }
+
+  const models = conf.parseModels((await response.json().catch(() => null)) || {});
+  if (!models.length) throw new Error('The provider listed no usable models for this key.');
+  return models.sort((a, b) => a.id.localeCompare(b.id));
+}
+
+function mismatchError(belongsTo, conf) {
+  return new Error(
+    `That looks like a ${belongsTo.label} key, but ${conf.label} is selected. Switch provider, or paste a ${conf.label} key.`
+  );
 }
 
 /**
@@ -317,11 +513,7 @@ export async function planSearches({
   const key = String(apiKey).trim();
 
   const belongsTo = wrongProviderFor(key);
-  if (belongsTo && belongsTo.id !== conf.id) {
-    throw new Error(
-      `That looks like a ${belongsTo.label} key, but ${conf.label} is selected. Switch provider, or paste a ${conf.label} key.`
-    );
-  }
+  if (belongsTo && belongsTo.id !== conf.id) throw mismatchError(belongsTo, conf);
 
   const wanted = cleanModel(model, conf.defaultModel);
   const req = conf.request(
@@ -367,7 +559,16 @@ export async function planSearches({
     }
 
     const json = await response.json().catch(() => null);
-    const plan = parseJsonish(conf.text(json || {}));
+    const { text, error } = conf.read(json || {});
+    if (error) {
+      // A refusal is the provider's final answer, not a hiccup — retrying it
+      // just spends another request to be told the same thing.
+      lastError = new Error(error);
+      if (!/try again/i.test(error)) throw lastError;
+      continue;
+    }
+
+    const plan = parseJsonish(text);
     if (!plan) {
       lastError = new Error('The planner returned something unreadable. Try again.');
       continue;

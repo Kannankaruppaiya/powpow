@@ -155,6 +155,7 @@ plan is a single request of about a thousand tokens.
 | Provider | Get a key | Default model |
 | --- | --- | --- |
 | **Google Gemini** | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) | `gemini-2.5-flash` |
+
 | **Groq** | [console.groq.com/keys](https://console.groq.com/keys) | `llama-3.3-70b-versatile` |
 
 Paste it under **More options → Search planner**. Two providers are offered
@@ -162,9 +163,37 @@ because they run out differently — Gemini's free tier caps per day, Groq's per
 minute — so there is always the other one to switch to. Each provider keeps its
 own key, so switching does not lose the other.
 
-Leave **Model** alone. It is behind a toggle and blank means "use the
-recommended one", which is what you want; it exists only for trying a different
-model deliberately.
+**Model** is a picker, behind a toggle, and it lists the models *your key can
+actually use* — fetched from the provider when you open it, never typed. Leave
+it on "Recommended" unless you have a reason. There is no free-text model box:
+every model failure this feature has had came from a name that was remembered
+rather than read from the provider.
+
+### Where the API shapes come from
+
+Both integrations are written against the providers' own machine-readable
+specs, not from memory. Read these before changing `src/lib/ai.js`:
+
+| Provider | Source of truth |
+| --- | --- |
+| Gemini | `https://generativelanguage.googleapis.com/$discovery/rest?version=v1beta` — the v1beta discovery document |
+| Groq | [`groq/groq-typescript`](https://github.com/groq/groq-typescript) — generated from their OpenAPI spec |
+
+Three things that cost a round of guessing, all of them in the specs:
+
+- Gemini's `responseSchema` is an **OpenAPI 3.0 subset, not JSON Schema**.
+  `type` is an uppercase enum (`OBJECT`, `ARRAY`, `STRING`, `INTEGER`), and a
+  list of allowed values needs `format: "enum"` on a `STRING`. Lowercase
+  `"object"` is rejected. `toGeminiSchema()` converts; the schema itself stays
+  ordinary JSON Schema for Groq and the prompt.
+- The model path parameter is constrained to `^models/[^/]+$`. A name with a
+  slash in it — or an empty one — is the *"unexpected model name format"*
+  error, which does not mention models at all.
+- `system_instruction` works, but `systemInstruction` is the canonical name.
+- A blocked or truncated answer is a **200 with no text in it**. It reports
+  itself in `promptFeedback.blockReason` or `candidates[0].finishReason`;
+  reading only `content.parts` turns every one of those into "unreadable
+  answer" and sends you looking in the wrong place.
 
 **Where the key goes:** into `chrome.storage.local` on this machine, and out in
 a request header to the provider you picked. It is deliberately kept out of the

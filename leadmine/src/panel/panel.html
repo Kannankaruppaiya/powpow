@@ -216,9 +216,11 @@
                    people type their key into. Nobody needs this by default. -->
               <button type="button" id="aiModelToggle" class="linkish">Use a different model</button>
               <label class="field" id="aiModelRow" hidden>
-                <span class="label">Model <em class="optional">optional</em></span>
-                <input id="aiModel" class="input" autocomplete="off" spellcheck="false" />
-                <span class="help">Leave blank to use the recommended one.</span>
+                <span class="label">Model</span>
+                <!-- A list the provider itself returns, never a name to type:
+                     every model failure so far was a remembered name. -->
+                <select id="aiModel" class="input"></select>
+                <span class="help" id="aiModelHelp"></span>
               </label>
             </div>
 

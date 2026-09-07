@@ -14,7 +14,7 @@
 import { buildFile } from '../lib/export.js';
 import { summariseRates } from '../lib/health.js';
 import { suggestionsFor } from '../lib/categories.js';
-import { planSearches, planToBatch, providerFor, DEFAULT_PROVIDER } from '../lib/ai.js';
+import { planSearches, listModels, planToBatch, providerFor, DEFAULT_PROVIDER } from '../lib/ai.js';
 import * as store from '../lib/store.js';
 
 const SETTINGS_KEY = 'mls.settings';
@@ -58,7 +58,7 @@ const ui = Object.fromEntries(
     'assist', 'assistSub', 'aiBrief', 'aiPlan', 'aiStatus', 'aiKeyHint', 'aiOpenSettings',
     'aiResult', 'aiUnderstood', 'aiList', 'aiApply', 'aiDiscard',
     'aiSettings', 'aiProvider', 'aiProviderName', 'aiKey', 'aiKeyLink',
-    'aiModel', 'aiModelRow', 'aiModelToggle',
+    'aiModel', 'aiModelRow', 'aiModelToggle', 'aiModelHelp',
   ].map((id) => [id, el(id)])
 );
 
@@ -332,16 +332,72 @@ const saveAi = () => {
 function applyProvider() {
   const conf = providerFor(ui.aiProvider.value);
   ui.aiKey.value = ai.keys[conf.id] || '';
-  ui.aiModel.value = ai.models[conf.id] || '';
   ui.aiProviderName.textContent = conf.label;
   ui.aiKeyLink.href = conf.keyUrl;
-  // The default is a placeholder rather than a value, so a blank box keeps
-  // following the default as it changes.
-  ui.aiModel.placeholder = conf.defaultModel;
   ui.aiKey.placeholder = `${conf.label} key — ${conf.keyHint}`;
-  ui.aiModelRow.hidden = !ui.aiModel.value;
-  ui.aiModelToggle.hidden = Boolean(ui.aiModel.value);
+
+  // The picker starts as just the recommended model. The provider's real list
+  // is fetched only when someone opens it, so an ordinary run costs one
+  // request rather than two.
+  const chosen = ai.models[conf.id] || '';
+  setModelOptions(chosen ? [{ id: chosen, label: chosen }] : [], chosen);
+  const open = Boolean(chosen);
+  ui.aiModelRow.hidden = !open;
+  ui.aiModelToggle.hidden = open;
+  if (open) loadModels();
   applyKeyState();
+}
+
+/**
+ * Fill the picker.
+ *
+ * The first option is always the provider's recommendation with an empty
+ * value, so "I have not chosen" stays distinct from "I chose the one that
+ * happens to be recommended today".
+ */
+function setModelOptions(models, selected) {
+  const conf = providerFor(ui.aiProvider.value);
+  const options = [{ id: '', label: `Recommended — ${conf.defaultModel}` }, ...models];
+  // A model chosen earlier must stay selectable even if the list has not
+  // arrived yet, or opening the picker would silently change the setting.
+  if (selected && !models.some((m) => m.id === selected)) {
+    options.push({ id: selected, label: selected });
+  }
+
+  ui.aiModel.replaceChildren();
+  for (const model of options) {
+    const option = document.createElement('option');
+    option.value = model.id;
+    option.textContent = model.label;
+    ui.aiModel.append(option);
+  }
+  ui.aiModel.value = selected || '';
+}
+
+let modelsToken = 0;
+
+/** Ask the provider which models this key can use. */
+async function loadModels() {
+  const conf = providerFor(ui.aiProvider.value);
+  const key = ui.aiKey.value.trim();
+  if (!key) {
+    ui.aiModelHelp.textContent = 'Add a key first, then this lists what it can use.';
+    return;
+  }
+
+  const token = (modelsToken += 1);
+  ui.aiModelHelp.textContent = 'Loading the list…';
+  try {
+    const models = await listModels({ provider: conf.id, apiKey: key });
+    // A slow answer for a provider the user has since switched away from must
+    // not overwrite the picker.
+    if (token !== modelsToken || providerFor(ui.aiProvider.value).id !== conf.id) return;
+    setModelOptions(models, ai.models[conf.id] || '');
+    ui.aiModelHelp.textContent = `${models.length} models available to this key.`;
+  } catch (err) {
+    if (token !== modelsToken) return;
+    ui.aiModelHelp.textContent = err.message;
+  }
 }
 
 /** The one thing that gates the button: is there a key for this provider? */
@@ -479,11 +535,15 @@ for (const field of [ui.aiKey, ui.aiModel]) {
 }
 // The Plan button unlocks as soon as a key is typed, without waiting for blur.
 ui.aiKey.addEventListener('input', applyKeyState);
+ui.aiKey.addEventListener('change', () => {
+  if (!ui.aiModelRow.hidden) loadModels();
+});
 
 ui.aiModelToggle.addEventListener('click', () => {
   ui.aiModelRow.hidden = false;
   ui.aiModelToggle.hidden = true;
   ui.aiModel.focus();
+  loadModels();
 });
 
 /* ---------------------------------------------------------- virtual table */
