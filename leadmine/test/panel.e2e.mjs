@@ -1034,3 +1034,61 @@ test('the download writes exactly what the table is showing', async (t) => {
     await ctx.close();
   }
 });
+
+test('an active narrowing filter says so, above the button that acts on it', async (t) => {
+  // The filter is saved between runs. A term typed weeks ago silently set
+  // aside all 235 results of a search planned today, and the form gave no
+  // sign it was there — an input holding a value just looks like an input.
+  const ctx = await openPanel(t, { idle: true });
+  if (!ctx) return;
+  try {
+    assert.equal(await ctx.page.isVisible('#filterNote'), false, 'no filter, no noise');
+
+    await ctx.page.fill('#categoryFilter', 'housekeeping');
+    await ctx.page.waitForTimeout(150);
+    assert.equal(await ctx.page.isVisible('#filterNote'), true);
+    assert.match(await ctx.page.textContent('#filterNote'), /category matches “housekeeping”/);
+
+    // The way out is in the warning itself.
+    await ctx.page.click('#filterClear');
+    await ctx.page.waitForTimeout(150);
+    assert.equal(await ctx.page.inputValue('#categoryFilter'), '');
+    assert.equal(await ctx.page.isVisible('#filterNote'), false);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('New search leaves the finished run behind instead of repainting it', async (t) => {
+  // The panel polls the worker every two seconds, so a finished job's error
+  // and its zeroes were painted straight back over the form.
+  const ctx = await openPanel(t);
+  if (!ctx) return;
+  try {
+    await ctx.page.evaluate(() => {
+      const job = {
+        status: 'done', phase: 'done', jobId: 'job-1', count: 0,
+        tasksSettled: 10, tasksTotal: 10,
+        message: '0 businesses from 10 searches, 1 of them failed.',
+        taskError: 'The page keeping the extension port is moved into back/forward cache.',
+      };
+      chrome.runtime.sendMessage = async (m) =>
+        m.type === 'GET_JOB' ? { ok: true, job, seen: 0 } : { ok: true };
+    });
+    await ctx.page.waitForTimeout(100);
+
+    assert.equal(await ctx.page.isVisible('#runView'), true);
+    await ctx.page.click('#again');
+    await ctx.page.waitForTimeout(150);
+
+    assert.equal(await ctx.page.isVisible('#form'), true);
+    assert.equal(await ctx.page.isVisible('#error'), false);
+
+    // The next poll must not undo it.
+    await ctx.page.waitForTimeout(2500);
+    assert.equal(await ctx.page.isVisible('#form'), true, 'the poll repainted the old run');
+    assert.equal(await ctx.page.isVisible('#error'), false);
+  } finally {
+    await ctx.close();
+  }
+});

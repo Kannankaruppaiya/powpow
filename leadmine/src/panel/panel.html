@@ -234,6 +234,14 @@
 
         <p id="sourceNote" class="callout callout--warn" hidden></p>
 
+        <!-- The narrowing filter is the one setting that can turn a good run
+             into zero rows, and it persists between runs. It says so here,
+             next to the button that acts on it. -->
+        <p id="filterNote" class="callout callout--warn" hidden>
+          <span id="filterNoteText"></span>
+          <button type="button" id="filterClear" class="linkish">Clear it</button>
+        </p>
+
         <button type="submit" id="start" class="btn btn--primary btn--lg">Start</button>
       </form>
 

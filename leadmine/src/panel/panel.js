@@ -47,6 +47,7 @@ const ui = Object.fromEntries(
     'optCurrentTab', 'useCurrentTab', 'currentTabHint',
     'category', 'city', 'batch', 'grid', 'maxResults',
     'categoryFilter', 'categoryFilterRow', 'categoryOptions', 'filterLabel', 'filterHint',
+    'filterNote', 'filterNoteText', 'filterClear',
     'deep', 'fetchEmails', 'followContactPage', 'verifyEmails', 'skipSeen', 'seenNote',
     'start', 'resume', 'stop', 'again', 'goResults',
     'runView', 'spinner', 'runTitle', 'barFill', 'message', 'taskLine',
@@ -96,6 +97,14 @@ let visibleRows = [];
 /** Rows the category filter set aside. Kept, so this is a view, not a re-run. */
 let asideRows = [];
 let showAside = false;
+/**
+ * A finished job the user has pressed "New search" on.
+ *
+ * The job stays in the worker so its rows are still downloadable, but the
+ * panel polls it every two seconds — so without this, the old run's error and
+ * its zeroes were painted straight back over the form.
+ */
+let dismissedJobId = null;
 
 /* ----------------------------------------------------------------- source */
 
@@ -177,6 +186,25 @@ function applySource() {
   for (const node of [ui.optEmails, ui.optContact, ui.optVerify]) node.hidden = !conf.emails;
   ui.sourceNote.hidden = !conf.note;
   ui.sourceNote.textContent = conf.note;
+  applyFilterNote();
+}
+
+/**
+ * Say when a narrowing filter is active.
+ *
+ * It is saved between runs, so a term typed weeks ago silently narrows a
+ * search planned today — a live run found 235 businesses and set aside every
+ * one of them against a filter the user had forgotten was there. The form
+ * never showed it, because an input holding a value looks like an input.
+ */
+function applyFilterNote() {
+  const term = ui.categoryFilter.value.trim();
+  const conf = SOURCE_UI[ui.source.value] || SOURCE_UI.maps;
+  ui.filterNote.hidden = !term;
+  if (!term) return;
+  ui.filterNoteText.textContent =
+    `Only keeping results whose ${conf.filterLabel.toLowerCase()} matches “${term}”. ` +
+    'Everything else is set aside. ';
 }
 
 /**
@@ -753,7 +781,8 @@ function render(job) {
 
   // The form and the run never share the screen: while a scrape is going,
   // the settings that started it are not what the user needs to look at.
-  const showRun = running || (settled && job.status !== 'idle' && job.tasksTotal > 0);
+  const dismissed = !running && job.jobId && job.jobId === dismissedJobId;
+  const showRun = !dismissed && (running || (settled && job.status !== 'idle' && job.tasksTotal > 0));
   ui.form.hidden = showRun;
   ui.runView.hidden = !showRun;
 
@@ -813,9 +842,14 @@ function render(job) {
   ui.tabCount.textContent = (job.count || 0).toLocaleString();
 
   renderHealth(job.health);
-  // A run can finish with nothing to show; the reason is the useful part.
+  // A run can finish with nothing to show; the reason is the useful part —
+  // until the user has moved on from it.
   showError(
-    job.status === 'error' || job.status === 'paused' ? job.error : job.taskError || ''
+    dismissed
+      ? ''
+      : job.status === 'error' || job.status === 'paused'
+        ? job.error
+        : job.taskError || ''
   );
 
   // Reload the table when the result count moved or a new job started.
@@ -879,8 +913,11 @@ ui.resume.addEventListener('click', () => chrome.runtime.sendMessage({ type: 'RE
 
 // Back to the form without discarding what was collected.
 ui.again.addEventListener('click', () => {
+  dismissedJobId = (current && current.jobId) || null;
   ui.form.hidden = false;
   ui.runView.hidden = true;
+  showError('');
+  applyFilterNote();
 });
 
 ui.goResults.addEventListener('click', () => setView(true));
@@ -899,7 +936,17 @@ ui.asideToggle.addEventListener('click', () => {
   applyFilter();
 });
 
-ui.categoryFilter.addEventListener('change', saveSettings);
+ui.categoryFilter.addEventListener('input', applyFilterNote);
+ui.categoryFilter.addEventListener('change', () => {
+  applyFilterNote();
+  saveSettings();
+});
+
+ui.filterClear.addEventListener('click', () => {
+  ui.categoryFilter.value = '';
+  applyFilterNote();
+  saveSettings();
+});
 ui.format.addEventListener('change', saveSettings);
 
 ui.download.addEventListener('click', async () => {
@@ -943,6 +990,7 @@ chrome.runtime.onMessage.addListener((msg) => {
 (async function init() {
   await restoreSettings();
   await restoreAi();
+  applyFilterNote();
   const res = await chrome.runtime.sendMessage({ type: 'GET_JOB' });
   render((res && res.job) || { status: 'idle', count: 0, tasksTotal: 0 });
   renderSeen((res && res.seen) || 0);
