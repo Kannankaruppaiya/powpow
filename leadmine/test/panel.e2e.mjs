@@ -1438,6 +1438,13 @@ test('LinkedIn’s own filters are offered — and only the ones ever observed',
     assert.match(await ctx.page.textContent('#geoHelp'), /Idukki, Kerala, India/);
     assert.equal(await ctx.page.textContent('#geoChips'), 'India✕', 'and nothing was added');
 
+    // And pressing Start says the actual reason, not "see the message under
+    // it" — that field had scrolled out of the panel when this was written.
+    await ctx.page.fill('#category', 'kotlin');
+    await ctx.page.click('#start');
+    await ctx.page.waitForTimeout(400);
+    assert.match(await ctx.page.textContent('#error'), /does not offer/i);
+
     // And the resting state says where the list comes from. A list of one
     // reads as a broken feature unless it is clear what fills it.
     await ctx.page.fill('#geoInput', 'India');

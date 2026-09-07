@@ -115,13 +115,26 @@ test('every handler the message switch calls actually exists', () => {
   }
 });
 
-test('asking LinkedIn for an id needs a LinkedIn tab, and says so', () => {
+test('asking LinkedIn for an id uses any open search tab, not just the active one', () => {
+  // Insisting on the active tab told a user with two LinkedIn tabs open to go
+  // and open one: the side panel sits beside whatever they are looking at,
+  // which was a Google new tab at the time.
+  const finder = WORKER.slice(
+    WORKER.indexOf('async function findSearchTab'),
+    WORKER.indexOf('async function resolveFacet')
+  );
+  assert.match(finder, /linkedin\.com\/search\/results/, 'it queries for search tabs by URL');
+  assert.match(finder, /tab\.active/, 'though it prefers the active one when there is a choice');
+  assert.ok(finder.includes('all[0]'), 'and settles for any of them rather than refusing');
+  // WINDOW_ID_CURRENT is a sentinel (-2), never a real windowId, so comparing
+  // a tab's against it never matches. The current window has to be asked for.
+  assert.ok(!finder.includes('WINDOW_ID_CURRENT'), 'the current window is looked up, not assumed');
+
   const block = WORKER.slice(
     WORKER.indexOf('async function resolveFacet'),
     WORKER.indexOf('async function rememberUrns')
   );
-  assert.ok(block.includes('/search/results/'), 'it checks the tab is a search page');
-  assert.match(block, /Open a LinkedIn people search/i, 'and says what to do when it is not');
+  assert.match(block, /No LinkedIn people search is open/i, 'and says what to do when there is none');
   // Whatever it learns is kept, or the next run asks all over again.
   assert.ok(block.includes('rememberUrns'), 'a resolved id is stored');
 });

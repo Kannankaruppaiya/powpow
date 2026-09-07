@@ -292,18 +292,40 @@ async function runTask(task, config, tabId) {
  * LinkedIn search tab is open, and stores the answer so it happens once per
  * name and never again.
  */
+/**
+ * Any LinkedIn people search that is open, wherever it is.
+ *
+ * Insisting on the *active* tab was too strict: the side panel is beside
+ * whatever you are looking at, and a user with two LinkedIn tabs open was told
+ * to go and open one. The active tab is still preferred — if several are open
+ * it is the one they mean — but any of them can answer.
+ */
+async function findSearchTab() {
+  const all = await chrome.tabs.query({ url: '*://*.linkedin.com/search/results/*' });
+  if (!all.length) return null;
+  // Active first, then whichever window the user is in, then anything.
+  const [current] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const here = current ? current.windowId : null;
+  return (
+    all.find((tab) => tab.active && tab.windowId === here) ||
+    all.find((tab) => tab.windowId === here) ||
+    all.find((tab) => tab.active) ||
+    all[0]
+  );
+}
+
 async function resolveFacet(want) {
-  const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!active || !String(active.url || '').includes('/search/results/')) {
+  const tab = await findSearchTab();
+  if (!tab) {
     return {
       ok: false,
       reason:
-        'Open a LinkedIn people search in this window first — that page is where the answer lives.',
+        'No LinkedIn people search is open. Open one in any tab — that page is where the answer lives.',
     };
   }
 
-  await ensureContentScript(active.id);
-  const result = await chrome.tabs.sendMessage(active.id, { type: 'RESOLVE_FACET', want });
+  await ensureContentScript(tab.id);
+  const result = await chrome.tabs.sendMessage(tab.id, { type: 'RESOLVE_FACET', want });
   if (result && result.ok) {
     await rememberUrns([{ facet: result.facet, id: result.id, label: result.label }]);
   }

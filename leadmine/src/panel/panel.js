@@ -537,13 +537,18 @@ function applyFacets() {
  * and point at it rather than running a search the user did not ask for.
  */
 async function flushFacets() {
-  let ok = true;
   for (const [facet, ui_] of Object.entries(FACET_UI)) {
     if (!ui[ui_.input].value.trim()) continue;
     await addFacet(facet);
-    if (ui[ui_.input].value.trim()) ok = false;
+    if (!ui[ui_.input].value.trim()) continue;
+
+    // Hand back the actual reason rather than a pointer to it. "See the
+    // message under it" is useless when the field it refers to has scrolled
+    // out of the panel, which is where it was when this was written.
+    ui[ui_.input].scrollIntoView({ block: 'center', behavior: 'smooth' });
+    return (ui_.help && ui[ui_.help].textContent) || 'That filter could not be added.';
   }
-  return ok;
+  return '';
 }
 
 for (const [facet, ui_] of Object.entries(FACET_UI)) {
@@ -1380,9 +1385,12 @@ ui.form.addEventListener('submit', async (event) => {
 
   // A filter typed and left in its box is a filter the user meant. Take it up
   // before starting, and stop rather than run without it.
-  if (ui.source.value === 'linkedin' && !ui.liFilters.hidden && !(await flushFacets())) {
-    showError('That filter could not be added — see the message under it.');
-    return;
+  if (ui.source.value === 'linkedin' && !ui.liFilters.hidden) {
+    const blocked = await flushFacets();
+    if (blocked) {
+      showError(blocked);
+      return;
+    }
   }
 
   const config = readConfig();
