@@ -91,7 +91,7 @@ test('every handler the message switch calls actually exists', () => {
     WORKER.indexOf('switch (msg.type) {'),
     WORKER.indexOf('/* ------', WORKER.indexOf('switch (msg.type) {'))
   );
-  assert.ok(switchBlock.includes('RESOLVE_FACET'), 'the block being scanned is the right one');
+  assert.ok(switchBlock.includes('START_JOB'), 'the block being scanned is the right one');
 
   // Bare calls only: a method on an imported namespace (store.countSeen) is
   // that module's business, not this one's.
@@ -115,26 +115,22 @@ test('every handler the message switch calls actually exists', () => {
   }
 });
 
-test('asking LinkedIn for an id uses any open search tab, not just the active one', () => {
-  // Insisting on the active tab told a user with two LinkedIn tabs open to go
-  // and open one: the side panel sits beside whatever they are looking at,
-  // which was a Google new tab at the time.
-  const finder = WORKER.slice(
-    WORKER.indexOf('async function findSearchTab'),
-    WORKER.indexOf('async function resolveFacet')
-  );
-  assert.match(finder, /linkedin\.com\/search\/results/, 'it queries for search tabs by URL');
-  assert.match(finder, /tab\.active/, 'though it prefers the active one when there is a choice');
-  assert.ok(finder.includes('all[0]'), 'and settles for any of them rather than refusing');
-  // WINDOW_ID_CURRENT is a sentinel (-2), never a real windowId, so comparing
-  // a tab's against it never matches. The current window has to be asked for.
-  assert.ok(!finder.includes('WINDOW_ID_CURRENT'), 'the current window is looked up, not assumed');
-
+test('a filter LinkedIn has to apply is applied before anything is scraped', () => {
+  // A facet takes LinkedIn's own id, and those are undocumented — so a place
+  // nobody has looked up cannot go in a URL. It can go in LinkedIn's filter
+  // panel, and the run drives that before it reads a single card.
   const block = WORKER.slice(
-    WORKER.indexOf('async function resolveFacet'),
-    WORKER.indexOf('async function rememberUrns')
+    WORKER.indexOf('if (task.applyFilters'),
+    WORKER.indexOf('if (cancelRequested) throw', WORKER.indexOf('if (task.applyFilters'))
   );
-  assert.match(block, /No LinkedIn people search is open/i, 'and says what to do when there is none');
-  // Whatever it learns is kept, or the next run asks all over again.
-  assert.ok(block.includes('rememberUrns'), 'a resolved id is stored');
+  assert.ok(block.includes('APPLY_FILTERS'), 'the page is asked to apply them');
+  assert.match(block, /throw new Error/, 'and a filter that will not apply fails the task');
+  assert.ok(block.includes('rememberUrns'), 'whatever it learned on the way is kept');
+
+  // Order matters: applying rebuilds the results list, so scraping the page
+  // before it lands would read the unfiltered one.
+  assert.ok(
+    WORKER.indexOf('APPLY_FILTERS') < WORKER.indexOf("type: 'RUN_SCRAPE'"),
+    'filters are applied before the scrape, not after'
+  );
 });

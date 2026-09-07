@@ -177,13 +177,14 @@ test('LinkedIn facets never reach a Maps run', () => {
   assert.equal(task.term, 'dentists in Chennai');
 });
 
-test('a LinkedIn run with facets carries the URL, not a keyword place', () => {
+test('a LinkedIn run whose ids are all known goes straight to the URL', () => {
   const [task] = buildTaskList({
     source: 'linkedin',
     category: 'kotlin',
     facets: { geoUrn: ['102713980'], serviceCategory: ['20016'] },
-    facetLabels: { geoUrn: ['India'] },
+    facetLabels: { geoUrn: ['India'], serviceCategory: ['Corporate Training'] },
   });
+  assert.equal(task.applyFilters, undefined, 'nothing has to be driven');
   assert.match(task.url, /keywords=kotlin/);
   assert.match(task.url, /geoUrn=%5B%22102713980%22%5D/);
   assert.match(task.url, /serviceCategory=%5B%2220016%22%5D/);
@@ -205,4 +206,36 @@ test('two places become two searches only when asked', () => {
   assert.deepEqual(split.map((t) => t.city), ['Theni', 'Chennai']);
   assert.match(split[0].url, /geoUrn=%5B%22101138777%22%5D/);
   assert.match(split[1].url, /geoUrn=%5B%22106888327%22%5D/);
+});
+
+test('a name with no id yet is applied through LinkedIn’s own filter panel', () => {
+  // The point of the whole design: a place nobody has ever looked up is
+  // usable immediately. Its id is undocumented, so it cannot go in a URL —
+  // but it can be typed into LinkedIn's filter, and LinkedIn writes the URL.
+  const [task] = buildTaskList({
+    source: 'linkedin',
+    category: 'kotlin',
+    facetLabels: { geoUrn: ['chennai'], serviceCategory: ['Corporate Training'] },
+    facets: { serviceCategory: ['20016'] },
+  });
+
+  assert.match(task.url, /keywords=kotlin/, 'the run starts on the plain search');
+  assert.ok(!task.url.includes('geoUrn'), 'because there is no id to put in it');
+  assert.deepEqual(task.applyFilters, [
+    { facet: 'geoUrn', label: 'chennai' },
+    { facet: 'serviceCategory', label: 'Corporate Training' },
+  ]);
+});
+
+test('splitting still works when the ids are not known', () => {
+  const split = buildTaskList({
+    source: 'linkedin',
+    category: 'kotlin',
+    facetLabels: { geoUrn: ['chennai', 'madurai'] },
+    splitLocations: true,
+  });
+  assert.equal(split.length, 2);
+  assert.deepEqual(split[0].applyFilters, [{ facet: 'geoUrn', label: 'chennai' }]);
+  assert.deepEqual(split[1].applyFilters, [{ facet: 'geoUrn', label: 'madurai' }]);
+  assert.deepEqual(split.map((t) => t.city), ['chennai', 'madurai']);
 });

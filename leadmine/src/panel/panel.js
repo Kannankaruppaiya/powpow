@@ -417,10 +417,9 @@ function fillFacetOptions(facet) {
   // Say where the list comes from. Two entries on a fresh install looks like a
   // broken feature unless it is clear that browsing LinkedIn is what fills it.
   ui[ui_.help].textContent = labels.length
-    ? `${labels.length} known. LeadMine learns these from LinkedIn — open its ` +
-      'Locations filter, type a place, and every option it offers is remembered.'
-    : 'None known yet. Open LinkedIn’s Locations filter, type a place and apply ' +
-      'one — every option it showed you is remembered.';
+    ? `Type any place. ${labels.length} already known, so those skip a step; ` +
+      'anything else is looked up on LinkedIn when the run starts.'
+    : 'Type any place — LeadMine picks it in LinkedIn’s own filter when the run starts.';
 }
 
 function renderChips(facet) {
@@ -449,79 +448,33 @@ function setFacetHelp(facet, text) {
 }
 
 /**
- * Add a value — asking LinkedIn for its id if we do not have one.
+ * Add a filter value.
  *
- * A name is not enough: `geoUrn` wants 102784390, not "Chennai". Making the
- * user go and apply every filter by hand first is a chore, and it is one the
- * page can do itself — the filter panel's typeahead *is* LinkedIn's resolver,
- * so this drives it once and remembers the answer forever.
+ * Just the name. LinkedIn's facets take ids rather than names, but nothing
+ * here has to know one: the run lands on the plain search and then works
+ * LinkedIn's own filter panel — types the name, ticks what comes back, presses
+ * Show results — and LinkedIn writes the URL. The ids are learned on the way,
+ * and a name already known skips the driving and goes straight to a URL.
  *
- * What it will not do is guess. When LinkedIn does not offer the name, what it
- * does offer is shown and the choice stays with the user: a wrong id searches
- * somewhere else and hands back a spreadsheet that looks entirely right.
+ * So a place nobody has ever looked up is addable immediately, which is the
+ * whole point: the previous version made the user go and apply it on LinkedIn
+ * by hand first.
  */
-async function addFacet(facet) {
+function addFacet(facet) {
   const ui_ = FACET_UI[facet];
-  const typed = ui[ui_.input].value.trim();
-  if (!typed) return;
+  const label = ui[ui_.input].value.trim();
+  if (!label) return;
 
-  let id = lookup(urns, facet, typed);
-  let label = typed;
-
-  if (!id) {
-    const button = ui[facet === 'geoUrn' ? 'geoAdd' : 'svcAdd'];
-    button.disabled = true;
-    setFacetHelp(facet, `Asking LinkedIn for “${typed}”…`);
-    let answer = null;
-    try {
-      answer = await chrome.runtime.sendMessage({
-        type: 'RESOLVE_FACET',
-        want: { facet, label: typed },
-      });
-    } catch (err) {
-      answer = { ok: false, reason: String((err && err.message) || err) };
-    }
-    button.disabled = false;
-
-    if (!answer || !answer.ok) {
-      const offered = (answer && answer.offered) || [];
-      setFacetHelp(
-        facet,
-        `${(answer && answer.reason) || 'LinkedIn did not answer'}${
-          offered.length ? `. It offers: ${offered.join(' · ')}` : ''
-        }`
-      );
-      return;
-    }
-
-    // The worker stored it; take the table back with it in.
-    const stored = await chrome.storage.local.get(URN_KEY);
-    urns = withSeed(stored[URN_KEY]);
-    id = answer.id;
-    // LinkedIn's own wording, not what was typed: "chennai" comes back as
-    // "Chennai, Tamil Nadu, India", and that is the thing being filtered on.
-    label = answer.label || typed;
+  if (!chosen[facet].some((v) => v.label.toLowerCase() === label.toLowerCase())) {
+    // The id when it is known, so the run can skip the panel; blank otherwise,
+    // and the run asks LinkedIn. Never a guess either way.
+    chosen[facet].push({ id: lookup(urns, facet, label), label });
   }
-
-  if (!chosen[facet].some((v) => v.id === id)) chosen[facet].push({ id, label });
   ui[ui_.input].value = '';
   fillFacetOptions(facet);
   renderChips(facet);
   applyFacets();
   saveSettings();
-}
-
-/** Show the split option only when there is something to split. */
-function applyFacets() {
-  // These are LinkedIn's filters. Left over from a people search, they must
-  // not reach across and disable the Maps form.
-  const people = ui.source.value === 'linkedin';
-  const places = people ? chosen.geoUrn.length : 0;
-  ui.optSplit.hidden = places < 2;
-  // A real location filter makes the free-text place meaningless, and a box
-  // that is silently ignored is a box people fill in and then distrust.
-  ui.city.disabled = places > 0;
-  ui.cityIgnored.hidden = !places;
 }
 
 /**
@@ -536,19 +489,23 @@ function applyFacets() {
  * Returns false when something typed could not be resolved, so Start can stop
  * and point at it rather than running a search the user did not ask for.
  */
-async function flushFacets() {
-  for (const [facet, ui_] of Object.entries(FACET_UI)) {
-    if (!ui[ui_.input].value.trim()) continue;
-    await addFacet(facet);
-    if (!ui[ui_.input].value.trim()) continue;
+function flushFacets() {
+  for (const facet of Object.keys(FACET_UI)) addFacet(facet);
+}
 
-    // Hand back the actual reason rather than a pointer to it. "See the
-    // message under it" is useless when the field it refers to has scrolled
-    // out of the panel, which is where it was when this was written.
-    ui[ui_.input].scrollIntoView({ block: 'center', behavior: 'smooth' });
-    return (ui_.help && ui[ui_.help].textContent) || 'That filter could not be added.';
-  }
-  return '';
+/**
+ * Show the split option only when there is something to split, and stand the
+ * free-text place down when a real location filter is doing its job.
+ */
+function applyFacets() {
+  // These are LinkedIn's filters. Left over from a people search, they must
+  // not reach across and disable the Maps form.
+  const people = ui.source.value === 'linkedin';
+  const places = people ? chosen.geoUrn.length : 0;
+  ui.optSplit.hidden = places < 2;
+  // A box that is silently ignored is a box people fill in and then distrust.
+  ui.city.disabled = places > 0;
+  ui.cityIgnored.hidden = !places;
 }
 
 for (const [facet, ui_] of Object.entries(FACET_UI)) {
@@ -560,9 +517,7 @@ for (const [facet, ui_] of Object.entries(FACET_UI)) {
     addFacet(facet);
   });
   // Looking away is as clear a signal as pressing the button.
-  ui[ui_.input].addEventListener('blur', () => {
-    if (ui[ui_.input].value.trim()) addFacet(facet);
-  });
+  ui[ui_.input].addEventListener('blur', () => addFacet(facet));
 }
 
 /* ------------------------------------------------------------------- tabs */
@@ -1383,15 +1338,8 @@ ui.form.addEventListener('submit', async (event) => {
   event.preventDefault();
   showError('');
 
-  // A filter typed and left in its box is a filter the user meant. Take it up
-  // before starting, and stop rather than run without it.
-  if (ui.source.value === 'linkedin' && !ui.liFilters.hidden) {
-    const blocked = await flushFacets();
-    if (blocked) {
-      showError(blocked);
-      return;
-    }
-  }
+  // A filter typed and left in its box is a filter the user meant.
+  if (ui.source.value === 'linkedin' && !ui.liFilters.hidden) flushFacets();
 
   const config = readConfig();
   const conf = SOURCE_UI[config.source] || SOURCE_UI.maps;

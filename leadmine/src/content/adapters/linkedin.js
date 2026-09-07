@@ -648,7 +648,14 @@
 
   const fold = (text) => norm(text).toLowerCase().replace(/[.,]/g, '');
 
-  async function resolveFacet({ facet, label }, { waitFor, sleep }) {
+  /**
+   * Find a filter value in its panel and either read it or apply it.
+   *
+   * The same six steps either way — open the pill, type, wait for the
+   * network-backed list, match, tick — and then a choice: put the panel back
+   * (a lookup) or press Show results (a filter the user asked for).
+   */
+  async function pickInPanel({ facet, label, apply }, { waitFor, sleep }) {
     const pill = findPill(facet);
     if (!pill) return { ok: false, reason: `this page has no ${facet} filter` };
 
@@ -687,12 +694,51 @@
       };
     }
 
-    // Read the id and leave the page exactly as it was found: this is a
-    // lookup, not a filter the user asked to apply.
     const id = hit.value;
+    if (!hit.input.checked) hit.input.click();
     await sleep(150);
-    pill.click();
-    return { ok: true, facet, id, label: hit.label };
+
+    if (!apply) {
+      // A lookup: leave the page exactly as it was found.
+      if (hit.input.checked) hit.input.click();
+      pill.click();
+      return { ok: true, facet, id, label: hit.label };
+    }
+
+    // Applying is LinkedIn's own job — press its button and let it build the
+    // URL. That is why no id has to be known in advance: the page knows.
+    const before = location.href;
+    found.apply.click();
+    const changed = await waitFor(
+      () => (location.href !== before ? location.href : null),
+      { timeout: 8000 }
+    );
+    if (!changed) return { ok: false, reason: `“${hit.label}” did not apply` };
+    return { ok: true, facet, id, label: hit.label, url: changed };
+  }
+
+  const resolveFacet = (want, helpers) => pickInPanel({ ...want, apply: false }, helpers);
+
+  /**
+   * Apply every filter the run asked for, in LinkedIn's own UI.
+   *
+   * This is what makes the ids optional. Rather than building a URL out of
+   * numbers nobody publishes, the page is driven the way a person would drive
+   * it — type the name, tick what comes back, press Show results — and
+   * LinkedIn writes the URL itself. Every option seen on the way is learned,
+   * so the next run for the same place could skip all of this.
+   */
+  async function applyFilters(wants, helpers) {
+    const applied = [];
+    for (const want of wants || []) {
+      // eslint-disable-next-line no-await-in-loop
+      const result = await pickInPanel({ ...want, apply: true }, helpers);
+      if (!result.ok) return { ok: false, reason: result.reason, applied };
+      applied.push({ facet: result.facet, id: result.id, label: result.label });
+      // eslint-disable-next-line no-await-in-loop
+      await helpers.sleep(600);
+    }
+    return { ok: true, applied, url: location.href };
   }
 
   let expectedFingerprint = null;
@@ -719,6 +765,7 @@
     },
 
     resolveFacet,
+    applyFilters,
 
     getSearchContext() {
       expectedFingerprint = fingerprint();

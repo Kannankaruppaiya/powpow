@@ -291,6 +291,19 @@ const FILTER_PANEL = (catalog) => {
     document.body.appendChild(panel);
     open = panel;
 
+    // Show results does what LinkedIn's does: writes the chosen ids into the
+    // URL. That is the whole reason no id has to be known in advance.
+    panel.querySelector('.zz').addEventListener('click', () => {
+      const picked = [...opts.querySelectorAll('input:checked')].map((i) => i.value);
+      const next = new URL(location.href);
+      const existing = JSON.parse(next.searchParams.get('geoUrn') || '[]');
+      const merged = [...new Set([...existing, ...picked])];
+      if (merged.length) next.searchParams.set('geoUrn', JSON.stringify(merged));
+      history.pushState({}, '', next);
+      panel.remove();
+      open = null;
+    });
+
     const box = panel.querySelector('input[type=text]');
     const opts = panel.querySelector('.opts');
     let timer = null;
@@ -347,6 +360,77 @@ async function resolve(t, want, catalog = CATALOG) {
     },
   });
 }
+
+test('a filter with no known id is applied by driving LinkedIn’s own panel', async (t) => {
+  // This is what makes an unknown place usable at all. `geoUrn` takes
+  // LinkedIn's internal number, which is undocumented — so rather than
+  // building a URL out of one, the run types the name into LinkedIn's filter,
+  // ticks what comes back and presses Show results. LinkedIn writes the URL.
+  const result = await run(t, {
+    mutate: async (page) => {
+      await page.evaluate(
+        ([source, list]) => {
+          // eslint-disable-next-line no-new-func
+          new Function('catalog', `(${source})(catalog)`)(list);
+        },
+        [FILTER_PANEL.toString(), CATALOG]
+      );
+    },
+    instead: (page) =>
+      page.evaluate(
+        () =>
+          new Promise((done) => {
+            window.__listener(
+              { type: 'APPLY_FILTERS', wants: [{ facet: 'geoUrn', label: 'chennai' }] },
+              {},
+              done
+            );
+          })
+      ),
+  });
+  if (!result) return;
+
+  assert.equal(result.ok, true, result.reason);
+  // The URL LinkedIn wrote, carrying the id nobody had to know. It merges
+  // with what the page already had, exactly as the real one does.
+  assert.match(result.url, /102784390/);
+  assert.match(result.url, /geoUrn=/);
+  // And the pairing is handed back, so the same search is a plain URL next
+  // time and drives nothing.
+  assert.deepEqual(result.applied, [
+    { facet: 'geoUrn', id: '102784390', label: 'Chennai, Tamil Nadu, India' },
+  ]);
+});
+
+test('a filter that cannot be applied fails loudly rather than running unfiltered', async (t) => {
+  // Scraping on regardless would hand back a spreadsheet of the wrong people
+  // that looks entirely right — the failure this whole design exists to avoid.
+  const result = await run(t, {
+    mutate: async (page) => {
+      await page.evaluate(
+        ([source, list]) => {
+          // eslint-disable-next-line no-new-func
+          new Function('catalog', `(${source})(catalog)`)(list);
+        },
+        [FILTER_PANEL.toString(), CATALOG]
+      );
+    },
+    instead: (page) =>
+      page.evaluate(
+        () =>
+          new Promise((done) => {
+            window.__listener(
+              { type: 'APPLY_FILTERS', wants: [{ facet: 'geoUrn', label: 'Atlantis' }] },
+              {},
+              done
+            );
+          })
+      ),
+  });
+  if (!result) return;
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.applied, [], 'and nothing half-applied is reported as applied');
+});
 
 test('a place name is resolved to LinkedIn’s own id by asking LinkedIn', async (t) => {
   // `geoUrn` wants 102784390, not "Chennai", and that number is LinkedIn's

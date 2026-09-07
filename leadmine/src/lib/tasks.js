@@ -98,31 +98,82 @@ function usedFacets(config) {
  * share that ceiling instead of getting one each. This is the LinkedIn
  * equivalent of the geographic grid Maps gets.
  */
+/** The names chosen per facet, dropping the blanks. */
+function chosenLabels(config) {
+  const out = {};
+  for (const [facet, labels] of Object.entries(config.facetLabels || {})) {
+    const list = (labels || []).map((v) => String(v || '').trim()).filter(Boolean);
+    if (list.length) out[facet] = list;
+  }
+  return out;
+}
+
+/**
+ * The searches a LinkedIn run with filters should make.
+ *
+ * Two ways to get a filtered search, and the second is why a filter works at
+ * all for a place nobody has looked up yet:
+ *
+ *   - **by URL**, when every chosen name already has LinkedIn's id. Nothing
+ *     is driven; the URL is built and the tab goes straight there.
+ *   - **by driving the page**, otherwise. The run lands on the plain keyword
+ *     search and then works LinkedIn's own filter panels — type the name, tick
+ *     what comes back, press Show results — and LinkedIn writes the URL. The
+ *     ids are learned on the way, so the same search is a URL next time.
+ *
+ * One search per location when asked, because a people search stops after a
+ * fixed number of pages however good the filter is: two places in one search
+ * share that ceiling instead of getting one each.
+ */
 export function facetSearches(config = {}) {
   // Facets are LinkedIn's. A Maps run with a leftover geoUrn from a people
   // search would otherwise be sent to a LinkedIn URL.
   if (config.source !== 'linkedin') return [];
-  const facets = usedFacets(config);
-  if (!Object.keys(facets).length) return [];
+
+  const labels = chosenLabels(config);
+  const facetNames = Object.keys(labels);
+  if (!facetNames.length) return [];
+
+  const ids = usedFacets(config);
+  // Every name has an id only when each facet's two lists line up.
+  const known = facetNames.every(
+    (facet) => (ids[facet] || []).length === labels[facet].length
+  );
 
   const term = buildTerm(config.source, config.category, '');
-  const labels = (config.facetLabels && config.facetLabels.geoUrn) || [];
-  const query = { scalars: {}, facets };
-  const places = facets.geoUrn || [];
-
+  const places = labels.geoUrn || [];
   const split = config.splitLocations && places.length > 1;
-  if (!split) {
-    return [{ category: config.category || '', city: labels.join(', '), term, url: facetUrl(term, facets) }];
-  }
 
-  return partition(query, 'geoUrn', places).map((one, index) => ({
-    category: config.category || '',
-    // The label, not the id: this is what lands on every record and in the
-    // export's filename.
-    city: labels[index] || '',
-    term,
-    url: facetUrl(term, one.facets),
-  }));
+  const search = (placeIndex) => {
+    const wants = [];
+    for (const facet of facetNames) {
+      const chosen = facet === 'geoUrn' && placeIndex !== null
+        ? [labels[facet][placeIndex]]
+        : labels[facet];
+      for (const label of chosen) wants.push({ facet, label });
+    }
+
+    const base = {
+      category: config.category || '',
+      // The label, not the id: this is what lands on every record and in the
+      // export's filename.
+      city: placeIndex === null ? places.join(', ') : places[placeIndex] || '',
+      term,
+    };
+
+    if (!known) return { ...base, url: facetUrl(term, {}), applyFilters: wants };
+
+    const chosenIds = {};
+    for (const facet of facetNames) {
+      chosenIds[facet] = facet === 'geoUrn' && placeIndex !== null
+        ? [ids[facet][placeIndex]]
+        : ids[facet];
+    }
+    return { ...base, url: facetUrl(term, chosenIds) };
+  };
+
+  if (!split) return [search(null)];
+  return places.map((_, index) => search(index));
 }
 
 /**

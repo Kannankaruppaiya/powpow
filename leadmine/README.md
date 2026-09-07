@@ -382,38 +382,25 @@ The real filters are separate, and they take LinkedIn's **internal ids**:
 ```
 
 Those ids are not published, not documented and not derivable from the name,
-so **there is no table to ship**. LeadMine learns them instead. Whenever you
-apply a filter on LinkedIn by hand, the content script sees both halves at
-once — the label on the checkbox you ticked and the id that lands in the URL —
-and pairs them. One filter, applied once, is known forever after.
+so **there is no table to ship** — and LeadMine does not need one.
 
-**One applied filter teaches the whole list it came from.** Typing "usa" into
-LinkedIn's location box renders ten places at once, each carrying its id;
-learning only the one you tick throws the other nine away. Options rendered
-together belong to the same facet, so the moment any of them lands in the URL
-the whole batch is attributable — which is an observation, not a guess: they
-were on screen together.
+**Type any place and press Start.** The run lands on the plain keyword search
+and then works LinkedIn's own filter panel the way a person would: opens
+Locations, types the name, waits for the options, ticks the one it asked for
+and presses Show results. LinkedIn writes the URL, ids and all. Nothing had to
+be looked up in advance.
 
-**And it asks LinkedIn for the ones it does not have.** Type a place LeadMine
-has never seen, press Add, and it drives LinkedIn's own filter typeahead in the
-tab beside you — types the name, reads the id off the option it offers, puts
-the panel back and remembers the answer. The chip that appears carries
-LinkedIn's own wording, not what you typed: "chennai" comes back as
-"Chennai, Tamil Nadu, India", because that is the thing actually being filtered
-on. (It needs a LinkedIn people search open in the same window; that page is
-where the answer lives.)
+Every pairing it sees on the way is kept — the label on the checkbox and the id
+in the URL — so the same search skips all of that next time and goes straight
+to a URL. One applied filter teaches the whole list it came from: typing "usa"
+into LinkedIn's box renders ten places at once, each carrying its id, and
+options rendered together belong to the same facet.
 
-When LinkedIn does not have the name, it says so and shows what LinkedIn *does*
-offer — the choice stays with you:
-
-> LinkedIn does not offer "Munnar". It offers: Idukki, Kerala, India · Kerala,
-> India · Kochi, Kerala, India
-
-**It never guesses.** A wrong id does not fail; it quietly searches somewhere
-else and hands back a spreadsheet of the wrong people that looks entirely
+**It never guesses.** A filter that will not apply fails the task and says so,
+rather than scraping on unfiltered: a wrong or missing location filter does not
+error, it hands back a spreadsheet of the wrong people that looks entirely
 correct. Two ids ship as seeds because both were read off a live page with the
-label and the id visible together; two more have been observed but which label
-belongs to which is an inference, so they are left to be learned properly.
+label and the id visible together.
 
 With more than one location chosen, **One search per location** runs them
 separately. A people search stops after a fixed number of pages however good

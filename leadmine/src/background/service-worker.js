@@ -258,6 +258,32 @@ async function runTask(task, config, tabId) {
     await waitForTabComplete(tabId, source.urlPart);
     // Maps hydrates its feed after `complete`; a short settle avoids a race.
     await new Promise((r) => setTimeout(r, 2500));
+
+    /*
+     * Filters LinkedIn has to apply for us.
+     *
+     * A facet takes LinkedIn's own id — geoUrn wants 102784390, not "Chennai"
+     * — and those numbers are undocumented, so a name nobody has looked up
+     * cannot be put in a URL. It can be put in LinkedIn's filter panel
+     * though: type it, tick what comes back, press Show results, and LinkedIn
+     * writes the URL itself. The ids are learned on the way, so the same
+     * search skips all of this next time.
+     */
+    if (task.applyFilters && task.applyFilters.length) {
+      await ensureContentScript(tabId);
+      const applied = await chrome.tabs.sendMessage(tabId, {
+        type: 'APPLY_FILTERS',
+        wants: task.applyFilters,
+      });
+      if (!applied || !applied.ok) {
+        throw new Error(
+          `Could not apply the filters on LinkedIn: ${(applied && applied.reason) || 'no answer'}`
+        );
+      }
+      await rememberUrns(applied.applied);
+      // The results list rebuilds after a filter lands.
+      await new Promise((r) => setTimeout(r, 2500));
+    }
   }
   if (cancelRequested) throw new Error('cancelled');
 
@@ -292,46 +318,6 @@ async function runTask(task, config, tabId) {
  * LinkedIn search tab is open, and stores the answer so it happens once per
  * name and never again.
  */
-/**
- * Any LinkedIn people search that is open, wherever it is.
- *
- * Insisting on the *active* tab was too strict: the side panel is beside
- * whatever you are looking at, and a user with two LinkedIn tabs open was told
- * to go and open one. The active tab is still preferred — if several are open
- * it is the one they mean — but any of them can answer.
- */
-async function findSearchTab() {
-  const all = await chrome.tabs.query({ url: '*://*.linkedin.com/search/results/*' });
-  if (!all.length) return null;
-  // Active first, then whichever window the user is in, then anything.
-  const [current] = await chrome.tabs.query({ active: true, currentWindow: true });
-  const here = current ? current.windowId : null;
-  return (
-    all.find((tab) => tab.active && tab.windowId === here) ||
-    all.find((tab) => tab.windowId === here) ||
-    all.find((tab) => tab.active) ||
-    all[0]
-  );
-}
-
-async function resolveFacet(want) {
-  const tab = await findSearchTab();
-  if (!tab) {
-    return {
-      ok: false,
-      reason:
-        'No LinkedIn people search is open. Open one in any tab — that page is where the answer lives.',
-    };
-  }
-
-  await ensureContentScript(tab.id);
-  const result = await chrome.tabs.sendMessage(tab.id, { type: 'RESOLVE_FACET', want });
-  if (result && result.ok) {
-    await rememberUrns([{ facet: result.facet, id: result.id, label: result.label }]);
-  }
-  return result || { ok: false, reason: 'the tab did not answer' };
-}
-
 /**
  * Store filter-name-to-id pairs the page handed back.
  *
@@ -698,15 +684,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   };
 
   switch (msg.type) {
-    // Asking LinkedIn for its own id for a name. Not part of a run — the
-    // panel does this the moment a filter is added, so the answer arrives
-    // while the user is still looking at the field they typed into.
-    case 'RESOLVE_FACET':
-      resolveFacet(msg.want || {}).then(sendResponse, (err) =>
-        sendResponse({ ok: false, reason: String((err && err.message) || err) })
-      );
-      return true;
-
     case 'GET_JOB':
       return reply(ready.then(async () => ({ job: publicJob(), seen: await store.countSeen() })));
 

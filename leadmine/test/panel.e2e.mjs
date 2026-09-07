@@ -143,21 +143,6 @@ const SETUP = (total) => {
         if (m.type === 'GET_JOB') {
           return { ok: true, job: JSON.parse(JSON.stringify(job)), seen: 0 };
         }
-        // Standing in for the LinkedIn tab the worker would drive. Tests set
-        // window.__resolve to say what LinkedIn answers.
-        if (m.type === 'RESOLVE_FACET') {
-          window.__resolveAsked = m.want;
-          const answer = window.__resolve || { ok: false, reason: 'nothing set up' };
-          // The real worker stores what it learned before answering, and the
-          // panel reads the table back — so the stub has to as well.
-          if (answer.ok) {
-            const table = window.__storage['mls.urns'] || {};
-            const slot = { ...(table[answer.facet] || {}) };
-            slot[answer.label.toLowerCase()] = { id: answer.id, label: answer.label };
-            window.__storage['mls.urns'] = { ...table, [answer.facet]: slot };
-          }
-          return answer;
-        }
         return { ok: true };
       },
       onMessage: { addListener: () => {} },
@@ -1420,75 +1405,49 @@ test('LinkedIn’s own filters are offered — and only the ones ever observed',
     await ctx.page.waitForTimeout(150);
     assert.equal(await ctx.page.textContent('#geoChips'), 'India✕');
 
-    // The important half: a name LinkedIn does not offer is refused, and what
-    // it *does* offer is shown so the choice stays with the user. Guessing an
-    // id would search somewhere else and hand back a spreadsheet that looks
-    // perfectly right.
-    await ctx.page.evaluate(() => {
-      window.__resolve = {
-        ok: false,
-        reason: 'LinkedIn does not offer “Munnar”',
-        offered: ['Idukki, Kerala, India', 'Kerala, India'],
-      };
-    });
+    // And the important half: a place nobody has ever looked up is addable
+    // straight away. Its id is undocumented and cannot be guessed, so the run
+    // types the name into LinkedIn's own filter instead — which means nothing
+    // here has to know it in advance.
     await ctx.page.fill('#geoInput', 'Munnar');
     await ctx.page.click('#geoAdd');
-    await ctx.page.waitForTimeout(300);
-    assert.match(await ctx.page.textContent('#geoHelp'), /does not offer/i);
-    assert.match(await ctx.page.textContent('#geoHelp'), /Idukki, Kerala, India/);
-    assert.equal(await ctx.page.textContent('#geoChips'), 'India✕', 'and nothing was added');
-
-    // And pressing Start says the actual reason, not "see the message under
-    // it" — that field had scrolled out of the panel when this was written.
-    await ctx.page.fill('#category', 'kotlin');
-    await ctx.page.click('#start');
-    await ctx.page.waitForTimeout(400);
-    assert.match(await ctx.page.textContent('#error'), /does not offer/i);
-
-    // And the resting state says where the list comes from. A list of one
-    // reads as a broken feature unless it is clear what fills it.
-    await ctx.page.fill('#geoInput', 'India');
-    await ctx.page.click('#geoAdd');
     await ctx.page.waitForTimeout(200);
-    assert.match(await ctx.page.textContent('#geoHelp'), /learns these from LinkedIn/i);
+    assert.equal(await ctx.page.textContent('#geoChips'), 'India✕Munnar✕');
+    assert.match(await ctx.page.textContent('#geoHelp'), /Type any place/i);
   } finally {
     await ctx.close();
   }
 });
 
-test('a name LeadMine does not know is asked of LinkedIn, once', async (t) => {
-  // Making the user go and apply every filter by hand first is a chore, and
-  // it is one the page can do itself: the filter panel's typeahead is
-  // LinkedIn's own resolver.
+test('a name with no id yet reaches the run for LinkedIn to look up', async (t) => {
+  // The previous version made the user go and apply the filter on LinkedIn by
+  // hand before LeadMine would accept it. Now the run does that itself, so an
+  // unknown name goes straight through — with no id, which is the signal to
+  // drive LinkedIn's panel rather than build a URL.
   const ctx = await openPanel(t, { idle: true });
   if (!ctx) return;
   try {
-    await ctx.page.click('#sourceGroup label.seg:has(input[value="linkedin"])');
-    await ctx.page.waitForTimeout(250);
-
     await ctx.page.evaluate(() => {
-      window.__resolve = {
-        ok: true,
-        facet: 'geoUrn',
-        id: '102784390',
-        label: 'Chennai, Tamil Nadu, India',
+      window.__started = null;
+      const send = chrome.runtime.sendMessage;
+      chrome.runtime.sendMessage = async (m) => {
+        if (m.type === 'START_JOB') window.__started = m.config;
+        return send(m);
       };
     });
+
+    await ctx.page.click('#sourceGroup label.seg:has(input[value="linkedin"])');
+    await ctx.page.waitForTimeout(250);
+    await ctx.page.fill('#category', 'kotlin');
+    // Typed and never added — Start has to take it up, or the run goes out
+    // unfiltered, which is exactly what a live run did.
     await ctx.page.fill('#geoInput', 'chennai');
-    await ctx.page.click('#geoAdd');
-    await ctx.page.waitForTimeout(300);
+    await ctx.page.click('#start');
+    await ctx.page.waitForTimeout(400);
 
-    assert.deepEqual(await ctx.page.evaluate(() => window.__resolveAsked), {
-      facet: 'geoUrn',
-      label: 'chennai',
-    });
-    // LinkedIn's own wording, not what was typed — that is the thing being
-    // filtered on, and showing anything else would be a lie about the run.
-    assert.equal(await ctx.page.textContent('#geoChips'), 'Chennai, Tamil Nadu, India✕');
-
-    // And it was learned, so the next time costs nothing.
-    const known = await ctx.page.evaluate(() => window.__storage['mls.urns']);
-    assert.equal(known.geoUrn['chennai, tamil nadu, india'].id, '102784390');
+    const config = await ctx.page.evaluate(() => window.__started);
+    assert.deepEqual(config.facetLabels.geoUrn, ['chennai'], 'the name reaches the run');
+    assert.deepEqual(config.facets.geoUrn, [''], 'with no id, because nobody knows it yet');
   } finally {
     await ctx.close();
   }
