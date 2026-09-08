@@ -160,6 +160,20 @@
         break;
       }
 
+      /*
+       * Some sources page by URL, driven from outside this loop.
+       *
+       * LinkedIn's Next is a full document navigation — proved in its own
+       * Network panel: turning a page fires one `document` request for
+       * `…&page=N` and no XHR at all. A navigation destroys this content
+       * script, so the loop cannot own paging; the worker does, and this
+       * scrape covers one page.
+       */
+      if (config.singlePage) {
+        stopped = 'this page is done — the run pages by URL';
+        break;
+      }
+
       const more = await adapter.loadMore(container);
       if (more === false) {
         // The adapter knows which of several things happened — no control on

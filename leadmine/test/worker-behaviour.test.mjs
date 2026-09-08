@@ -134,3 +134,49 @@ test('a filter LinkedIn has to apply is applied before anything is scraped', () 
     'filters are applied before the scrape, not after'
   );
 });
+
+test('every page LinkedIn is asked for is counted against the allowance', () => {
+  // A month's allowance went in eight days with nothing counting it, and the
+  // run read as broken rather than out of budget. Every navigation to a
+  // people-search URL has to increment, including the ones a filter causes.
+  assert.ok(
+    WORKER.indexOf('countSearchPage') !== -1,
+    'nothing counts what this extension asks LinkedIn for'
+  );
+  // The first page of a task.
+  const firstNav = WORKER.slice(WORKER.indexOf('await chrome.tabs.update(tabId, { url,'), WORKER.indexOf('applyFilters && task.applyFilters.length'));
+  assert.match(firstNav, /countSearchPage/, 'the first page of a task is not counted');
+  // Every page after it.
+  assert.match(WORKER.slice(WORKER.indexOf('async function pageThrough')), /countSearchPage/, 'later pages are not counted');
+  // And "Show results" on a driven filter, which makes LinkedIn search again.
+  const filters = WORKER.slice(WORKER.indexOf('rememberUrns(applied.applied)'), WORKER.indexOf('The results list rebuilds'));
+  assert.match(filters, /countSearchPage/, 'a filter LinkedIn applies for us runs a search that goes uncounted');
+});
+
+test('the allowance resets with the calendar month, the way LinkedIn’s does', () => {
+  const block = WORKER.slice(WORKER.indexOf('async function countSearchPage'), WORKER.indexOf('async function readBudget'));
+  // Carrying last month's total forward would refuse runs the allowance
+  // actually permits — the opposite failure, and just as wrong.
+  assert.match(block, /stored\.month === month/, 'a new month must start from zero');
+  assert.match(block, /stored\.day === day/, 'and so must a new day');
+});
+
+test('LinkedIn pages by URL, and the worker is what turns the page', () => {
+  // Proved in LinkedIn's own Network panel: turning a page fires one
+  // `document` request for "…&page=N" and no XHR. A navigation destroys the
+  // content script, so the harvest loop cannot own paging.
+  assert.match(WORKER, /pagesByUrl/, 'nothing marks the sources that page by URL');
+  assert.match(WORKER, /pageUrl\(base, page\)/, 'the next page is not built from the URL');
+  const paging = WORKER.slice(WORKER.indexOf('async function pageThrough'));
+  assert.match(paging, /singlePage: true/, 'each page must be scraped on its own');
+  assert.match(paging, /repeated what page/, 'a repeated page is the end, and must say so');
+});
+
+test('paging starts from where the tab actually is, not from where it was sent', () => {
+  // Applying a filter makes LinkedIn rewrite the URL. Paging the URL we asked
+  // for would drop the filters that had just been applied, and hand back the
+  // right number of the wrong people with nothing erroring.
+  assert.match(WORKER, /task\.currentUrl = live\.url/, 'the live URL is never read');
+  const paging = WORKER.slice(WORKER.indexOf('async function pageThrough'));
+  assert.match(paging, /task\.currentUrl \|\| task\.url/, 'paging ignores the live URL');
+});

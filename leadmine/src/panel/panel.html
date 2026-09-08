@@ -373,6 +373,7 @@
              the answer is not a fault the user can fix by rerunning. -->
         <p id="withheldNote" class="callout" hidden></p>
 
+
         <!-- One row, four numbers. Four bordered boxes stacked two-by-two ate
              a third of the screen to say the same thing. -->
         <ul class="figures">
@@ -448,6 +449,13 @@
         <span id="filterChipText"></span>
         <span class="chip-x" aria-hidden="true">✕</span>
       </button>
+
+      <!-- LinkedIn's allowance is a number on their server that nothing here
+           can read. This counts what LeadMine itself asked for, which is the
+           whole of what is knowable — and it rides beside Start, because that
+           is where the spending decision is made. Inside the run view it
+           would only ever be read after the money was gone. -->
+      <p id="budgetNote" class="muted small" hidden></p>
 
       <div class="actionbar-row" id="barSearch">
         <button type="submit" form="form" id="start" class="btn btn--primary btn--lg grow">Start</button>

@@ -166,7 +166,12 @@ const SETUP = (total) => {
       // reference made "what changed since last time" always answer nothing.
       sendMessage: async (m) => {
         if (m.type === 'GET_JOB') {
-          return { ok: true, job: JSON.parse(JSON.stringify(job)), seen: 0 };
+          return {
+            ok: true,
+            job: JSON.parse(JSON.stringify(job)),
+            seen: 0,
+            budget: window.__budget || null,
+          };
         }
         return { ok: true };
       },
@@ -234,6 +239,7 @@ async function openPanel(
   t,
   {
     idle = false, paused = false, running = false, linkedin = false, web = false, withheld = false,
+    budget = null,
     aiKey = '', urns = null, noManifest = false, stale = false,
   } = {}
 ) {
@@ -258,6 +264,7 @@ async function openPanel(
   if (linkedin) await page.addInitScript(() => { window.__linkedin = true; });
   if (web) await page.addInitScript(() => { window.__web = true; });
   if (withheld) await page.addInitScript(() => { window.__withheld = true; });
+  if (budget) await page.addInitScript((b) => { window.__budget = b; }, budget);
   // Filter ids the extension has already learned, as a run would have left
   // them. The harness's storage lives in the page, so this has to be seeded
   // before the panel loads rather than written afterwards.
@@ -635,6 +642,49 @@ test('a location filter that matches the typed town raises nothing', async (t) =
 
     assert.equal(await ctx.page.isVisible('#useTypedCity'), false);
     assert.match(await ctx.page.textContent('#cityIgnored'), /Searching Chennai/);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('the panel says how much of LinkedIn’s monthly allowance is spent', async (t) => {
+  const ctx = await openPanel(t, { idle: true, budget: { inMonth: 142, inDay: 12 } });
+  if (!ctx) return;
+  try {
+    // A month's allowance went in eight days with nothing counting it, and
+    // the run looked broken rather than out of budget.
+    assert.equal(await ctx.page.isVisible('#budgetNote'), true);
+    const note = await ctx.page.textContent('#budgetNote');
+    assert.match(note, /142/);
+    assert.match(note, /12 today/);
+    assert.match(note, /300/, 'the allowance itself has to be on screen to mean anything');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('nearing the allowance reads differently from being well inside it', async (t) => {
+  const ctx = await openPanel(t, { idle: true, budget: { inMonth: 271, inDay: 40 } });
+  if (!ctx) return;
+  try {
+    const note = await ctx.page.textContent('#budgetNote');
+    // Past this point LinkedIn serves three results per search and anonymises
+    // the rest, so the sentence has to say what is about to happen.
+    assert.match(note, /three results/i, note);
+    assert.equal(
+      await ctx.page.$eval('#budgetNote', (el) => el.classList.contains('warn')),
+      true
+    );
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('a fresh install shows no allowance line at all', async (t) => {
+  const ctx = await openPanel(t, { idle: true });
+  if (!ctx) return;
+  try {
+    assert.equal(await ctx.page.isVisible('#budgetNote'), false);
   } finally {
     await ctx.close();
   }

@@ -28,6 +28,7 @@ import { sourceFor, buildUrl, DEFAULT_SOURCE } from '../lib/sources.js';
 import * as store from '../lib/store.js';
 import { buildTaskList, expandGridTasks, insertAfter, nextPending, taskProgress } from '../lib/tasks.js';
 import { URN_KEY, withSeed, learn } from '../lib/urns.js';
+import { pageOf, pageUrl } from '../lib/linkedin-query.js';
 
 const STORE_KEY = 'mls.job';
 
@@ -261,6 +262,7 @@ async function runTask(task, config, tabId) {
     const url = task.url || buildUrl(source.id, task.term, task.point);
     await chrome.tabs.update(tabId, { url, active: !config.background });
     await waitForTabComplete(tabId, source.urlPart);
+    if (pagesByUrl(config)) await countSearchPage();
     // Maps hydrates its feed after `complete`; a short settle avoids a race.
     await new Promise((r) => setTimeout(r, 2500));
 
@@ -286,6 +288,10 @@ async function runTask(task, config, tabId) {
         );
       }
       await rememberUrns(applied.applied);
+      // Pressing "Show results" makes LinkedIn run the search again, once per
+      // filter. A run with two unresolved filters costs three search pages,
+      // not one — which is invisible unless it is counted.
+      for (let i = 0; i < task.applyFilters.length; i += 1) await countSearchPage();
       // The results list rebuilds after a filter lands.
       await new Promise((r) => setTimeout(r, 2500));
     }
@@ -294,9 +300,19 @@ async function runTask(task, config, tabId) {
 
   await ensureContentScript(tabId);
 
+  // Page from where the tab actually is. Applying a filter makes LinkedIn
+  // rewrite the URL, and paging the one we asked for would quietly drop the
+  // filters that had just been applied.
+  try {
+    const live = await chrome.tabs.get(tabId);
+    if (live && live.url) task.currentUrl = live.url;
+  } catch {
+    /* the tab went away; pageThrough will fall back to task.url */
+  }
+
   const response = await chrome.tabs.sendMessage(tabId, {
     type: 'RUN_SCRAPE',
-    config: { ...config, city: task.city, category: task.category },
+    config: { ...config, city: task.city, category: task.category, singlePage: pagesByUrl(config) },
   });
   if (!response) {
     throw new Error(`The ${source.label} tab stopped responding. Keep it open while scraping.`);
@@ -311,7 +327,139 @@ async function runTask(task, config, tabId) {
   // this extension can build for itself from then on.
   if (response.context && response.context.learned) await rememberUrns(response.context.learned);
   if (response.stoppedBecause) task.stoppedBecause = response.stoppedBecause;
-  return response.records || [];
+
+  let records = response.records || [];
+  if (pagesByUrl(config) && !task.useCurrentTab) {
+    records = await pageThrough(records, task, config, tabId);
+  }
+  return records;
+}
+
+/* ------------------------------------------------------- the search budget */
+
+const BUDGET_KEY = 'searchBudget';
+
+/** The calendar month LinkedIn's own allowance is keyed on. */
+const thisMonth = () => new Date().toISOString().slice(0, 7);
+const today = () => new Date().toISOString().slice(0, 10);
+
+/**
+ * Count one search-results page fetched from LinkedIn.
+ *
+ * LinkedIn's allowance is a number on their server that nothing here can
+ * read. What CAN be counted, exactly, is what this extension itself asks
+ * for — every navigation to a people-search URL is one, and nothing else in
+ * a run touches that surface. Counting our own actions is the whole of what
+ * is knowable, and it is enough to stop before the wall instead of finding
+ * it.
+ *
+ * A month of testing spent an allowance nobody was counting. This is that
+ * counter.
+ */
+async function countSearchPage() {
+  const stored = (await chrome.storage.local.get(BUDGET_KEY))[BUDGET_KEY] || {};
+  const month = thisMonth();
+  const day = today();
+  const next = {
+    month,
+    day,
+    // A new month resets, the way LinkedIn's own allowance does.
+    inMonth: stored.month === month ? (stored.inMonth || 0) + 1 : 1,
+    inDay: stored.day === day ? (stored.inDay || 0) + 1 : 1,
+  };
+  await chrome.storage.local.set({ [BUDGET_KEY]: next });
+  return next;
+}
+
+/** What has been spent, without spending anything. */
+async function readBudget() {
+  const stored = (await chrome.storage.local.get(BUDGET_KEY))[BUDGET_KEY] || {};
+  return {
+    inMonth: stored.month === thisMonth() ? stored.inMonth || 0 : 0,
+    inDay: stored.day === today() ? stored.inDay || 0 : 0,
+  };
+}
+
+/*
+ * Which sources turn a page by changing the URL.
+ *
+ * LinkedIn does, and its own Network panel is where that was settled: turning
+ * a page fires ONE `document` request for `…&page=N`, and no XHR at all. The
+ * adapter had been scrolling twice, waiting 1.4 seconds, then hunting four
+ * more for a control whose label reads like "next" — all to add one to a
+ * number. When the hunt failed the run stopped and blamed LinkedIn.
+ */
+const pagesByUrl = (config) => config.source === 'linkedin';
+
+/**
+ * The rest of the pages, one navigation each.
+ *
+ * A navigation kills the content script, so this cannot live in the harvest
+ * loop; the worker owns it. Every page is scraped on its own and merged here.
+ *
+ * It stops on the first page that adds nobody new. LinkedIn serves the last
+ * page over and over rather than erroring, so "nothing new" is the end — and
+ * it is also what a wrong URL looks like, which is the same thing to a run.
+ */
+async function pageThrough(first, task, config, tabId) {
+  const source = sourceFor(config.source);
+  const want = config.maxResults || 0;
+  // LinkedIn stops a free search at 100 pages of ten. Past that it repeats,
+  // and the loop below would notice, but there is no reason to pay for the
+  // navigation that finds out.
+  const lastPage = Math.min(config.maxPages || 100, 100);
+
+  const byKey = new Map(first.map((r) => [recordKey(r) || r.profileUrl, r]));
+  const base = task.currentUrl || task.url || '';
+  const start = pageOf(base);
+  task.pagesFetched = 1;
+
+  for (let page = start + 1; page <= lastPage; page += 1) {
+    if (cancelRequested) break;
+    if (want && byKey.size >= want) {
+      task.stoppedBecause = `the limit of ${want}`;
+      break;
+    }
+
+    if (!base) break;
+    const url = pageUrl(base, page);
+
+    await chrome.tabs.update(tabId, { url, active: !config.background });
+    await waitForTabComplete(tabId, source.urlPart);
+    await new Promise((r) => setTimeout(r, 1200));
+    await countSearchPage();
+    task.pagesFetched = page - start + 1;
+    if (cancelRequested) break;
+
+    await ensureContentScript(tabId);
+    const next = await chrome.tabs.sendMessage(tabId, {
+      type: 'RUN_SCRAPE',
+      config: { ...config, city: task.city, category: task.category, singlePage: true },
+    });
+    if (!next || !next.ok) {
+      task.stoppedBecause = (next && next.error) || `page ${page} could not be read`;
+      break;
+    }
+
+    const before = byKey.size;
+    for (const record of next.records || []) {
+      const key = recordKey(record) || record.profileUrl;
+      if (key && !byKey.has(key)) byKey.set(key, record);
+    }
+    if (next.context) task.context = { ...(task.context || {}), ...next.context,
+      // The count of people LinkedIn would not name is per page; it has to add
+      // up across them or the panel understates it by a factor of the pages.
+      withheld: ((task.context || {}).withheld || 0) + (next.context.withheld || 0) };
+
+    if (byKey.size === before) {
+      task.stoppedBecause = `page ${page} repeated what page ${page - 1} already had`;
+      break;
+    }
+    await save({ found: byKey.size, message: `Page ${page} — ${byKey.size} so far…` });
+  }
+
+  const out = [...byKey.values()];
+  return want ? out.slice(0, want) : out;
 }
 
 /**
@@ -690,7 +838,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
   switch (msg.type) {
     case 'GET_JOB':
-      return reply(ready.then(async () => ({ job: publicJob(), seen: await store.countSeen() })));
+      return reply(
+        ready.then(async () => ({
+          job: publicJob(),
+          seen: await store.countSeen(),
+          budget: await readBudget(),
+        }))
+      );
 
     case 'START_JOB':
       // Fire and forget: the run outlives this message and reports through

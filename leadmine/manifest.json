@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "LeadMine \u2014 Google Maps & LinkedIn Lead Scraper",
   "short_name": "LeadMine",
-  "version": "5.12.0",
+  "version": "5.13.0",
   "description": "Scrape business leads from Google Maps and people from LinkedIn search \u2014 name, phone, verified email, area, rating \u2014 into one downloadable Excel, CSV or JSON file.",
   "minimum_chrome_version": "116",
   "permissions": [

@@ -471,6 +471,49 @@ underneath.
 
 ---
 
+## LinkedIn's monthly allowance
+
+A free LinkedIn account gets roughly **300 people searches a calendar month**.
+Past that, LinkedIn serves **three results per search** and anonymises every
+result after them — the card reads "LinkedIn Member" with no name and no
+profile link. It resets at midnight PST on the 1st.
+
+Nothing was counting that. A month's allowance went in eight days of testing,
+and the run looked broken rather than out of budget: three rows from a page
+showing twelve, every time, on every version of this extension — and on none
+of them, with the extension turned off entirely.
+
+**What a run actually costs**, which was invisible before:
+
+| | Search pages |
+| --- | --- |
+| One run, filters already learned | 1 per page of results |
+| One run, two filters LinkedIn has to apply | +2 — each "Show results" is a search |
+| "One search per location", four places | ×4 |
+| Re-running the same query | full price again |
+
+The panel now shows what has been spent, beside **Start**, where the decision
+is made. LinkedIn's own counter cannot be read from here, so this is not it —
+it counts every people-search page LeadMine itself asks for, which is the
+whole of what is knowable and moves in step with theirs.
+
+### Paging is arithmetic, not a button
+
+LinkedIn's Network panel settles what turning a page is: **one `document`
+request** for `…&page=N`, and no XHR at all.
+
+The adapter used to scroll to the foot of the page, wait, scroll again, wait,
+then hunt for a control whose label reads like "next" for four more seconds —
+all to add one to a number in the URL. When the hunt failed, the run stopped
+and reported *"the next page did not load"*, as though LinkedIn had refused.
+
+The worker turns the page now, by URL. A navigation destroys the content
+script, so paging cannot live inside the scrape loop; each page is scraped on
+its own and merged. It stops on the first page that adds nobody new, which is
+also what LinkedIn does at the end rather than erroring.
+
+---
+
 ## Reaching people outside your network
 
 LinkedIn's own people search has a limit no filter can lift: **it will not tell

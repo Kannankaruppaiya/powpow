@@ -295,6 +295,10 @@ select.input { appearance: auto; }
 }
 .seg input:focus-visible + span { box-shadow: var(--ring); }
 
+/* The allowance line, once it is close enough to matter. Colour is the only
+   thing that changes: the sentence is doing the work. */
+#budgetNote.warn { color: var(--warn); font-weight: var(--w-medium); }
+
 /* --- checkboxes -------------------------------------------------------- */
 
 .check {

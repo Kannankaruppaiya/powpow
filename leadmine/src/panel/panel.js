@@ -57,7 +57,8 @@ const ui = Object.fromEntries(
     'deep', 'fetchEmails', 'followContactPage', 'verifyEmails', 'skipSeen', 'seenNote',
     'start', 'resume', 'stop', 'again', 'goResults',
     'actionbar', 'barSearch', 'barResults', 'toast',
-    'runView', 'spinner', 'runTitle', 'barFill', 'message', 'taskLine', 'withheldNote', 'recentBox', 'recentList',
+    'runView', 'spinner', 'runTitle', 'barFill', 'message', 'taskLine', 'withheldNote', 'budgetNote',
+    'recentBox', 'recentList',
     'statFound', 'statFoundLabel', 'statPhones', 'statEmails', 'statSendable',
     'healthBox', 'healthList', 'error',
     'format', 'download', 'clear', 'filter',
@@ -1070,6 +1071,32 @@ function applyFilter() {
  * and an ellipsis — a table you had to download before you could read it.
  * Reading down instead of across fits all of it.
  */
+/*
+ * How much of LinkedIn's monthly allowance this extension has spent.
+ *
+ * LinkedIn caps a free account at roughly 300 people searches a month and
+ * then serves three results per query, every result after them anonymised.
+ * A month's allowance went in eight days with nothing anywhere counting it,
+ * and the run looked broken rather than out of budget.
+ *
+ * The number is what LeadMine itself asked for — every people-search page it
+ * loaded. LinkedIn's own counter cannot be read from here, so this is not it;
+ * it is the part that is knowable, and it moves in step.
+ */
+function renderBudget(budget) {
+  if (!budget || !ui.budgetNote) return;
+  const month = budget.inMonth || 0;
+  ui.budgetNote.hidden = !month;
+  if (!month) return;
+  const near = month >= 250;
+  ui.budgetNote.classList.toggle('warn', near);
+  ui.budgetNote.textContent =
+    `${month} LinkedIn search pages this month (${budget.inDay || 0} today). ` +
+    (near
+      ? 'A free account gets roughly 300 before LinkedIn shows only three results per search.'
+      : 'A free account gets roughly 300 a month.');
+}
+
 function leadCard(record) {
   const card = document.createElement('div');
   card.className = 'lead';
@@ -1592,11 +1619,13 @@ function showVersion() {
   const res = await chrome.runtime.sendMessage({ type: 'GET_JOB' });
   render((res && res.job) || { status: 'idle', count: 0, tasksTotal: 0 });
   renderSeen((res && res.seen) || 0);
+  renderBudget(res && res.budget);
 
   // The worker can sleep between broadcasts; a slow poll keeps the panel honest.
   setInterval(async () => {
     if (!current || current.status !== 'running') return;
     const latest = await chrome.runtime.sendMessage({ type: 'GET_JOB' });
     if (latest && latest.job) render(latest.job);
+    renderBudget(latest && latest.budget);
   }, 2000);
 })();
