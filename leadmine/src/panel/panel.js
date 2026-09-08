@@ -57,7 +57,7 @@ const ui = Object.fromEntries(
     'deep', 'fetchEmails', 'followContactPage', 'verifyEmails', 'skipSeen', 'seenNote',
     'start', 'resume', 'stop', 'again', 'goResults',
     'actionbar', 'barSearch', 'barResults', 'toast',
-    'runView', 'spinner', 'runTitle', 'barFill', 'message', 'taskLine', 'recentBox', 'recentList',
+    'runView', 'spinner', 'runTitle', 'barFill', 'message', 'taskLine', 'withheldNote', 'recentBox', 'recentList',
     'statFound', 'statFoundLabel', 'statPhones', 'statEmails', 'statSendable',
     'healthBox', 'healthList', 'error',
     'format', 'download', 'clear', 'filter',
@@ -1253,6 +1253,19 @@ function render(job) {
     : { done: 'Finished', cancelled: 'Stopped', paused: 'Paused', error: "Couldn't finish" }[job.status] ||
       'Finished';
   ui.message.textContent = job.message || '';
+
+  // LinkedIn shows people it will not name — "LinkedIn Member", no profile
+  // link — and a run that collected three out of twelve looks broken unless
+  // it says so. This is the one number that explains a short LinkedIn run.
+  const withheld = job.withheld || 0;
+  ui.withheldNote.hidden = !withheld || running;
+  if (withheld && !running) {
+    ui.withheldNote.textContent =
+      `LinkedIn would not name ${withheld} ${withheld === 1 ? 'person' : 'people'} it showed — ` +
+      'they are outside your network, so the card reads “LinkedIn Member” with no profile ' +
+      'link on it. Nothing was lost in the scrape. Run the same search on Public web to ' +
+      'find them by name.';
+  }
 
   ui.taskLine.hidden = !job.tasksTotal;
   if (job.tasksTotal) {

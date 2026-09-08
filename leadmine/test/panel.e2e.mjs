@@ -82,6 +82,16 @@ const SETUP = (total) => {
     });
   }
 
+  // A LinkedIn run where most of the results came back as "LinkedIn Member".
+  if (window.__withheld) {
+    Object.assign(job, {
+      status: 'done', phase: 'done', jobId: 'job-1', count: 3,
+      message: '3 people from 1 search.',
+      tasksSettled: 1, tasksTotal: 1, withheld: 9,
+      config: { source: 'linkedin', category: 'playwright Typescript' },
+    });
+  }
+
   if (window.__paused) {
     Object.assign(job, {
       status: 'paused',
@@ -223,7 +233,7 @@ const SETUP = (total) => {
 async function openPanel(
   t,
   {
-    idle = false, paused = false, running = false, linkedin = false, web = false,
+    idle = false, paused = false, running = false, linkedin = false, web = false, withheld = false,
     aiKey = '', urns = null, noManifest = false, stale = false,
   } = {}
 ) {
@@ -247,6 +257,7 @@ async function openPanel(
   if (running) await page.addInitScript(() => { window.__running = true; });
   if (linkedin) await page.addInitScript(() => { window.__linkedin = true; });
   if (web) await page.addInitScript(() => { window.__web = true; });
+  if (withheld) await page.addInitScript(() => { window.__withheld = true; });
   // Filter ids the extension has already learned, as a run would have left
   // them. The harness's storage lives in the page, so this has to be seeded
   // before the panel loads rather than written afterwards.
@@ -516,6 +527,35 @@ test('the three source labels fit the panel at its narrowest', async (t) => {
     for (const span of fits.spans) {
       assert.equal(span.lines, 1, `"${span.text}" wrapped onto ${span.lines} lines`);
     }
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('a run cut short by LinkedIn withholding names says so', async (t) => {
+  const ctx = await openPanel(t, { withheld: true });
+  if (!ctx) return;
+  try {
+    // "3 people from 1 search" next to a page showing twelve results reads as
+    // a broken scraper, and the user reruns it — repeatedly — getting three
+    // every time. The count of people LinkedIn refused to identify is the
+    // whole answer, so it is a line of its own, not a clause on the end.
+    assert.equal(await ctx.page.isVisible('#withheldNote'), true);
+    const note = await ctx.page.textContent('#withheldNote');
+    assert.match(note, /9 people/);
+    assert.match(note, /LinkedIn Member/);
+    // And it points at the thing that does find them.
+    assert.match(note, /Public web/i);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('a run that lost nobody says nothing about it', async (t) => {
+  const ctx = await openPanel(t, { idle: false });
+  if (!ctx) return;
+  try {
+    assert.equal(await ctx.page.isVisible('#withheldNote'), false);
   } finally {
     await ctx.close();
   }

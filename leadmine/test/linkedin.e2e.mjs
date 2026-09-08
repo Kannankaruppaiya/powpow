@@ -59,6 +59,25 @@ const PAGE_THREE = [
 
 const PAGE_TWO = [
   {
+    /*
+     * A person LinkedIn will not name.
+     *
+     * Outside the viewer's network the card comes back titled "LinkedIn
+     * Member" with NO profile link on it at all — which is why the run
+     * cannot collect them, and why a search showing twelve results can
+     * export three and look broken.
+     */
+    anon: true,
+    headline: 'Manager & Lead - Quality Engineering | Lead SDET | Regulatory Tech',
+    location: 'Chennai, Tamil Nadu, India',
+    current: 'Manager at Nasdaq',
+  },
+  {
+    anon: true,
+    headline: 'Technical Lead @ Coforge | Ex-IBM | Java | Typescript | Spring Boot',
+    location: 'Gurugram, Haryana, India',
+  },
+  {
     slug: 'vikram-s', name: 'Vikram S',
     headline: 'Backend Engineer at Initech',
     location: 'Hyderabad, Telangana, India', degree: '2nd', openToWork: false,
@@ -157,6 +176,20 @@ function fixture() {
       const cards = [...list.children].filter((li) => !li.querySelector('a[href="/premium"]'));
       for (let i = hydrated; i < Math.min(hydrated + n, DATA.length); i += 1) {
         const p = DATA[i];
+        if (p.anon) {
+          // No anchor anywhere on the card. This is the whole point: there is
+          // no name and no URL to collect, only a headline and a place.
+          cards[i].innerHTML = \`
+            <div class="XyZ789">
+              <div><img src="https://static.licdn.com/ghost.png" alt=""></div>
+              <div><span aria-hidden="true">LinkedIn Member</span><span>LinkedIn Member</span></div>
+              <div>\${p.headline}</div>
+              <div>\${p.location}</div>
+              \${p.current ? '<div>Current: ' + p.current + '</div>' : ''}
+              <button>Connect</button>
+            </div>\`;
+          continue;
+        }
         // The anchor wraps the entire card, and carries no class the scraper
         // could name — exactly the markup the live export revealed.
         cards[i].innerHTML = \`
@@ -179,6 +212,10 @@ function fixture() {
       }
       hydrated = Math.min(hydrated + n, DATA.length);
     }
+
+    // A skeleton that never fills in. It has no link either, and counting it
+    // as a withheld identity would put a made-up number in front of the user.
+    list.appendChild(document.createElement('li'));
 
     hydrate(2);                       // first page renders immediately
     // Scrolling to the foot of the page brings a screenful into view, not one
@@ -842,6 +879,32 @@ test('it pages past the first ten instead of stopping there', async (t) => {
   assert.ok(names.includes('Vikram S'), 'page two');
   assert.ok(names.includes('Meera T'), 'page two');
   assert.equal(result.records.length, 8, 'all three pages, deduplicated');
+});
+
+test('people LinkedIn refuses to name are counted, not silently dropped', async (t) => {
+  const result = await run(t);
+  if (!result) return;
+
+  // The two anonymous cards on page two are real results with real headlines
+  // — LinkedIn just will not say who they are. Collecting them is impossible;
+  // saying nothing about them is what made a short run look like a broken one.
+  assert.equal(result.context.withheld, 2, JSON.stringify(result.context));
+
+  const names = result.records.map((r) => r.name);
+  assert.ok(!names.includes('LinkedIn Member'), `a nameless card became a row: ${names.join(' | ')}`);
+  // Everyone LinkedIn did name still comes through: this is a report, not a
+  // new reason to drop people.
+  assert.ok(names.includes('Vikram S'), names.join(' | '));
+  assert.ok(names.includes('Meera T'), names.join(' | '));
+});
+
+test('a skeleton that never loads is not reported as a withheld identity', async (t) => {
+  // The fixture carries one <li> that stays empty for the whole run. Counting
+  // it would put a number in front of the user that nothing on the page
+  // supports — and the count is the only evidence they have for "why so few".
+  const result = await run(t);
+  if (!result) return;
+  assert.equal(result.context.withheld, 2, 'the empty card was counted as a person');
 });
 
 test('paging stops when there is no next page', async (t) => {

@@ -205,6 +205,21 @@
     return '';
   }
 
+  /**
+   * Record a card that is a person but carries no identity.
+   *
+   * Only a card LinkedIn has explicitly titled "LinkedIn Member" counts. A
+   * card with no link and no text is a skeleton that has not hydrated yet,
+   * and one with a name but no link is something else going wrong — neither
+   * is a withheld identity, and guessing they are would put a made-up number
+   * in front of the user.
+   */
+  function noteWithheld(item) {
+    const lines = cardLines(item).filter((line) => !NOISE.test(line));
+    if (!lines.length || !ANONYMOUS.test(norm(lines[0]))) return;
+    withheld.add(norm(lines.join(' | ')).slice(0, 200));
+  }
+
   /** The profile URL without tracking noise — the identity of a person. */
   function profileUrl(anchor) {
     if (!anchor || !anchor.href) return '';
@@ -217,6 +232,14 @@
       return '';
     }
   }
+
+  /*
+   * Cards seen but not collectable, fingerprinted so paging does not count
+   * one person twice. Two anonymous people with the same headline and place
+   * do collapse into one — which undercounts rather than overstates, and an
+   * overstated number here would be its own lie.
+   */
+  const withheld = new Set();
 
   /**
    * The card's visible text, one entry per rendered line.
@@ -265,6 +288,21 @@
   /** Buttons and affordances that are chrome, not information. */
   const NOISE =
     /^(connect|message|follow|following|view full profile|invite|pending|\d+(\.\d+)?k? followers?)$/i;
+
+  /*
+   * A person LinkedIn will not name.
+   *
+   * Outside your network — and once a month's searching passes LinkedIn's
+   * commercial-use limit, well inside it too — a card comes back titled
+   * "LinkedIn Member" with no profile link on it at all. There is no name and
+   * no URL to collect, so the run cannot use it.
+   *
+   * It used to skip these in silence, and that silence is the bug: a search
+   * showing twelve results and exporting three looks exactly like a broken
+   * scraper. It is not. LinkedIn withheld nine identities, and saying so is
+   * the difference between "this is broken" and "use the other source".
+   */
+  const ANONYMOUS = /^linkedin member$/i;
 
   const DEGREE_ONLY = /^[•·]?\s*(1st|2nd|3rd\+?)\s*(degree)?\s*(connection)?$/i;
   const CONTEXT_LINE = /^(current|past|about|summary)\s*:/i;
@@ -770,6 +808,7 @@
     getSearchContext() {
       expectedFingerprint = fingerprint();
       endReason = '';
+      withheld.clear();
       return searchContext();
     },
 
@@ -788,7 +827,14 @@
 
     getResultIds(list) {
       const live = liveList(list);
-      return live ? resultItems(live).map(itemProfileUrl).filter(Boolean) : [];
+      if (!live) return [];
+      const ids = [];
+      for (const item of resultItems(live)) {
+        const url = itemProfileUrl(item);
+        if (url) ids.push(url);
+        else noteWithheld(item);
+      }
+      return ids;
     },
 
     extractResult(id, list) {
@@ -874,12 +920,15 @@
       return false;
     },
 
-    finalise(records, config) {
+    finalise(records, config, context) {
       for (const r of records) {
         r.city = r.location || config.city || '';
         r.area = r.location || '';
         r.searchCategory = config.category || '';
       }
+      // The count travels with the run, not in a console warning nobody has
+      // open: this is the answer to "why only three?".
+      if (context) context.withheld = withheld.size;
     },
   };
 })();

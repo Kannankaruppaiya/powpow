@@ -467,6 +467,13 @@ every corner of the site still hands back rows nobody can act on. This is not
 rate limiting — LinkedIn is not withholding the data because the run was too
 fast. It withholds identity by degree, and no pacing changes that.
 
+**LeadMine counts them and says so.** A run that finds twelve results and
+exports three looks exactly like a broken scraper, and the natural response is
+to run it again — and get three again. So the panel says, in a line of its
+own: *"LinkedIn would not name 9 people it showed."* Nothing was lost in the
+scrape. Those nine are precisely the people the Public web source exists to
+find.
+
 The same person's **public profile page names them**, and search engines have
 indexed hundreds of millions of those pages. So the answer is not a bigger
 search on LinkedIn; it is a different door.
@@ -630,7 +637,8 @@ Common problems:
 | LinkedIn: "You are signed out" | Sign in to LinkedIn in that tab and rerun. |
 | LinkedIn: "security check" | Solve it in the tab, then rerun — and take it as a signal to slow down. |
 | LinkedIn results stop early | The adapter stops if the query or filters change mid-run, rather than blending two searches into one file. |
-| LinkedIn cards say "LinkedIn Member" | They are outside your network, and LinkedIn will not name them. Run the same search on the **Public web** source instead. |
+| LinkedIn cards say "LinkedIn Member" | They are outside your network, and LinkedIn will not name them. The panel says how many; run the same search on the **Public web** source to find those by name. |
+| A LinkedIn run exports far fewer rows than the page shows | Check that line. If it accounts for the gap, nothing is broken — LinkedIn withheld those identities. |
 | Public web: "asking for a CAPTCHA" | Solve it in the tab, then press Resume. Fewer, slower runs avoid it. |
 | Public web: "returned no results for this query" | The engine matched nothing — not a pagination problem. Try the rarer word alone, or a different city spelling. |
 | Public web finds far fewer than LinkedIn | Only public, indexed profiles are there at all. It is a different set, not a smaller copy of the same one. |

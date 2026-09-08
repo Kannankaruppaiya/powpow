@@ -143,6 +143,10 @@ function publicJob() {
     // "1 searches failed" with no reason is not a report. Carry the first
     // failure's message so the panel can say what actually went wrong.
     taskError: (tasks.find((t) => t.status === 'failed' && t.error) || {}).error || '',
+    // People the source showed but refused to identify, across every search.
+    // Without this the panel cannot tell a broken scrape from a run where
+    // LinkedIn simply would not say who most of the results were.
+    withheld: tasks.reduce((n, t) => n + ((t.context && t.context.withheld) || 0), 0),
     // Why collection ended, from the last search that ran.
     stoppedBecause:
       [...tasks].reverse().find((t) => t.stoppedBecause) &&
