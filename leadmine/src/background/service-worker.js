@@ -260,6 +260,13 @@ async function runTask(task, config, tabId) {
     // keyword string cannot express geoUrn or serviceCategory, so it is not
     // asked to.
     const url = task.url || buildUrl(source.id, task.term, task.point);
+    if (pagesByUrl(config) && (await budgetLeft(config)) <= 0) {
+      throw new Error(
+        'The monthly LinkedIn search budget is spent. LinkedIn gives a free account ' +
+          'about 300 searches a month and then returns three results per search. ' +
+          'Raise the budget in More options if you know yours is higher, or wait for the 1st.'
+      );
+    }
     await chrome.tabs.update(tabId, { url, active: !config.background });
     await waitForTabComplete(tabId, source.urlPart);
     if (pagesByUrl(config)) await countSearchPage();
@@ -339,6 +346,21 @@ async function runTask(task, config, tabId) {
 
 const BUDGET_KEY = 'searchBudget';
 
+/*
+ * Roughly what a free LinkedIn account gets in a calendar month before the
+ * commercial-use limit lands. Not a published number and not a fixed one —
+ * LinkedIn decides it from behaviour — so it is a default to stop at, not a
+ * fact, and `config.searchBudget` overrides it.
+ */
+const MONTHLY_ALLOWANCE = 300;
+
+/** Search pages left this month, by our own count. */
+async function budgetLeft(config = {}) {
+  const cap = Number(config.searchBudget) || MONTHLY_ALLOWANCE;
+  const { inMonth } = await readBudget();
+  return cap - inMonth;
+}
+
 /** The calendar month LinkedIn's own allowance is keyed on. */
 const thisMonth = () => new Date().toISOString().slice(0, 7);
 const today = () => new Date().toISOString().slice(0, 10);
@@ -404,10 +426,17 @@ const pagesByUrl = (config) => config.source === 'linkedin';
 async function pageThrough(first, task, config, tabId) {
   const source = sourceFor(config.source);
   const want = config.maxResults || 0;
-  // LinkedIn stops a free search at 100 pages of ten. Past that it repeats,
-  // and the loop below would notice, but there is no reason to pay for the
-  // navigation that finds out.
-  const lastPage = Math.min(config.maxPages || 100, 100);
+  /*
+   * How deep to go by default.
+   *
+   * LinkedIn will serve 100 pages of ten to a free account, and paging by URL
+   * made reaching all of them reliable for the first time — which is exactly
+   * the danger. At 100 pages a run, three runs spend a month's allowance, and
+   * the previous version only avoided that by failing to find its own Next
+   * button. Ten pages is a hundred people, which is what a search is usually
+   * for; the number is the user's to raise.
+   */
+  const lastPage = Math.min(config.maxPages || 10, 100);
 
   const byKey = new Map(first.map((r) => [recordKey(r) || r.profileUrl, r]));
   const base = task.currentUrl || task.url || '';
@@ -418,6 +447,11 @@ async function pageThrough(first, task, config, tabId) {
     if (cancelRequested) break;
     if (want && byKey.size >= want) {
       task.stoppedBecause = `the limit of ${want}`;
+      break;
+    }
+    if ((await budgetLeft(config)) <= 0) {
+      task.stoppedBecause =
+        'the monthly LinkedIn search budget is spent — raise it in More options, or wait for the 1st';
       break;
     }
 

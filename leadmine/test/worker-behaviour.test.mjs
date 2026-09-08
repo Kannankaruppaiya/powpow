@@ -180,3 +180,27 @@ test('paging starts from where the tab actually is, not from where it was sent',
   const paging = WORKER.slice(WORKER.indexOf('async function pageThrough'));
   assert.match(paging, /task\.currentUrl \|\| task\.url/, 'paging ignores the live URL');
 });
+
+test('a run stops at the budget rather than discovering the wall', () => {
+  // Paging by URL made reaching all 100 pages reliable for the first time,
+  // which is exactly the danger: at 100 pages a run, three runs spend a
+  // month. The previous version only avoided that by failing to find its own
+  // Next button.
+  const paging = WORKER.slice(WORKER.indexOf('async function pageThrough'));
+  assert.match(paging, /config\.maxPages \|\| 10\b/, 'the default depth is not bounded to something sane');
+  assert.match(paging, /budgetLeft/, 'paging never checks what is left');
+
+  // And before the first page, where it can stop the whole run.
+  const first = WORKER.slice(WORKER.indexOf('const url = task.url || buildUrl'), WORKER.indexOf('waitForTabComplete(tabId, source.urlPart)'));
+  assert.match(first, /budgetLeft/, 'a run can start with nothing left to spend');
+  assert.match(first, /throw new Error/, 'and it starts anyway rather than saying why');
+});
+
+test('the budget ceiling is a default to stop at, not a fact', () => {
+  // LinkedIn does not publish the number and does not hold it fixed — it is
+  // decided from behaviour. Hard-coding it with no way out would refuse runs
+  // an account actually permits.
+  const block = WORKER.slice(WORKER.indexOf('const MONTHLY_ALLOWANCE'), WORKER.indexOf('async function countSearchPage'));
+  assert.match(block, /config\.searchBudget/, 'the ceiling cannot be raised by the user');
+  assert.match(block, /cap - inMonth/, 'what is left is not computed from what was spent');
+});

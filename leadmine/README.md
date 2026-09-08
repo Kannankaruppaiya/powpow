@@ -492,7 +492,16 @@ of them, with the extension turned off entirely.
 | "One search per location", four places | ×4 |
 | Re-running the same query | full price again |
 
-The panel now shows what has been spent, beside **Start**, where the decision
+**A run stops at the budget rather than discovering the wall.** Paging by URL
+made reaching all 100 pages reliable for the first time, which is exactly the
+danger — at 100 pages a run, three runs spend a month, and the version before
+this one only avoided that by failing to find its own Next button. A LinkedIn
+run goes ten pages deep by default (a hundred people), and refuses to start
+once the month's budget is gone. Both numbers are yours to change; LinkedIn
+does not publish its allowance and does not hold it fixed, so 300 is a place
+to stop, not a fact.
+
+The panel shows what has been spent, beside **Start**, where the decision
 is made. LinkedIn's own counter cannot be read from here, so this is not it —
 it counts every people-search page LeadMine itself asks for, which is the
 whole of what is knowable and moves in step with theirs.
