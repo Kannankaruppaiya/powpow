@@ -118,3 +118,52 @@ test('dropping a word that is not there changes nothing', () => {
   const q = dropFromKeywords(parseUrl(REAL), ['Chennai']);
   assert.equal(q.scalars.keywords, 'finance head theni');
 });
+
+/*
+ * Paging, against the URLs LinkedIn actually produced during a live session —
+ * not invented ones. Each was read off the address bar while paging by hand.
+ */
+const REAL_PAGED = [
+  'https://www.linkedin.com/search/results/people/?keywords=kotlin',
+  'https://www.linkedin.com/search/results/people/?keywords=kotlin%20chennai&page=2&spellCorrectionEnabled=true&prioritizeMessage=false',
+  'https://www.linkedin.com/search/results/people/?keywords=QA%20automation%20engineer&origin=SWITCH_SEARCH_VERTICAL',
+  'https://www.linkedin.com/search/results/people/?keywords=playwright%20Typescript&origin=FACETED_SEARCH&geoUrn=%5B%22102713980%22%5D&serviceCategory=%5B%2220016%22%5D',
+];
+
+test('page one carries no page param, the way LinkedIn writes it', async () => {
+  const { pageOf, pageUrl } = await import('../src/lib/linkedin-query.js');
+  assert.equal(pageOf('https://www.linkedin.com/search/results/people/?keywords=kotlin'), 1);
+  assert.equal(pageOf(REAL_PAGED[1]), 2);
+  // Going back to one removes it rather than writing page=1.
+  assert.ok(!pageUrl(REAL_PAGED[1], 1).includes('page='));
+});
+
+test('a page is reached by arithmetic, not by clicking through to it', async () => {
+  const { pageUrl, pageOf } = await import('../src/lib/linkedin-query.js');
+  for (const url of REAL_PAGED) {
+    // Page seven directly — no walk through six, no Next button anywhere.
+    const seven = pageUrl(url, 7);
+    assert.equal(pageOf(seven), 7, seven);
+  }
+});
+
+test('paging keeps every filter and parameter the search had', async () => {
+  const { pageUrl, parseUrl } = await import('../src/lib/linkedin-query.js');
+  for (const url of REAL_PAGED) {
+    const before = parseUrl(url);
+    const after = parseUrl(pageUrl(url, 7));
+    // A location filter dropped by paging would hand back the right number of
+    // the wrong people, and nothing would error.
+    assert.deepEqual(after.facets, before.facets, url);
+    for (const [key, value] of Object.entries(before.scalars)) {
+      if (key !== 'page') assert.equal(after.scalars[key], value, `${key} lost from ${url}`);
+    }
+  }
+});
+
+test('the spaces stay %20 when paging, as they must', async () => {
+  const { pageUrl } = await import('../src/lib/linkedin-query.js');
+  const out = pageUrl(REAL_PAGED[1], 3);
+  assert.ok(out.includes('keywords=kotlin%20chennai'), out);
+  assert.ok(!out.includes('+'), out);
+});

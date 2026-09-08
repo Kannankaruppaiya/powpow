@@ -94,6 +94,42 @@ export function buildUrl(query, base = BASE) {
  * from splitting the query, not from scrolling harder. The queue already runs
  * a list of tasks and dedupes on profileUrl.
  */
+/**
+ * Which page of results a URL asks for. Page one carries no `page` at all,
+ * which is how LinkedIn itself writes it.
+ */
+export function pageOf(href) {
+  return Math.max(1, Number(parseUrl(href).scalars.page) || 1);
+}
+
+/**
+ * The same search, at another page.
+ *
+ * Paging used to mean finding a Next button: scroll to the foot of whatever
+ * is scrolling, wait, scroll again, wait, then hunt for a control by its
+ * label for four seconds. All of that to add one to a number in the URL —
+ * and when the hunt failed, the run stopped and reported "the next page did
+ * not load" as though LinkedIn had refused.
+ *
+ * LinkedIn's own URL says what paging really is:
+ *
+ *   …/people/?keywords=kotlin%20chennai&page=2&spellCorrectionEnabled=true
+ *
+ * So it is arithmetic. Nothing is clicked, nothing is waited for, and page
+ * seven is reachable without walking through six.
+ */
+export function pageUrl(href, n) {
+  const query = parseUrl(href);
+  if (n <= 1) {
+    delete query.scalars.page;
+    query.order = query.order.filter((key) => key !== 'page');
+  } else {
+    query.scalars.page = String(n);
+    if (!query.order.includes('page')) query.order.push('page');
+  }
+  return buildUrl(query);
+}
+
 export function partition(query, facet, values) {
   return values.map((value) => ({
     ...query,
