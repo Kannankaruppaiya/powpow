@@ -91,7 +91,7 @@ test('every handler the message switch calls actually exists', () => {
     WORKER.indexOf('switch (msg.type) {'),
     WORKER.indexOf('/* ------', WORKER.indexOf('switch (msg.type) {'))
   );
-  assert.ok(switchBlock.includes('RESOLVE_FACET'), 'the block being scanned is the right one');
+  assert.ok(switchBlock.includes('START_JOB'), 'the block being scanned is the right one');
 
   // Bare calls only: a method on an imported namespace (store.countSeen) is
   // that module's business, not this one's.
@@ -115,13 +115,22 @@ test('every handler the message switch calls actually exists', () => {
   }
 });
 
-test('asking LinkedIn for an id needs a LinkedIn tab, and says so', () => {
+test('a filter LinkedIn has to apply is applied before anything is scraped', () => {
+  // A facet takes LinkedIn's own id, and those are undocumented — so a place
+  // nobody has looked up cannot go in a URL. It can go in LinkedIn's filter
+  // panel, and the run drives that before it reads a single card.
   const block = WORKER.slice(
-    WORKER.indexOf('async function resolveFacet'),
-    WORKER.indexOf('async function rememberUrns')
+    WORKER.indexOf('if (task.applyFilters'),
+    WORKER.indexOf('if (cancelRequested) throw', WORKER.indexOf('if (task.applyFilters'))
   );
-  assert.ok(block.includes('/search/results/'), 'it checks the tab is a search page');
-  assert.match(block, /Open a LinkedIn people search/i, 'and says what to do when it is not');
-  // Whatever it learns is kept, or the next run asks all over again.
-  assert.ok(block.includes('rememberUrns'), 'a resolved id is stored');
+  assert.ok(block.includes('APPLY_FILTERS'), 'the page is asked to apply them');
+  assert.match(block, /throw new Error/, 'and a filter that will not apply fails the task');
+  assert.ok(block.includes('rememberUrns'), 'whatever it learned on the way is kept');
+
+  // Order matters: applying rebuilds the results list, so scraping the page
+  // before it lands would read the unfiltered one.
+  assert.ok(
+    WORKER.indexOf('APPLY_FILTERS') < WORKER.indexOf("type: 'RUN_SCRAPE'"),
+    'filters are applied before the scrape, not after'
+  );
 });

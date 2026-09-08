@@ -143,6 +143,10 @@ function publicJob() {
     // "1 searches failed" with no reason is not a report. Carry the first
     // failure's message so the panel can say what actually went wrong.
     taskError: (tasks.find((t) => t.status === 'failed' && t.error) || {}).error || '',
+    // People the source showed but refused to identify, across every search.
+    // Without this the panel cannot tell a broken scrape from a run where
+    // LinkedIn simply would not say who most of the results were.
+    withheld: tasks.reduce((n, t) => n + ((t.context && t.context.withheld) || 0), 0),
     // Why collection ended, from the last search that ran.
     stoppedBecause:
       [...tasks].reverse().find((t) => t.stoppedBecause) &&
@@ -207,6 +211,7 @@ async function ensureContentScript(tabId) {
       'src/content/engine.js',
       'src/content/adapters/maps.js',
       'src/content/adapters/linkedin.js',
+      'src/content/adapters/web.js',
     ],
   });
   await new Promise((r) => setTimeout(r, 300));
@@ -258,6 +263,32 @@ async function runTask(task, config, tabId) {
     await waitForTabComplete(tabId, source.urlPart);
     // Maps hydrates its feed after `complete`; a short settle avoids a race.
     await new Promise((r) => setTimeout(r, 2500));
+
+    /*
+     * Filters LinkedIn has to apply for us.
+     *
+     * A facet takes LinkedIn's own id — geoUrn wants 102784390, not "Chennai"
+     * — and those numbers are undocumented, so a name nobody has looked up
+     * cannot be put in a URL. It can be put in LinkedIn's filter panel
+     * though: type it, tick what comes back, press Show results, and LinkedIn
+     * writes the URL itself. The ids are learned on the way, so the same
+     * search skips all of this next time.
+     */
+    if (task.applyFilters && task.applyFilters.length) {
+      await ensureContentScript(tabId);
+      const applied = await chrome.tabs.sendMessage(tabId, {
+        type: 'APPLY_FILTERS',
+        wants: task.applyFilters,
+      });
+      if (!applied || !applied.ok) {
+        throw new Error(
+          `Could not apply the filters on LinkedIn: ${(applied && applied.reason) || 'no answer'}`
+        );
+      }
+      await rememberUrns(applied.applied);
+      // The results list rebuilds after a filter lands.
+      await new Promise((r) => setTimeout(r, 2500));
+    }
   }
   if (cancelRequested) throw new Error('cancelled');
 
@@ -292,24 +323,6 @@ async function runTask(task, config, tabId) {
  * LinkedIn search tab is open, and stores the answer so it happens once per
  * name and never again.
  */
-async function resolveFacet(want) {
-  const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!active || !String(active.url || '').includes('/search/results/')) {
-    return {
-      ok: false,
-      reason:
-        'Open a LinkedIn people search in this window first — that page is where the answer lives.',
-    };
-  }
-
-  await ensureContentScript(active.id);
-  const result = await chrome.tabs.sendMessage(active.id, { type: 'RESOLVE_FACET', want });
-  if (result && result.ok) {
-    await rememberUrns([{ facet: result.facet, id: result.id, label: result.label }]);
-  }
-  return result || { ok: false, reason: 'the tab did not answer' };
-}
-
 /**
  * Store filter-name-to-id pairs the page handed back.
  *
@@ -676,15 +689,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   };
 
   switch (msg.type) {
-    // Asking LinkedIn for its own id for a name. Not part of a run — the
-    // panel does this the moment a filter is added, so the answer arrives
-    // while the user is still looking at the field they typed into.
-    case 'RESOLVE_FACET':
-      resolveFacet(msg.want || {}).then(sendResponse, (err) =>
-        sendResponse({ ok: false, reason: String((err && err.message) || err) })
-      );
-      return true;
-
     case 'GET_JOB':
       return reply(ready.then(async () => ({ job: publicJob(), seen: await store.countSeen() })));
 

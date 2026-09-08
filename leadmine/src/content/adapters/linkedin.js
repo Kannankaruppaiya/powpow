@@ -23,6 +23,21 @@
 
   const { norm, nameKey } = globalThis.MLSParse;
 
+  /*
+   * A person LinkedIn will not name.
+   *
+   * Outside your network — and once a month's searching passes LinkedIn's
+   * commercial-use limit, well inside it too — a card comes back titled
+   * "LinkedIn Member" with no profile link on it at all. There is no name and
+   * no URL to collect, so the run cannot use it.
+   *
+   * It used to skip these in silence, and that silence is the bug: a search
+   * showing twelve results and exporting three looks exactly like a broken
+   * scraper. It is not. LinkedIn withheld nine identities, and saying so is
+   * the difference between "this is broken" and "use the other source".
+   */
+  const ANONYMOUS = /^linkedin member$/i;
+
   const SEL = {
     profileLink: 'a[href*="/in/"]',
     // Filter controls in the bar above the results.
@@ -66,8 +81,27 @@
     const anchors = [...document.querySelectorAll(SEL.profileLink)];
     const links = anchors.filter((a) => profileUrl(a) && !a.closest('nav, header'));
 
+    /*
+     * A card LinkedIn refused to name votes for its list too.
+     *
+     * The list used to be found as "the container holding the most profile
+     * links", which quietly assumed every result has one. On a search whose
+     * results are mostly outside your network that assumption inverts: nine
+     * cards out of ten carry no link at all, so a handful of links in the
+     * message overlay or a promoted card can out-vote the results — and a
+     * page where NO result is named has nothing to vote at all, so the run
+     * failed with "No results list found on this page" while looking at a
+     * page full of results.
+     *
+     * A withheld card is still a card. It is found by the one thing LinkedIn
+     * does render for it: the words "LinkedIn Member" as a leaf.
+     */
+    const nameless = [...document.querySelectorAll('span, div, p, h3')].filter(
+      (el) => !el.children.length && ANONYMOUS.test(norm(el.textContent))
+    );
+
     const byContainer = new Map();
-    for (const link of links) {
+    for (const link of [...links, ...nameless]) {
       let node = link;
       for (let up = 0; up < 10 && node.parentElement; up += 1) {
         const container = node.parentElement;
@@ -77,16 +111,42 @@
       }
     }
 
+    /*
+     * A list's cards are siblings of one kind — li, li, li.
+     *
+     * Size alone cannot separate a list from the page holding it. On a search
+     * whose results LinkedIn will not name, three cards in the list tie with
+     * three regions of <body> that hold one card each: the results, a
+     * promoted profile, the message overlay. <body> won that tie and the
+     * promoted profile became a "result".
+     *
+     * Depth cannot separate them either, in either direction: while the list
+     * is still hydrating it holds two cards, which ties with the two links
+     * inside a single card — its profile anchor and its mutual-connection
+     * footer — and the deeper of those is the card, not the list.
+     *
+     * What actually tells them apart is what the children are. A list's are
+     * all the same tag; a page region holds a <main>, an <aside> and an
+     * overlay, and one card holds an <a> and a <div>.
+     */
+    const uniform = (items) => items.size >= 2 && new Set([...items].map((el) => el.tagName)).size === 1;
+
     let list = null;
-    let best = { size: 0, depth: Infinity };
+    let best = { size: 0, depth: Infinity, uniform: false };
     for (const [container, items] of byContainer) {
       const size = items.size;
       const depth = ancestorDepth(container);
-      // The most cards wins. On a tie the shallower container wins, because
-      // that is the list itself rather than something inside one card.
-      if (size > best.size || (size === best.size && depth < best.depth)) {
+      const alike = uniform(items);
+      // Looking like a list beats being bigger. Among equals: the most cards,
+      // then the shallower, which is the list rather than something inside a
+      // card.
+      const better =
+        alike !== best.uniform
+          ? alike
+          : size > best.size || (size === best.size && depth < best.depth);
+      if (better) {
         list = container;
-        best = { size, depth };
+        best = { size, depth, uniform: alike };
       }
     }
 
@@ -95,6 +155,7 @@
       list: best.size >= 2 ? list : null,
       anchors: anchors.length,
       links: links.length,
+      nameless: nameless.length,
       containers: byContainer.size,
       items: best.size,
     };
@@ -121,7 +182,8 @@
         return `${raw.slice(0, 60)}${a.closest('li') ? ' [in li]' : ' [no li]'}`;
       });
     return (
-      `links=${g.anchors} usable=${g.links} groups=${g.containers} biggest=${g.items}` +
+      `links=${g.anchors} usable=${g.links} nameless=${g.nameless}` +
+      ` groups=${g.containers} biggest=${g.items}` +
       `; lists=${document.querySelectorAll('ul').length}` +
       `; main=${document.querySelector('main') ? 'yes' : 'no'}` +
       (sample.length ? `; samples: ${sample.join(' | ')}` : '')
@@ -205,6 +267,21 @@
     return '';
   }
 
+  /**
+   * Record a card that is a person but carries no identity.
+   *
+   * Only a card LinkedIn has explicitly titled "LinkedIn Member" counts. A
+   * card with no link and no text is a skeleton that has not hydrated yet,
+   * and one with a name but no link is something else going wrong — neither
+   * is a withheld identity, and guessing they are would put a made-up number
+   * in front of the user.
+   */
+  function noteWithheld(item) {
+    const lines = cardLines(item).filter((line) => !NOISE.test(line));
+    if (!lines.length || !ANONYMOUS.test(norm(lines[0]))) return;
+    withheld.add(norm(lines.join(' | ')).slice(0, 200));
+  }
+
   /** The profile URL without tracking noise — the identity of a person. */
   function profileUrl(anchor) {
     if (!anchor || !anchor.href) return '';
@@ -217,6 +294,14 @@
       return '';
     }
   }
+
+  /*
+   * Cards seen but not collectable, fingerprinted so paging does not count
+   * one person twice. Two anonymous people with the same headline and place
+   * do collapse into one — which undercounts rather than overstates, and an
+   * overstated number here would be its own lie.
+   */
+  const withheld = new Set();
 
   /**
    * The card's visible text, one entry per rendered line.
@@ -648,7 +733,14 @@
 
   const fold = (text) => norm(text).toLowerCase().replace(/[.,]/g, '');
 
-  async function resolveFacet({ facet, label }, { waitFor, sleep }) {
+  /**
+   * Find a filter value in its panel and either read it or apply it.
+   *
+   * The same six steps either way — open the pill, type, wait for the
+   * network-backed list, match, tick — and then a choice: put the panel back
+   * (a lookup) or press Show results (a filter the user asked for).
+   */
+  async function pickInPanel({ facet, label, apply }, { waitFor, sleep }) {
     const pill = findPill(facet);
     if (!pill) return { ok: false, reason: `this page has no ${facet} filter` };
 
@@ -687,12 +779,51 @@
       };
     }
 
-    // Read the id and leave the page exactly as it was found: this is a
-    // lookup, not a filter the user asked to apply.
     const id = hit.value;
+    if (!hit.input.checked) hit.input.click();
     await sleep(150);
-    pill.click();
-    return { ok: true, facet, id, label: hit.label };
+
+    if (!apply) {
+      // A lookup: leave the page exactly as it was found.
+      if (hit.input.checked) hit.input.click();
+      pill.click();
+      return { ok: true, facet, id, label: hit.label };
+    }
+
+    // Applying is LinkedIn's own job — press its button and let it build the
+    // URL. That is why no id has to be known in advance: the page knows.
+    const before = location.href;
+    found.apply.click();
+    const changed = await waitFor(
+      () => (location.href !== before ? location.href : null),
+      { timeout: 8000 }
+    );
+    if (!changed) return { ok: false, reason: `“${hit.label}” did not apply` };
+    return { ok: true, facet, id, label: hit.label, url: changed };
+  }
+
+  const resolveFacet = (want, helpers) => pickInPanel({ ...want, apply: false }, helpers);
+
+  /**
+   * Apply every filter the run asked for, in LinkedIn's own UI.
+   *
+   * This is what makes the ids optional. Rather than building a URL out of
+   * numbers nobody publishes, the page is driven the way a person would drive
+   * it — type the name, tick what comes back, press Show results — and
+   * LinkedIn writes the URL itself. Every option seen on the way is learned,
+   * so the next run for the same place could skip all of this.
+   */
+  async function applyFilters(wants, helpers) {
+    const applied = [];
+    for (const want of wants || []) {
+      // eslint-disable-next-line no-await-in-loop
+      const result = await pickInPanel({ ...want, apply: true }, helpers);
+      if (!result.ok) return { ok: false, reason: result.reason, applied };
+      applied.push({ facet: result.facet, id: result.id, label: result.label });
+      // eslint-disable-next-line no-await-in-loop
+      await helpers.sleep(600);
+    }
+    return { ok: true, applied, url: location.href };
   }
 
   let expectedFingerprint = null;
@@ -719,10 +850,12 @@
     },
 
     resolveFacet,
+    applyFilters,
 
     getSearchContext() {
       expectedFingerprint = fingerprint();
       endReason = '';
+      withheld.clear();
       return searchContext();
     },
 
@@ -741,7 +874,14 @@
 
     getResultIds(list) {
       const live = liveList(list);
-      return live ? resultItems(live).map(itemProfileUrl).filter(Boolean) : [];
+      if (!live) return [];
+      const ids = [];
+      for (const item of resultItems(live)) {
+        const url = itemProfileUrl(item);
+        if (url) ids.push(url);
+        else noteWithheld(item);
+      }
+      return ids;
     },
 
     extractResult(id, list) {
@@ -827,12 +967,15 @@
       return false;
     },
 
-    finalise(records, config) {
+    finalise(records, config, context) {
       for (const r of records) {
         r.city = r.location || config.city || '';
         r.area = r.location || '';
         r.searchCategory = config.category || '';
       }
+      // The count travels with the run, not in a console warning nobody has
+      // open: this is the answer to "why only three?".
+      if (context) context.withheld = withheld.size;
     },
   };
 })();

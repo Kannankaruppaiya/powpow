@@ -43,6 +43,13 @@ export function recordKey(record) {
   const phone = phoneKey(record.phone);
   if (phone.length >= 10) return `tel:${phone}`;
 
+  // A LinkedIn profile URL is the one truly stable identity a person has: the
+  // slug does not change, and it is what lets the same person found through
+  // two different routes — the logged-in search and a public web result —
+  // come back as one row rather than two.
+  const profile = String(record.profileUrl || '').match(/linkedin\.com\/in\/([^/?#]+)/i);
+  if (profile) return `li:${decodeURIComponent(profile[1]).toLowerCase()}`;
+
   const name = key(record.name);
   if (!name) return '';
 

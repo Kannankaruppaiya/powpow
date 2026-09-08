@@ -21,6 +21,7 @@ const CONTENT_SCRIPTS = [
   'src/content/engine.js',
   'src/content/adapters/maps.js',
   'src/content/adapters/linkedin.js',
+  'src/content/adapters/web.js',
 ].map((f) => readFileSync(join(ROOT, f), 'utf8'));
 
 function findChromium() {
@@ -57,6 +58,25 @@ const PAGE_THREE = [
 ];
 
 const PAGE_TWO = [
+  {
+    /*
+     * A person LinkedIn will not name.
+     *
+     * Outside the viewer's network the card comes back titled "LinkedIn
+     * Member" with NO profile link on it at all — which is why the run
+     * cannot collect them, and why a search showing twelve results can
+     * export three and look broken.
+     */
+    anon: true,
+    headline: 'Manager & Lead - Quality Engineering | Lead SDET | Regulatory Tech',
+    location: 'Chennai, Tamil Nadu, India',
+    current: 'Manager at Nasdaq',
+  },
+  {
+    anon: true,
+    headline: 'Technical Lead @ Coforge | Ex-IBM | Java | Typescript | Spring Boot',
+    location: 'Gurugram, Haryana, India',
+  },
   {
     slug: 'vikram-s', name: 'Vikram S',
     headline: 'Backend Engineer at Initech',
@@ -156,6 +176,20 @@ function fixture() {
       const cards = [...list.children].filter((li) => !li.querySelector('a[href="/premium"]'));
       for (let i = hydrated; i < Math.min(hydrated + n, DATA.length); i += 1) {
         const p = DATA[i];
+        if (p.anon) {
+          // No anchor anywhere on the card. This is the whole point: there is
+          // no name and no URL to collect, only a headline and a place.
+          cards[i].innerHTML = \`
+            <div class="XyZ789">
+              <div><img src="https://static.licdn.com/ghost.png" alt=""></div>
+              <div><span aria-hidden="true">LinkedIn Member</span><span>LinkedIn Member</span></div>
+              <div>\${p.headline}</div>
+              <div>\${p.location}</div>
+              \${p.current ? '<div>Current: ' + p.current + '</div>' : ''}
+              <button>Connect</button>
+            </div>\`;
+          continue;
+        }
         // The anchor wraps the entire card, and carries no class the scraper
         // could name — exactly the markup the live export revealed.
         cards[i].innerHTML = \`
@@ -178,6 +212,10 @@ function fixture() {
       }
       hydrated = Math.min(hydrated + n, DATA.length);
     }
+
+    // A skeleton that never fills in. It has no link either, and counting it
+    // as a withheld identity would put a made-up number in front of the user.
+    list.appendChild(document.createElement('li'));
 
     hydrate(2);                       // first page renders immediately
     // Scrolling to the foot of the page brings a screenful into view, not one
@@ -291,6 +329,19 @@ const FILTER_PANEL = (catalog) => {
     document.body.appendChild(panel);
     open = panel;
 
+    // Show results does what LinkedIn's does: writes the chosen ids into the
+    // URL. That is the whole reason no id has to be known in advance.
+    panel.querySelector('.zz').addEventListener('click', () => {
+      const picked = [...opts.querySelectorAll('input:checked')].map((i) => i.value);
+      const next = new URL(location.href);
+      const existing = JSON.parse(next.searchParams.get('geoUrn') || '[]');
+      const merged = [...new Set([...existing, ...picked])];
+      if (merged.length) next.searchParams.set('geoUrn', JSON.stringify(merged));
+      history.pushState({}, '', next);
+      panel.remove();
+      open = null;
+    });
+
     const box = panel.querySelector('input[type=text]');
     const opts = panel.querySelector('.opts');
     let timer = null;
@@ -347,6 +398,77 @@ async function resolve(t, want, catalog = CATALOG) {
     },
   });
 }
+
+test('a filter with no known id is applied by driving LinkedIn’s own panel', async (t) => {
+  // This is what makes an unknown place usable at all. `geoUrn` takes
+  // LinkedIn's internal number, which is undocumented — so rather than
+  // building a URL out of one, the run types the name into LinkedIn's filter,
+  // ticks what comes back and presses Show results. LinkedIn writes the URL.
+  const result = await run(t, {
+    mutate: async (page) => {
+      await page.evaluate(
+        ([source, list]) => {
+          // eslint-disable-next-line no-new-func
+          new Function('catalog', `(${source})(catalog)`)(list);
+        },
+        [FILTER_PANEL.toString(), CATALOG]
+      );
+    },
+    instead: (page) =>
+      page.evaluate(
+        () =>
+          new Promise((done) => {
+            window.__listener(
+              { type: 'APPLY_FILTERS', wants: [{ facet: 'geoUrn', label: 'chennai' }] },
+              {},
+              done
+            );
+          })
+      ),
+  });
+  if (!result) return;
+
+  assert.equal(result.ok, true, result.reason);
+  // The URL LinkedIn wrote, carrying the id nobody had to know. It merges
+  // with what the page already had, exactly as the real one does.
+  assert.match(result.url, /102784390/);
+  assert.match(result.url, /geoUrn=/);
+  // And the pairing is handed back, so the same search is a plain URL next
+  // time and drives nothing.
+  assert.deepEqual(result.applied, [
+    { facet: 'geoUrn', id: '102784390', label: 'Chennai, Tamil Nadu, India' },
+  ]);
+});
+
+test('a filter that cannot be applied fails loudly rather than running unfiltered', async (t) => {
+  // Scraping on regardless would hand back a spreadsheet of the wrong people
+  // that looks entirely right — the failure this whole design exists to avoid.
+  const result = await run(t, {
+    mutate: async (page) => {
+      await page.evaluate(
+        ([source, list]) => {
+          // eslint-disable-next-line no-new-func
+          new Function('catalog', `(${source})(catalog)`)(list);
+        },
+        [FILTER_PANEL.toString(), CATALOG]
+      );
+    },
+    instead: (page) =>
+      page.evaluate(
+        () =>
+          new Promise((done) => {
+            window.__listener(
+              { type: 'APPLY_FILTERS', wants: [{ facet: 'geoUrn', label: 'Atlantis' }] },
+              {},
+              done
+            );
+          })
+      ),
+  });
+  if (!result) return;
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.applied, [], 'and nothing half-applied is reported as applied');
+});
 
 test('a place name is resolved to LinkedIn’s own id by asking LinkedIn', async (t) => {
   // `geoUrn` wants 102784390, not "Chennai", and that number is LinkedIn's
@@ -573,6 +695,59 @@ test('the active filters and query are read off the page', async (t) => {
   assert.ok(result.context.filters.geoUrn, 'a URL facet should be reported');
 });
 
+/**
+ * A results page where LinkedIn named nobody.
+ *
+ * Not hypothetical: a country-wide search on a niche skill returns people who
+ * are all outside the viewer's network, and every card comes back titled
+ * "LinkedIn Member" with no profile link. Detection used to count profile
+ * links, so this page had nothing to count.
+ */
+const ALL_NAMELESS = `
+  <nav><a href="https://www.linkedin.com/in/kannan-the-viewer/">Me</a></nav>
+  <main>
+    <ul role="list">
+      <li><div><div><span aria-hidden="true">LinkedIn Member</span></div>
+        <div>Manager &amp; Lead - Quality Engineering | Lead SDET</div>
+        <div>Chennai, Tamil Nadu, India</div><button>Connect</button></div></li>
+      <li><div><div><span aria-hidden="true">LinkedIn Member</span></div>
+        <div>Technical Lead @ Coforge | Java | Typescript</div>
+        <div>Gurugram, Haryana, India</div><button>Connect</button></div></li>
+      <li><div><div><span aria-hidden="true">LinkedIn Member</span></div>
+        <div>QA Engineer | API &amp; UI Testing | Playwright</div>
+        <div>Ahmedabad, Gujarat, India</div><button>Connect</button></div></li>
+    </ul>
+  </main>
+  <aside>
+    <a href="https://www.linkedin.com/in/jayasudha-ramesh/">Jayasudha Ramesh</a>
+    <p>Promoted</p>
+  </aside>
+  <div class="msg"><a href="https://www.linkedin.com/in/kannan-the-viewer/">Messaging</a></div>`;
+
+test('a page where LinkedIn named nobody is still a results page', async (t) => {
+  const result = await run(t, {
+    mutate: (page) => page.evaluate((html) => { document.body.innerHTML = html; }, ALL_NAMELESS),
+  });
+  if (!result) return;
+
+  // It used to fail with "No results list found on this page. Make sure the
+  // tab is showing search results." — while looking at a page full of them.
+  assert.equal(result.ok, true, result.error);
+  assert.equal(result.records.length, 0);
+  assert.equal(result.context.withheld, 3, JSON.stringify(result.context));
+});
+
+test('a promoted card and the message overlay do not out-vote the results', async (t) => {
+  // Two profile links outside the results, three withheld cards inside them.
+  // Counting only links picked the wrong container; counting cards does not.
+  const result = await run(t, {
+    mutate: (page) => page.evaluate((html) => { document.body.innerHTML = html; }, ALL_NAMELESS),
+    instead: null,
+  });
+  if (!result) return;
+  assert.ok(!result.records.some((r) => /Jayasudha/.test(r.name || '')), JSON.stringify(result.records));
+});
+
 test('a signed-out page stops the run with a clear reason', async (t) => {
   const result = await run(t, {
     mutate: async (page) => {
@@ -757,6 +932,32 @@ test('it pages past the first ten instead of stopping there', async (t) => {
   assert.ok(names.includes('Vikram S'), 'page two');
   assert.ok(names.includes('Meera T'), 'page two');
   assert.equal(result.records.length, 8, 'all three pages, deduplicated');
+});
+
+test('people LinkedIn refuses to name are counted, not silently dropped', async (t) => {
+  const result = await run(t);
+  if (!result) return;
+
+  // The two anonymous cards on page two are real results with real headlines
+  // — LinkedIn just will not say who they are. Collecting them is impossible;
+  // saying nothing about them is what made a short run look like a broken one.
+  assert.equal(result.context.withheld, 2, JSON.stringify(result.context));
+
+  const names = result.records.map((r) => r.name);
+  assert.ok(!names.includes('LinkedIn Member'), `a nameless card became a row: ${names.join(' | ')}`);
+  // Everyone LinkedIn did name still comes through: this is a report, not a
+  // new reason to drop people.
+  assert.ok(names.includes('Vikram S'), names.join(' | '));
+  assert.ok(names.includes('Meera T'), names.join(' | '));
+});
+
+test('a skeleton that never loads is not reported as a withheld identity', async (t) => {
+  // The fixture carries one <li> that stays empty for the whole run. Counting
+  // it would put a number in front of the user that nothing on the page
+  // supports — and the count is the only evidence they have for "why so few".
+  const result = await run(t);
+  if (!result) return;
+  assert.equal(result.context.withheld, 2, 'the empty card was counted as a person');
 });
 
 test('paging stops when there is no next page', async (t) => {

@@ -53,10 +53,15 @@
             <input type="radio" name="source" value="linkedin" />
             <span>LinkedIn</span>
           </label>
+          <label class="seg">
+            <input type="radio" name="source" value="web" />
+            <span>Public web</span>
+          </label>
         </fieldset>
         <select id="source" class="sr-only" tabindex="-1" aria-hidden="true">
           <option value="maps" selected>maps</option>
           <option value="linkedin">linkedin</option>
+          <option value="web">web</option>
         </select>
 
         <label class="check card" id="optCurrentTab" hidden>
@@ -99,10 +104,11 @@
             <span class="help" id="placeHint" hidden></span>
             <!-- Said only when a real location filter is doing the work, so
                  the box above is not silently ignored. -->
-            <span class="help" id="cityIgnored" hidden>
-              The LinkedIn location filter below is doing this job — anything
-              typed here would only be a word to hunt for.
-            </span>
+            <span class="help" id="cityIgnored" hidden></span>
+            <!-- A country in the filter and a town in the box is not a
+                 disagreement the user can see until it is named, and the run
+                 that follows searches the country. One click settles it. -->
+            <button type="button" id="useTypedCity" class="linkish" hidden></button>
           </div>
 
           <!--
@@ -361,6 +367,11 @@
 
         <div class="bar"><div id="barFill" class="bar-fill"></div></div>
         <p id="taskLine" class="muted small"></p>
+
+        <!-- "Why only three?" gets its own line, not a clause at the end of
+             the task line. It is the first question a short run raises and
+             the answer is not a fault the user can fix by rerunning. -->
+        <p id="withheldNote" class="callout" hidden></p>
 
         <!-- One row, four numbers. Four bordered boxes stacked two-by-two ate
              a third of the screen to say the same thing. -->

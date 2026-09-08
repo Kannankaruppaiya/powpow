@@ -91,3 +91,12 @@ test('a state that is not in this country is not silently searched', () => {
   const singapore = read('SG.json');
   assert.deepEqual(citiesFor(singapore, 'Tamil Nadu'), []);
 });
+
+test('a public-web town keeps its state, the way the profile page prints it', () => {
+  // A public profile prints "Chennai, Tamil Nadu, India" in full, so the state
+  // really is on the page — and Springfield is as ambiguous to a search engine
+  // as it is to Maps.
+  const web = citiesFor(india, 'Tamil Nadu', { source: 'web' });
+  assert.ok(web.includes('Chennai, Tamil Nadu'));
+  assert.ok(!web.includes('Chennai'), 'the bare name is the LinkedIn form');
+});

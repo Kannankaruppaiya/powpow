@@ -56,6 +56,48 @@ export const SOURCES = {
     buildTerm: (category, city) => [category, city].filter(Boolean).join(' ').trim(),
     noun: 'people',
   },
+
+  web: {
+    id: 'web',
+    label: 'Public web',
+    /** A search result gives a name and a profile link, and little else. */
+    healthGates: { name: 0.9, profileUrl: 0.9 },
+    watched: ['name', 'profileUrl', 'headline', 'company', 'location'],
+    // A search engine's results are a list, not a map.
+    supportsGrid: false,
+    // There is no company website here to read an address off.
+    supportsEmails: false,
+    filterField: ['headline', 'summary', 'company'],
+    filterLabel: 'Result text contains',
+    filterHint: 'Only keep people whose result text matches',
+    urlPart: '/search',
+    /*
+     * Google by default.
+     *
+     * Bing was the first choice, on the reasoning that Google challenges
+     * automated queries hardest. The live run said otherwise: the same query
+     * that Bing answered with "One last step — please solve the challenge"
+     * came back from Google as a full page of trainers. A guess about which
+     * engine is friendlier loses to one run against both.
+     */
+    buildUrl: (term) => `https://www.google.com/search?q=${encodeURIComponent(String(term).trim())}`,
+    /*
+     * The whole point of this source: `site:` restricts the engine to public
+     * LinkedIn profile pages, which name people the logged-in search will only
+     * show as "LinkedIn Member" once they are outside your network.
+     *
+     * The words are NOT quoted. Quoting made the whole phrase a literal:
+     * Google answered `site:linkedin.com/in "kotlin corporate trainer"` with
+     * "No results found", because almost nobody writes those three words in
+     * that order — then quietly re-ran it without the quotes and found plenty.
+     * Unquoted, the engine ranks on all of them and LeadMine's own category
+     * filter does the narrowing, which is the same division of labour the
+     * LinkedIn source uses.
+     */
+    buildTerm: (category, city) =>
+      ['site:linkedin.com/in', category, city].filter(Boolean).join(' ').trim(),
+    noun: 'people',
+  },
 };
 
 export const DEFAULT_SOURCE = 'maps';

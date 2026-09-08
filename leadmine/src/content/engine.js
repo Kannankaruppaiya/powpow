@@ -283,6 +283,26 @@
       return true;
     }
 
+    /*
+     * Apply the run's filters using LinkedIn's own controls.
+     *
+     * This is what lets a run filter by a place whose id nobody knows: rather
+     * than building a URL out of LinkedIn's internal numbers, the page is
+     * driven the way a person drives it and LinkedIn writes the URL itself.
+     */
+    if (msg.type === 'APPLY_FILTERS') {
+      const adapter = pickAdapter(location.href);
+      if (!adapter || typeof adapter.applyFilters !== 'function') {
+        sendResponse({ ok: false, reason: 'this page has no filters to apply' });
+        return undefined;
+      }
+      adapter
+        .applyFilters(msg.wants || [], { waitFor, sleep })
+        .then(sendResponse)
+        .catch((err) => sendResponse({ ok: false, reason: String((err && err.message) || err) }));
+      return true;
+    }
+
     if (msg.type === 'CANCEL_SCRAPE') {
       state.cancelled = true;
       sendResponse({ ok: true });
