@@ -561,6 +561,85 @@ test('a run that lost nobody says nothing about it', async (t) => {
   }
 });
 
+test('a location filter broader than the typed town says so', async (t) => {
+  const ctx = await openPanel(t, { idle: true });
+  if (!ctx) return;
+  try {
+    await ctx.page.click('label.seg:has(input[value="linkedin"])');
+    await ctx.page.waitForTimeout(200);
+
+    await ctx.page.fill('#city', 'Chennai');
+    await ctx.page.fill('#geoInput', 'India');
+    await ctx.page.click('#geoAdd');
+    await ctx.page.waitForTimeout(150);
+
+    // The run puts no town in the keywords once a facet exists, so "Chennai"
+    // is dropped and the whole of India is searched. Saying "the LinkedIn
+    // location filter is doing this job" made that invisible, and the run
+    // that followed brought back a handful of people from a country.
+    const note = await ctx.page.textContent('#cityIgnored');
+    assert.match(note, /India/);
+    assert.match(note, /Chennai/, `the dropped town is not named: ${note}`);
+
+    // And one click makes the filter mean what the box says.
+    assert.equal(await ctx.page.isVisible('#useTypedCity'), true);
+    await ctx.page.click('#useTypedCity');
+    await ctx.page.waitForTimeout(150);
+
+    const chips = await ctx.page.$$eval('#geoChips button', (n) => n.map((e) => e.textContent.trim()));
+    assert.equal(chips.length, 1, chips.join(' | '));
+    assert.match(chips[0], /Chennai/);
+    // Replaced, not added: LinkedIn ORs its locations, so India plus Chennai
+    // would still be India.
+    assert.ok(!chips.some((c) => /India/.test(c)), chips.join(' | '));
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('removing one unresolved filter leaves the others alone', async (t) => {
+  const ctx = await openPanel(t, { idle: true });
+  if (!ctx) return;
+  try {
+    await ctx.page.click('label.seg:has(input[value="linkedin"])');
+    await ctx.page.waitForTimeout(200);
+
+    // Neither has been looked up on LinkedIn, so both carry an empty id.
+    for (const place of ['Theni', 'Madurai']) {
+      await ctx.page.fill('#geoInput', place);
+      await ctx.page.click('#geoAdd');
+      await ctx.page.waitForTimeout(120);
+    }
+    assert.equal((await ctx.page.$$('#geoChips button')).length, 2);
+
+    await ctx.page.click('#geoChips button:first-child');
+    await ctx.page.waitForTimeout(150);
+    const left = await ctx.page.$$eval('#geoChips button', (n) => n.map((e) => e.textContent.trim()));
+    assert.equal(left.length, 1, `removing one removed both: ${left.join(' | ')}`);
+    assert.match(left[0], /Madurai/);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('a location filter that matches the typed town raises nothing', async (t) => {
+  const ctx = await openPanel(t, { idle: true });
+  if (!ctx) return;
+  try {
+    await ctx.page.click('label.seg:has(input[value="linkedin"])');
+    await ctx.page.waitForTimeout(200);
+    await ctx.page.fill('#city', 'Chennai');
+    await ctx.page.fill('#geoInput', 'Chennai');
+    await ctx.page.click('#geoAdd');
+    await ctx.page.waitForTimeout(150);
+
+    assert.equal(await ctx.page.isVisible('#useTypedCity'), false);
+    assert.match(await ctx.page.textContent('#cityIgnored'), /Searching Chennai/);
+  } finally {
+    await ctx.close();
+  }
+});
+
 test('current-tab mode replaces the typed search with the page’s own', async (t) => {
   const ctx = await openPanel(t, { idle: true });
   if (!ctx) return;

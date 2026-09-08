@@ -104,10 +104,11 @@
             <span class="help" id="placeHint" hidden></span>
             <!-- Said only when a real location filter is doing the work, so
                  the box above is not silently ignored. -->
-            <span class="help" id="cityIgnored" hidden>
-              The LinkedIn location filter below is doing this job — anything
-              typed here would only be a word to hunt for.
-            </span>
+            <span class="help" id="cityIgnored" hidden></span>
+            <!-- A country in the filter and a town in the box is not a
+                 disagreement the user can see until it is named, and the run
+                 that follows searches the country. One click settles it. -->
+            <button type="button" id="useTypedCity" class="linkish" hidden></button>
           </div>
 
           <!--

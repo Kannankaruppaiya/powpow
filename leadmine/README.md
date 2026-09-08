@@ -432,6 +432,19 @@ error, it hands back a spreadsheet of the wrong people that looks entirely
 correct. Two ids ship as seeds because both were read off a live page with the
 label and the id visible together.
 
+**The town in "Where?" is not thrown away.** Once a filter exists the town
+stops going into the keywords — rightly, since `keywords` is not a location
+filter — and it used to be dropped there and then: a service category chosen
+with no location meant a **worldwide** search from a form reading "Chennai".
+It becomes a real location filter now, applied by driving LinkedIn's panel.
+
+And when a location filter *is* chosen and it is not that town, the panel says
+which place will actually be searched — *"Searching India. 'Chennai' is not
+being used"* — with one click to swap. LinkedIn ORs its locations, so adding
+the town to a country narrows nothing; the choice has to be the user's. A
+nationwide search is also how a run comes back nearly empty: almost everyone
+it finds is outside your network, and LinkedIn will not name them.
+
 With more than one location chosen, **One search per location** runs them
 separately. A people search stops after a fixed number of pages however good
 the filter is, so two places in one search share that ceiling instead of

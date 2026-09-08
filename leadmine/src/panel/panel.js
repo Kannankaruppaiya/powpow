@@ -48,7 +48,7 @@ const ui = Object.fromEntries(
     'optEmails', 'optContact', 'optVerify', 'optDeep',
     'optCurrentTab', 'useCurrentTab', 'currentTabHint',
     'category', 'city', 'batch', 'grid', 'maxResults',
-    'country', 'region', 'cityOptions', 'placeRow', 'placeHint', 'cityIgnored',
+    'country', 'region', 'cityOptions', 'placeRow', 'placeHint', 'cityIgnored', 'useTypedCity',
     'liFilters', 'optSplit', 'splitLocations',
     'geoInput', 'geoAdd', 'geoOptions', 'geoChips', 'geoHelp',
     'svcInput', 'svcAdd', 'svcOptions', 'svcChips',
@@ -465,7 +465,10 @@ function renderChips(facet) {
       chip.append(Object.assign(document.createElement('span'), { textContent: value.label }));
       chip.append(Object.assign(document.createElement('em'), { textContent: '✕' }));
       chip.addEventListener('click', () => {
-        chosen[facet] = chosen[facet].filter((v) => v.id !== value.id);
+        // By label, not by id: a name LinkedIn has never been asked about has
+        // no id yet, so every unresolved chip carries the same empty one and
+        // removing either removed both.
+        chosen[facet] = chosen[facet].filter((v) => v !== value);
         renderChips(facet);
         applyFacets();
         saveSettings();
@@ -527,19 +530,54 @@ function flushFacets() {
 }
 
 /**
- * Show the split option only when there is something to split, and stand the
- * free-text place down when a real location filter is doing its job.
+ * Show the split option only when there is something to split, and say which
+ * place the run will actually search.
+ *
+ * This box used to read "the LinkedIn location filter below is doing this
+ * job", which was true only while that filter held the same town. It did not
+ * hold. A run with **India** in the filter and **Chennai** typed here searched
+ * the whole country: the town is not put in the keywords once a facet exists,
+ * so it was dropped without a word. A nationwide search then returns people
+ * who are nearly all outside your network, LinkedIn refuses to name them, and
+ * a run that should have found fifty in Chennai exports three — with nothing
+ * anywhere saying the town had been discarded.
+ *
+ * So the note names the place being searched, and when that is not the town
+ * in the box it says so and offers the one click that fixes it.
  */
 function applyFacets() {
   // These are LinkedIn's filters. Left over from a people search, they must
   // not reach across and disable the Maps form.
   const people = ui.source.value === 'linkedin';
-  const places = people ? chosen.geoUrn.length : 0;
-  ui.optSplit.hidden = places < 2;
+  const places = people ? chosen.geoUrn.map((v) => v.label) : [];
+  ui.optSplit.hidden = places.length < 2;
   // A box that is silently ignored is a box people fill in and then distrust.
-  ui.city.disabled = places > 0;
-  ui.cityIgnored.hidden = !places;
+  ui.city.disabled = places.length > 0;
+  ui.cityIgnored.hidden = !places.length;
+
+  const typed = ui.city.value.trim();
+  const covered =
+    !typed || places.some((p) => p.toLowerCase() === typed.toLowerCase());
+
+  if (places.length) {
+    ui.cityIgnored.textContent = covered
+      ? `Searching ${places.join(', ')} — the LinkedIn location filter below.`
+      : `Searching ${places.join(', ')} — the LinkedIn location filter below. “${typed}” is not being used.`;
+  }
+  ui.useTypedCity.hidden = !places.length || covered;
+  if (!ui.useTypedCity.hidden) ui.useTypedCity.textContent = `Search ${typed} instead`;
 }
+
+// Replace the location filter with the town in the box. Replace, not add:
+// LinkedIn ORs its locations, so India plus Chennai is still India.
+ui.useTypedCity.addEventListener('click', () => {
+  const label = ui.city.value.trim();
+  if (!label) return;
+  chosen.geoUrn = [{ id: lookup(urns, 'geoUrn', label), label }];
+  renderChips('geoUrn');
+  applyFacets();
+  saveSettings();
+});
 
 for (const [facet, ui_] of Object.entries(FACET_UI)) {
   ui[`${facet === 'geoUrn' ? 'geo' : 'svc'}Add`].addEventListener('click', () => addFacet(facet));

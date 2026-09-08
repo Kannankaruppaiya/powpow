@@ -695,6 +695,59 @@ test('the active filters and query are read off the page', async (t) => {
   assert.ok(result.context.filters.geoUrn, 'a URL facet should be reported');
 });
 
+/**
+ * A results page where LinkedIn named nobody.
+ *
+ * Not hypothetical: a country-wide search on a niche skill returns people who
+ * are all outside the viewer's network, and every card comes back titled
+ * "LinkedIn Member" with no profile link. Detection used to count profile
+ * links, so this page had nothing to count.
+ */
+const ALL_NAMELESS = `
+  <nav><a href="https://www.linkedin.com/in/kannan-the-viewer/">Me</a></nav>
+  <main>
+    <ul role="list">
+      <li><div><div><span aria-hidden="true">LinkedIn Member</span></div>
+        <div>Manager &amp; Lead - Quality Engineering | Lead SDET</div>
+        <div>Chennai, Tamil Nadu, India</div><button>Connect</button></div></li>
+      <li><div><div><span aria-hidden="true">LinkedIn Member</span></div>
+        <div>Technical Lead @ Coforge | Java | Typescript</div>
+        <div>Gurugram, Haryana, India</div><button>Connect</button></div></li>
+      <li><div><div><span aria-hidden="true">LinkedIn Member</span></div>
+        <div>QA Engineer | API &amp; UI Testing | Playwright</div>
+        <div>Ahmedabad, Gujarat, India</div><button>Connect</button></div></li>
+    </ul>
+  </main>
+  <aside>
+    <a href="https://www.linkedin.com/in/jayasudha-ramesh/">Jayasudha Ramesh</a>
+    <p>Promoted</p>
+  </aside>
+  <div class="msg"><a href="https://www.linkedin.com/in/kannan-the-viewer/">Messaging</a></div>`;
+
+test('a page where LinkedIn named nobody is still a results page', async (t) => {
+  const result = await run(t, {
+    mutate: (page) => page.evaluate((html) => { document.body.innerHTML = html; }, ALL_NAMELESS),
+  });
+  if (!result) return;
+
+  // It used to fail with "No results list found on this page. Make sure the
+  // tab is showing search results." — while looking at a page full of them.
+  assert.equal(result.ok, true, result.error);
+  assert.equal(result.records.length, 0);
+  assert.equal(result.context.withheld, 3, JSON.stringify(result.context));
+});
+
+test('a promoted card and the message overlay do not out-vote the results', async (t) => {
+  // Two profile links outside the results, three withheld cards inside them.
+  // Counting only links picked the wrong container; counting cards does not.
+  const result = await run(t, {
+    mutate: (page) => page.evaluate((html) => { document.body.innerHTML = html; }, ALL_NAMELESS),
+    instead: null,
+  });
+  if (!result) return;
+  assert.ok(!result.records.some((r) => /Jayasudha/.test(r.name || '')), JSON.stringify(result.records));
+});
+
 test('a signed-out page stops the run with a clear reason', async (t) => {
   const result = await run(t, {
     mutate: async (page) => {

@@ -23,6 +23,21 @@
 
   const { norm, nameKey } = globalThis.MLSParse;
 
+  /*
+   * A person LinkedIn will not name.
+   *
+   * Outside your network — and once a month's searching passes LinkedIn's
+   * commercial-use limit, well inside it too — a card comes back titled
+   * "LinkedIn Member" with no profile link on it at all. There is no name and
+   * no URL to collect, so the run cannot use it.
+   *
+   * It used to skip these in silence, and that silence is the bug: a search
+   * showing twelve results and exporting three looks exactly like a broken
+   * scraper. It is not. LinkedIn withheld nine identities, and saying so is
+   * the difference between "this is broken" and "use the other source".
+   */
+  const ANONYMOUS = /^linkedin member$/i;
+
   const SEL = {
     profileLink: 'a[href*="/in/"]',
     // Filter controls in the bar above the results.
@@ -66,8 +81,27 @@
     const anchors = [...document.querySelectorAll(SEL.profileLink)];
     const links = anchors.filter((a) => profileUrl(a) && !a.closest('nav, header'));
 
+    /*
+     * A card LinkedIn refused to name votes for its list too.
+     *
+     * The list used to be found as "the container holding the most profile
+     * links", which quietly assumed every result has one. On a search whose
+     * results are mostly outside your network that assumption inverts: nine
+     * cards out of ten carry no link at all, so a handful of links in the
+     * message overlay or a promoted card can out-vote the results — and a
+     * page where NO result is named has nothing to vote at all, so the run
+     * failed with "No results list found on this page" while looking at a
+     * page full of results.
+     *
+     * A withheld card is still a card. It is found by the one thing LinkedIn
+     * does render for it: the words "LinkedIn Member" as a leaf.
+     */
+    const nameless = [...document.querySelectorAll('span, div, p, h3')].filter(
+      (el) => !el.children.length && ANONYMOUS.test(norm(el.textContent))
+    );
+
     const byContainer = new Map();
-    for (const link of links) {
+    for (const link of [...links, ...nameless]) {
       let node = link;
       for (let up = 0; up < 10 && node.parentElement; up += 1) {
         const container = node.parentElement;
@@ -77,16 +111,42 @@
       }
     }
 
+    /*
+     * A list's cards are siblings of one kind — li, li, li.
+     *
+     * Size alone cannot separate a list from the page holding it. On a search
+     * whose results LinkedIn will not name, three cards in the list tie with
+     * three regions of <body> that hold one card each: the results, a
+     * promoted profile, the message overlay. <body> won that tie and the
+     * promoted profile became a "result".
+     *
+     * Depth cannot separate them either, in either direction: while the list
+     * is still hydrating it holds two cards, which ties with the two links
+     * inside a single card — its profile anchor and its mutual-connection
+     * footer — and the deeper of those is the card, not the list.
+     *
+     * What actually tells them apart is what the children are. A list's are
+     * all the same tag; a page region holds a <main>, an <aside> and an
+     * overlay, and one card holds an <a> and a <div>.
+     */
+    const uniform = (items) => items.size >= 2 && new Set([...items].map((el) => el.tagName)).size === 1;
+
     let list = null;
-    let best = { size: 0, depth: Infinity };
+    let best = { size: 0, depth: Infinity, uniform: false };
     for (const [container, items] of byContainer) {
       const size = items.size;
       const depth = ancestorDepth(container);
-      // The most cards wins. On a tie the shallower container wins, because
-      // that is the list itself rather than something inside one card.
-      if (size > best.size || (size === best.size && depth < best.depth)) {
+      const alike = uniform(items);
+      // Looking like a list beats being bigger. Among equals: the most cards,
+      // then the shallower, which is the list rather than something inside a
+      // card.
+      const better =
+        alike !== best.uniform
+          ? alike
+          : size > best.size || (size === best.size && depth < best.depth);
+      if (better) {
         list = container;
-        best = { size, depth };
+        best = { size, depth, uniform: alike };
       }
     }
 
@@ -95,6 +155,7 @@
       list: best.size >= 2 ? list : null,
       anchors: anchors.length,
       links: links.length,
+      nameless: nameless.length,
       containers: byContainer.size,
       items: best.size,
     };
@@ -121,7 +182,8 @@
         return `${raw.slice(0, 60)}${a.closest('li') ? ' [in li]' : ' [no li]'}`;
       });
     return (
-      `links=${g.anchors} usable=${g.links} groups=${g.containers} biggest=${g.items}` +
+      `links=${g.anchors} usable=${g.links} nameless=${g.nameless}` +
+      ` groups=${g.containers} biggest=${g.items}` +
       `; lists=${document.querySelectorAll('ul').length}` +
       `; main=${document.querySelector('main') ? 'yes' : 'no'}` +
       (sample.length ? `; samples: ${sample.join(' | ')}` : '')
@@ -288,21 +350,6 @@
   /** Buttons and affordances that are chrome, not information. */
   const NOISE =
     /^(connect|message|follow|following|view full profile|invite|pending|\d+(\.\d+)?k? followers?)$/i;
-
-  /*
-   * A person LinkedIn will not name.
-   *
-   * Outside your network — and once a month's searching passes LinkedIn's
-   * commercial-use limit, well inside it too — a card comes back titled
-   * "LinkedIn Member" with no profile link on it at all. There is no name and
-   * no URL to collect, so the run cannot use it.
-   *
-   * It used to skip these in silence, and that silence is the bug: a search
-   * showing twelve results and exporting three looks exactly like a broken
-   * scraper. It is not. LinkedIn withheld nine identities, and saying so is
-   * the difference between "this is broken" and "use the other source".
-   */
-  const ANONYMOUS = /^linkedin member$/i;
 
   const DEGREE_ONLY = /^[•·]?\s*(1st|2nd|3rd\+?)\s*(degree)?\s*(connection)?$/i;
   const CONTEXT_LINE = /^(current|past|about|summary)\s*:/i;

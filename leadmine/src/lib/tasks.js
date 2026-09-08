@@ -131,9 +131,28 @@ export function facetSearches(config = {}) {
   if (config.source !== 'linkedin') return [];
 
   const labels = chosenLabels(config);
-  const facetNames = Object.keys(labels);
-  if (!facetNames.length) return [];
+  // Nothing chosen: the run is a plain keyword search, and `searchesFromConfig`
+  // already puts the town in it.
+  if (!Object.keys(labels).length) return [];
 
+  /*
+   * A town typed in "Where?" is a location the user asked for.
+   *
+   * Once any facet exists the town stops going into the keywords — rightly,
+   * because `keywords` is not a location filter, it is a word hunted for
+   * anywhere in a profile. But with a service category chosen and no location
+   * among the filters, the town was then dropped on the floor and the run went
+   * out with no location at all: a worldwide search, from a form showing
+   * "Chennai".
+   *
+   * It becomes a real location filter instead. No id is needed — the run
+   * drives LinkedIn's own location panel, types the name and ticks what comes
+   * back, and learns the id on the way.
+   */
+  const typedCity = String(config.city || '').trim();
+  if (!labels.geoUrn && typedCity) labels.geoUrn = [typedCity];
+
+  const facetNames = Object.keys(labels);
   const ids = usedFacets(config);
   // Every name has an id only when each facet's two lists line up.
   const known = facetNames.every(
