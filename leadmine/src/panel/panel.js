@@ -48,7 +48,7 @@ const ui = Object.fromEntries(
     'optEmails', 'optContact', 'optVerify', 'optDeep',
     'optCurrentTab', 'useCurrentTab', 'currentTabHint',
     'category', 'city', 'batch', 'grid', 'maxResults',
-    'country', 'region', 'cityOptions', 'placeRow', 'placeHint', 'cityIgnored', 'useTypedCity',
+    'country', 'region', 'cityOptions', 'placeRow', 'placeHint', 'cityIgnored',
     'liFilters', 'optSplit', 'splitLocations',
     'geoInput', 'geoAdd', 'geoOptions', 'geoChips', 'geoHelp',
     'svcInput', 'svcAdd', 'svcOptions', 'svcChips',
@@ -57,7 +57,7 @@ const ui = Object.fromEntries(
     'deep', 'fetchEmails', 'followContactPage', 'verifyEmails', 'skipSeen', 'seenNote',
     'start', 'resume', 'stop', 'again', 'goResults',
     'actionbar', 'barSearch', 'barResults', 'toast',
-    'runView', 'spinner', 'runTitle', 'barFill', 'message', 'taskLine', 'withheldNote', 'recentBox', 'recentList',
+    'runView', 'spinner', 'runTitle', 'barFill', 'message', 'taskLine', 'recentBox', 'recentList',
     'statFound', 'statFoundLabel', 'statPhones', 'statEmails', 'statSendable',
     'healthBox', 'healthList', 'error',
     'format', 'download', 'clear', 'filter',
@@ -207,39 +207,6 @@ const SOURCE_UI = {
     note:
       'This reads the results you are already signed in to see. LinkedIn restricts ' +
       'accounts for automated collection, so keep runs small and infrequent.',
-  },
-
-  /*
-   * The public web.
-   *
-   * LinkedIn's own search anonymises anyone outside your network — "LinkedIn
-   * Member", no name — so a search that reaches the whole site still returns
-   * rows nobody can act on. Their public profile page names them, and search
-   * engines have indexed it. Same people, different door, no login and no
-   * connection degree.
-   */
-  web: {
-    categoryLabel: 'What are you looking for?',
-    cityLabel: 'Where?',
-    categoryPlaceholder: 'corporate trainer kotlin',
-    cityPlaceholder: 'Chennai',
-    noun: 'people',
-    limitLabel: 'How many results?',
-    limitHint: 'Leave blank for every result the search engine will show.',
-    filterField: 'headline',
-    assistSub:
-      "Describe the person you need. I'll work out what to search the public web for.",
-    assistPlaceholder:
-      'I need freelance trainers who can teach Kotlin to corporate teams in India',
-    filterLabel: 'Result text contains',
-    filterHint: 'This matches the name, headline and snippet of the result.',
-    grid: false,
-    emails: false,
-    currentTab: false,
-    note:
-      'Searches Google for public LinkedIn profiles — no LinkedIn login and no ' +
-      'connection-degree limit, so it names people a signed-in search would show only ' +
-      'as “LinkedIn Member”. Public, indexed profiles only.',
   },
 };
 
@@ -450,9 +417,10 @@ function fillFacetOptions(facet) {
   // Say where the list comes from. Two entries on a fresh install looks like a
   // broken feature unless it is clear that browsing LinkedIn is what fills it.
   ui[ui_.help].textContent = labels.length
-    ? `Type any place. ${labels.length} already known, so those skip a step; ` +
-      'anything else is looked up on LinkedIn when the run starts.'
-    : 'Type any place — LeadMine picks it in LinkedIn’s own filter when the run starts.';
+    ? `${labels.length} known. LeadMine learns these from LinkedIn — open its ` +
+      'Locations filter, type a place, and every option it offers is remembered.'
+    : 'None known yet. Open LinkedIn’s Locations filter, type a place and apply ' +
+      'one — every option it showed you is remembered.';
 }
 
 function renderChips(facet) {
@@ -465,10 +433,7 @@ function renderChips(facet) {
       chip.append(Object.assign(document.createElement('span'), { textContent: value.label }));
       chip.append(Object.assign(document.createElement('em'), { textContent: '✕' }));
       chip.addEventListener('click', () => {
-        // By label, not by id: a name LinkedIn has never been asked about has
-        // no id yet, so every unresolved chip carries the same empty one and
-        // removing either removed both.
-        chosen[facet] = chosen[facet].filter((v) => v !== value);
+        chosen[facet] = chosen[facet].filter((v) => v.id !== value.id);
         renderChips(facet);
         applyFacets();
         saveSettings();
@@ -484,33 +449,79 @@ function setFacetHelp(facet, text) {
 }
 
 /**
- * Add a filter value.
+ * Add a value — asking LinkedIn for its id if we do not have one.
  *
- * Just the name. LinkedIn's facets take ids rather than names, but nothing
- * here has to know one: the run lands on the plain search and then works
- * LinkedIn's own filter panel — types the name, ticks what comes back, presses
- * Show results — and LinkedIn writes the URL. The ids are learned on the way,
- * and a name already known skips the driving and goes straight to a URL.
+ * A name is not enough: `geoUrn` wants 102784390, not "Chennai". Making the
+ * user go and apply every filter by hand first is a chore, and it is one the
+ * page can do itself — the filter panel's typeahead *is* LinkedIn's resolver,
+ * so this drives it once and remembers the answer forever.
  *
- * So a place nobody has ever looked up is addable immediately, which is the
- * whole point: the previous version made the user go and apply it on LinkedIn
- * by hand first.
+ * What it will not do is guess. When LinkedIn does not offer the name, what it
+ * does offer is shown and the choice stays with the user: a wrong id searches
+ * somewhere else and hands back a spreadsheet that looks entirely right.
  */
-function addFacet(facet) {
+async function addFacet(facet) {
   const ui_ = FACET_UI[facet];
-  const label = ui[ui_.input].value.trim();
-  if (!label) return;
+  const typed = ui[ui_.input].value.trim();
+  if (!typed) return;
 
-  if (!chosen[facet].some((v) => v.label.toLowerCase() === label.toLowerCase())) {
-    // The id when it is known, so the run can skip the panel; blank otherwise,
-    // and the run asks LinkedIn. Never a guess either way.
-    chosen[facet].push({ id: lookup(urns, facet, label), label });
+  let id = lookup(urns, facet, typed);
+  let label = typed;
+
+  if (!id) {
+    const button = ui[facet === 'geoUrn' ? 'geoAdd' : 'svcAdd'];
+    button.disabled = true;
+    setFacetHelp(facet, `Asking LinkedIn for “${typed}”…`);
+    let answer = null;
+    try {
+      answer = await chrome.runtime.sendMessage({
+        type: 'RESOLVE_FACET',
+        want: { facet, label: typed },
+      });
+    } catch (err) {
+      answer = { ok: false, reason: String((err && err.message) || err) };
+    }
+    button.disabled = false;
+
+    if (!answer || !answer.ok) {
+      const offered = (answer && answer.offered) || [];
+      setFacetHelp(
+        facet,
+        `${(answer && answer.reason) || 'LinkedIn did not answer'}${
+          offered.length ? `. It offers: ${offered.join(' · ')}` : ''
+        }`
+      );
+      return;
+    }
+
+    // The worker stored it; take the table back with it in.
+    const stored = await chrome.storage.local.get(URN_KEY);
+    urns = withSeed(stored[URN_KEY]);
+    id = answer.id;
+    // LinkedIn's own wording, not what was typed: "chennai" comes back as
+    // "Chennai, Tamil Nadu, India", and that is the thing being filtered on.
+    label = answer.label || typed;
   }
+
+  if (!chosen[facet].some((v) => v.id === id)) chosen[facet].push({ id, label });
   ui[ui_.input].value = '';
   fillFacetOptions(facet);
   renderChips(facet);
   applyFacets();
   saveSettings();
+}
+
+/** Show the split option only when there is something to split. */
+function applyFacets() {
+  // These are LinkedIn's filters. Left over from a people search, they must
+  // not reach across and disable the Maps form.
+  const people = ui.source.value === 'linkedin';
+  const places = people ? chosen.geoUrn.length : 0;
+  ui.optSplit.hidden = places < 2;
+  // A real location filter makes the free-text place meaningless, and a box
+  // that is silently ignored is a box people fill in and then distrust.
+  ui.city.disabled = places > 0;
+  ui.cityIgnored.hidden = !places;
 }
 
 /**
@@ -525,59 +536,15 @@ function addFacet(facet) {
  * Returns false when something typed could not be resolved, so Start can stop
  * and point at it rather than running a search the user did not ask for.
  */
-function flushFacets() {
-  for (const facet of Object.keys(FACET_UI)) addFacet(facet);
-}
-
-/**
- * Show the split option only when there is something to split, and say which
- * place the run will actually search.
- *
- * This box used to read "the LinkedIn location filter below is doing this
- * job", which was true only while that filter held the same town. It did not
- * hold. A run with **India** in the filter and **Chennai** typed here searched
- * the whole country: the town is not put in the keywords once a facet exists,
- * so it was dropped without a word. A nationwide search then returns people
- * who are nearly all outside your network, LinkedIn refuses to name them, and
- * a run that should have found fifty in Chennai exports three — with nothing
- * anywhere saying the town had been discarded.
- *
- * So the note names the place being searched, and when that is not the town
- * in the box it says so and offers the one click that fixes it.
- */
-function applyFacets() {
-  // These are LinkedIn's filters. Left over from a people search, they must
-  // not reach across and disable the Maps form.
-  const people = ui.source.value === 'linkedin';
-  const places = people ? chosen.geoUrn.map((v) => v.label) : [];
-  ui.optSplit.hidden = places.length < 2;
-  // A box that is silently ignored is a box people fill in and then distrust.
-  ui.city.disabled = places.length > 0;
-  ui.cityIgnored.hidden = !places.length;
-
-  const typed = ui.city.value.trim();
-  const covered =
-    !typed || places.some((p) => p.toLowerCase() === typed.toLowerCase());
-
-  if (places.length) {
-    ui.cityIgnored.textContent = covered
-      ? `Searching ${places.join(', ')} — the LinkedIn location filter below.`
-      : `Searching ${places.join(', ')} — the LinkedIn location filter below. “${typed}” is not being used.`;
+async function flushFacets() {
+  let ok = true;
+  for (const [facet, ui_] of Object.entries(FACET_UI)) {
+    if (!ui[ui_.input].value.trim()) continue;
+    await addFacet(facet);
+    if (ui[ui_.input].value.trim()) ok = false;
   }
-  ui.useTypedCity.hidden = !places.length || covered;
-  if (!ui.useTypedCity.hidden) ui.useTypedCity.textContent = `Search ${typed} instead`;
+  return ok;
 }
-
-// Replace the location filter with the town in the box. Replace, not add:
-// LinkedIn ORs its locations, so India plus Chennai is still India.
-ui.useTypedCity.addEventListener('click', () => {
-  const label = ui.city.value.trim();
-  if (!label) return;
-  chosen.geoUrn = [{ id: lookup(urns, 'geoUrn', label), label }];
-  renderChips('geoUrn');
-  applyFacets();
-  saveSettings();
-});
 
 for (const [facet, ui_] of Object.entries(FACET_UI)) {
   ui[`${facet === 'geoUrn' ? 'geo' : 'svc'}Add`].addEventListener('click', () => addFacet(facet));
@@ -588,7 +555,9 @@ for (const [facet, ui_] of Object.entries(FACET_UI)) {
     addFacet(facet);
   });
   // Looking away is as clear a signal as pressing the button.
-  ui[ui_.input].addEventListener('blur', () => addFacet(facet));
+  ui[ui_.input].addEventListener('blur', () => {
+    if (ui[ui_.input].value.trim()) addFacet(facet);
+  });
 }
 
 /* ------------------------------------------------------------------- tabs */
@@ -1024,7 +993,9 @@ function renderAside() {
  * three the user wants to choose between.
  */
 function refreshCategoryOptions() {
-  const field = (SOURCE_UI[ui.source.value] || SOURCE_UI.maps).filterField;
+  const field = (SOURCE_UI[ui.source.value] || SOURCE_UI.maps) === SOURCE_UI.linkedin
+    ? 'headline'
+    : 'category';
   ui.categoryOptions.replaceChildren(
     ...suggestionsFor(rows, field).slice(0, 60).map((value) => {
       const option = document.createElement('option');
@@ -1073,49 +1044,44 @@ function applyFilter() {
 function leadCard(record) {
   const card = document.createElement('div');
   card.className = 'lead';
-  // A record about a person, whichever door it came through. Rendering a
-  // web-sourced person as a business gave a card with an empty phone row and
-  // no headline at all.
-  const person = record.source === 'linkedin' || record.source === 'web';
-  const lines = person
-    ? [
-        [
-          'lead-1',
+  const lines =
+    record.source === 'linkedin'
+      ? [
           [
-            // A person's profile link is the thing you actually go and do
-            // something with, the way a phone number is for a business.
-            record.profileUrl
-              ? copyable(record.profileUrl, 'lead-name', record.name)
-              : text('lead-name', record.name),
-            // Outside LinkedIn there is no degree to show; the source is the
-            // useful mark, because it says why this row has no badge.
-            text('lead-mark', record.degree || (record.source === 'web' ? 'public' : '')),
+            'lead-1',
+            [
+              // A person's profile link is the thing you actually go and do
+              // something with, the way a phone number is for a business.
+              record.profileUrl
+                ? copyable(record.profileUrl, 'lead-name', record.name)
+                : text('lead-name', record.name),
+              text('lead-mark', record.degree),
+            ],
           ],
-        ],
-        ['lead-2', [text('lead-sub lead-headline', record.headline)]],
-        [
-          'lead-3',
+          ['lead-2', [text('lead-sub lead-headline', record.headline)]],
           [
-            text('lead-sub lead-area', [record.company, record.location].filter(Boolean).join(' · ')),
-            text('lead-tag', record.openToWork ? 'open to work' : ''),
+            'lead-3',
+            [
+              text('lead-sub lead-area', [record.company, record.location].filter(Boolean).join(' · ')),
+              text('lead-tag', record.openToWork ? 'open to work' : ''),
+            ],
           ],
-        ],
-      ]
-    : [
-        [
-          'lead-1',
-          [text('lead-name', record.name), text('lead-mark', record.rating ? `★ ${record.rating}` : '')],
-        ],
-        [
-          'lead-2',
+        ]
+      : [
           [
-            copyable(record.phone, 'lead-phone'),
-            record.area ? text('lead-dot', '·') : null,
-            record.area ? text('lead-sub lead-area', record.area) : null,
+            'lead-1',
+            [text('lead-name', record.name), text('lead-mark', record.rating ? `★ ${record.rating}` : '')],
           ],
-        ],
-        ['lead-3', [emailCell(record), text('lead-tag', record.category)]],
-      ];
+          [
+            'lead-2',
+            [
+              copyable(record.phone, 'lead-phone'),
+              record.area ? text('lead-dot', '·') : null,
+              record.area ? text('lead-sub lead-area', record.area) : null,
+            ],
+          ],
+          ['lead-3', [emailCell(record), text('lead-tag', record.category)]],
+        ];
 
   for (const [cls, kids] of lines) {
     const row = document.createElement('div');
@@ -1292,19 +1258,6 @@ function render(job) {
       'Finished';
   ui.message.textContent = job.message || '';
 
-  // LinkedIn shows people it will not name — "LinkedIn Member", no profile
-  // link — and a run that collected three out of twelve looks broken unless
-  // it says so. This is the one number that explains a short LinkedIn run.
-  const withheld = job.withheld || 0;
-  ui.withheldNote.hidden = !withheld || running;
-  if (withheld && !running) {
-    ui.withheldNote.textContent =
-      `LinkedIn would not name ${withheld} ${withheld === 1 ? 'person' : 'people'} it showed — ` +
-      'they are outside your network, so the card reads “LinkedIn Member” with no profile ' +
-      'link on it. Nothing was lost in the scrape. Run the same search on Public web to ' +
-      'find them by name.';
-  }
-
   ui.taskLine.hidden = !job.tasksTotal;
   if (job.tasksTotal) {
     const notes = [
@@ -1425,8 +1378,12 @@ ui.form.addEventListener('submit', async (event) => {
   event.preventDefault();
   showError('');
 
-  // A filter typed and left in its box is a filter the user meant.
-  if (ui.source.value === 'linkedin' && !ui.liFilters.hidden) flushFacets();
+  // A filter typed and left in its box is a filter the user meant. Take it up
+  // before starting, and stop rather than run without it.
+  if (ui.source.value === 'linkedin' && !ui.liFilters.hidden && !(await flushFacets())) {
+    showError('That filter could not be added — see the message under it.');
+    return;
+  }
 
   const config = readConfig();
   const conf = SOURCE_UI[config.source] || SOURCE_UI.maps;

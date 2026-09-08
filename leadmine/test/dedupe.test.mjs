@@ -1,7 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { recordKey, mergeRecords, dedupeRecords, addToSeen, filterUnseen, absorbInto } from '../src/lib/dedupe.js';
+import {
+  recordKey,
+  mergeRecords,
+  dedupeRecords,
+  addToSeen,
+  filterUnseen,
+} from '../src/lib/dedupe.js';
 
 const withUrl = (url, extra = {}) => ({ name: 'Some Place', mapsUrl: url, ...extra });
 
@@ -175,42 +181,4 @@ test('absorbInto keeps the key stable when a record is merged again', async () =
   absorbInto(records, [{ name: 'A', phone: '1111111111', website: 'https://a.test' }]);
   assert.equal(records.length, 1);
   assert.equal(records[0].key, firstKey, 'a merge must not re-key the row');
-});
-
-test('one person found two ways is one row, not two', () => {
-  // The logged-in search anonymises anyone outside your network — "LinkedIn
-  // Member", no name — while their public profile page names them. So the
-  // same person can arrive twice by different routes, and the profile slug is
-  // the only thing both records reliably share.
-  const fromSearch = {
-    name: 'Raghu Vaidyanathan',
-    headline: 'Manager Finance at Visesh Cargo',
-    location: 'Chennai, Tamil Nadu, India',
-    profileUrl: 'https://www.linkedin.com/in/raghu-vaidyanathan-48812716/',
-    source: 'linkedin',
-    degree: '3rd+',
-  };
-  const fromWeb = {
-    name: 'Raghu Vaidyanathan',
-    headline: 'Manager Finance',
-    // A different form of the same URL: no trailing slash, tracking attached.
-    profileUrl: 'https://in.linkedin.com/in/raghu-vaidyanathan-48812716?trk=abc',
-    source: 'web',
-  };
-
-  assert.equal(recordKey(fromSearch), recordKey(fromWeb));
-  assert.match(recordKey(fromSearch), /^li:raghu-vaidyanathan-48812716$/);
-
-  const merged = [];
-  absorbInto(merged, [fromSearch]);
-  absorbInto(merged, [fromWeb]);
-  assert.equal(merged.length, 1, 'one person, one row');
-  // And the fuller record wins the fields it has.
-  assert.equal(merged[0].degree, '3rd+');
-});
-
-test('a profile URL outranks a name that two people share', () => {
-  const a = { name: 'Anand Kumar', profileUrl: 'https://www.linkedin.com/in/anand-kumar-1' };
-  const b = { name: 'Anand Kumar', profileUrl: 'https://www.linkedin.com/in/anand-kumar-2' };
-  assert.notEqual(recordKey(a), recordKey(b), 'two different people stay two rows');
 });

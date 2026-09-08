@@ -82,16 +82,6 @@ const SETUP = (total) => {
     });
   }
 
-  // A LinkedIn run where most of the results came back as "LinkedIn Member".
-  if (window.__withheld) {
-    Object.assign(job, {
-      status: 'done', phase: 'done', jobId: 'job-1', count: 3,
-      message: '3 people from 1 search.',
-      tasksSettled: 1, tasksTotal: 1, withheld: 9,
-      config: { source: 'linkedin', category: 'playwright Typescript' },
-    });
-  }
-
   if (window.__paused) {
     Object.assign(job, {
       status: 'paused',
@@ -130,21 +120,6 @@ const SETUP = (total) => {
           profileUrl: `https://www.linkedin.com/in/priya-sharma-${i}`,
         }
       : {}),
-    // The same person, found through a search engine instead. No degree, no
-    // open-to-work badge, and no phone — the card must still read as a person.
-    ...(window.__web
-      ? {
-          source: 'web',
-          name: `Raghu Vaidyanathan ${i}`,
-          headline: 'Corporate Trainer at Trioangle Technologies',
-          company: 'Trioangle Technologies',
-          location: 'Madurai, Tamil Nadu, India',
-          degree: '',
-          phone: '',
-          email: '',
-          profileUrl: `https://www.linkedin.com/in/raghu-v-${i}`,
-        }
-      : {}),
   }));
 
   // A real in-memory store, not a stub that forgets: the planner's key is
@@ -167,6 +142,21 @@ const SETUP = (total) => {
       sendMessage: async (m) => {
         if (m.type === 'GET_JOB') {
           return { ok: true, job: JSON.parse(JSON.stringify(job)), seen: 0 };
+        }
+        // Standing in for the LinkedIn tab the worker would drive. Tests set
+        // window.__resolve to say what LinkedIn answers.
+        if (m.type === 'RESOLVE_FACET') {
+          window.__resolveAsked = m.want;
+          const answer = window.__resolve || { ok: false, reason: 'nothing set up' };
+          // The real worker stores what it learned before answering, and the
+          // panel reads the table back — so the stub has to as well.
+          if (answer.ok) {
+            const table = window.__storage['mls.urns'] || {};
+            const slot = { ...(table[answer.facet] || {}) };
+            slot[answer.label.toLowerCase()] = { id: answer.id, label: answer.label };
+            window.__storage['mls.urns'] = { ...table, [answer.facet]: slot };
+          }
+          return answer;
         }
         return { ok: true };
       },
@@ -233,7 +223,7 @@ const SETUP = (total) => {
 async function openPanel(
   t,
   {
-    idle = false, paused = false, running = false, linkedin = false, web = false, withheld = false,
+    idle = false, paused = false, running = false, linkedin = false,
     aiKey = '', urns = null, noManifest = false, stale = false,
   } = {}
 ) {
@@ -256,8 +246,6 @@ async function openPanel(
   if (paused) await page.addInitScript(() => { window.__paused = true; });
   if (running) await page.addInitScript(() => { window.__running = true; });
   if (linkedin) await page.addInitScript(() => { window.__linkedin = true; });
-  if (web) await page.addInitScript(() => { window.__web = true; });
-  if (withheld) await page.addInitScript(() => { window.__withheld = true; });
   // Filter ids the extension has already learned, as a run would have left
   // them. The harness's storage lives in the page, so this has to be seeded
   // before the panel loads rather than written afterwards.
@@ -463,178 +451,6 @@ test('switching source shows only the controls that apply', async (t) => {
     await ctx.page.waitForTimeout(200);
     assert.equal(await ctx.page.isVisible('#coverageRow'), true, 'switching back restores it');
     assert.equal(await ctx.page.isVisible('#sourceNote'), false);
-  } finally {
-    await ctx.close();
-  }
-});
-
-test('the public-web source shows the controls that apply to it', async (t) => {
-  const ctx = await openPanel(t, { idle: true });
-  if (!ctx) return;
-  try {
-    await ctx.page.evaluate(() => {
-      document.querySelector('details.advanced').open = true;
-    });
-
-    await ctx.page.click('label.seg:has(input[value="web"])');
-    await ctx.page.waitForTimeout(200);
-
-    // A search engine has no map to grid over, no site to read an email from,
-    // and no profile to open — the whole point is that it never signs in.
-    assert.equal(await ctx.page.isVisible('#coverageRow'), false);
-    assert.equal(await ctx.page.isVisible('#optEmails'), false);
-    assert.equal(await ctx.page.isVisible('#optDeep'), false);
-    // "Use the tab I'm on" belongs to LinkedIn, where the user sets up their
-    // own filters. There is nothing to inherit from a results page.
-    assert.equal(await ctx.page.isVisible('#optCurrentTab'), false);
-
-    assert.equal(await ctx.page.isVisible('#maxResults'), true);
-    assert.match(await ctx.page.textContent('#sourceNote'), /LinkedIn Member/i);
-  } finally {
-    await ctx.close();
-  }
-});
-
-test('the three source labels fit the panel at its narrowest', async (t) => {
-  const ctx = await openPanel(t, { idle: true });
-  if (!ctx) return;
-  try {
-    // A third segment was added to a control designed for two. At 400px the
-    // failure is silent to every other test: a flex item will not shrink
-    // below its own text, so a label that no longer fits does not clip — it
-    // pushes the whole control past the edge of the panel.
-    const fits = await ctx.page.evaluate(() => {
-      const seg = document.querySelector('.segmented');
-      const room = seg.parentElement.getBoundingClientRect().width;
-      const spans = [...seg.querySelectorAll('.seg span')].map((el) => {
-        // A range over the text lays out exactly as the text does, so its
-        // rect count is the line count. Dividing the box height by the line
-        // height counts the padding as a second line.
-        const range = document.createRange();
-        range.selectNodeContents(el);
-        return { text: el.textContent.trim(), lines: range.getClientRects().length };
-      });
-      return {
-        spans,
-        over: Math.round(seg.getBoundingClientRect().width - room),
-        page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
-      };
-    });
-
-    assert.equal(fits.spans.length, 3);
-    assert.ok(fits.over <= 1, `the source control overflows its column by ${fits.over}px`);
-    assert.ok(fits.page <= 0, `the panel scrolls sideways by ${fits.page}px`);
-    for (const span of fits.spans) {
-      assert.equal(span.lines, 1, `"${span.text}" wrapped onto ${span.lines} lines`);
-    }
-  } finally {
-    await ctx.close();
-  }
-});
-
-test('a run cut short by LinkedIn withholding names says so', async (t) => {
-  const ctx = await openPanel(t, { withheld: true });
-  if (!ctx) return;
-  try {
-    // "3 people from 1 search" next to a page showing twelve results reads as
-    // a broken scraper, and the user reruns it — repeatedly — getting three
-    // every time. The count of people LinkedIn refused to identify is the
-    // whole answer, so it is a line of its own, not a clause on the end.
-    assert.equal(await ctx.page.isVisible('#withheldNote'), true);
-    const note = await ctx.page.textContent('#withheldNote');
-    assert.match(note, /9 people/);
-    assert.match(note, /LinkedIn Member/);
-    // And it points at the thing that does find them.
-    assert.match(note, /Public web/i);
-  } finally {
-    await ctx.close();
-  }
-});
-
-test('a run that lost nobody says nothing about it', async (t) => {
-  const ctx = await openPanel(t, { idle: false });
-  if (!ctx) return;
-  try {
-    assert.equal(await ctx.page.isVisible('#withheldNote'), false);
-  } finally {
-    await ctx.close();
-  }
-});
-
-test('a location filter broader than the typed town says so', async (t) => {
-  const ctx = await openPanel(t, { idle: true });
-  if (!ctx) return;
-  try {
-    await ctx.page.click('label.seg:has(input[value="linkedin"])');
-    await ctx.page.waitForTimeout(200);
-
-    await ctx.page.fill('#city', 'Chennai');
-    await ctx.page.fill('#geoInput', 'India');
-    await ctx.page.click('#geoAdd');
-    await ctx.page.waitForTimeout(150);
-
-    // The run puts no town in the keywords once a facet exists, so "Chennai"
-    // is dropped and the whole of India is searched. Saying "the LinkedIn
-    // location filter is doing this job" made that invisible, and the run
-    // that followed brought back a handful of people from a country.
-    const note = await ctx.page.textContent('#cityIgnored');
-    assert.match(note, /India/);
-    assert.match(note, /Chennai/, `the dropped town is not named: ${note}`);
-
-    // And one click makes the filter mean what the box says.
-    assert.equal(await ctx.page.isVisible('#useTypedCity'), true);
-    await ctx.page.click('#useTypedCity');
-    await ctx.page.waitForTimeout(150);
-
-    const chips = await ctx.page.$$eval('#geoChips button', (n) => n.map((e) => e.textContent.trim()));
-    assert.equal(chips.length, 1, chips.join(' | '));
-    assert.match(chips[0], /Chennai/);
-    // Replaced, not added: LinkedIn ORs its locations, so India plus Chennai
-    // would still be India.
-    assert.ok(!chips.some((c) => /India/.test(c)), chips.join(' | '));
-  } finally {
-    await ctx.close();
-  }
-});
-
-test('removing one unresolved filter leaves the others alone', async (t) => {
-  const ctx = await openPanel(t, { idle: true });
-  if (!ctx) return;
-  try {
-    await ctx.page.click('label.seg:has(input[value="linkedin"])');
-    await ctx.page.waitForTimeout(200);
-
-    // Neither has been looked up on LinkedIn, so both carry an empty id.
-    for (const place of ['Theni', 'Madurai']) {
-      await ctx.page.fill('#geoInput', place);
-      await ctx.page.click('#geoAdd');
-      await ctx.page.waitForTimeout(120);
-    }
-    assert.equal((await ctx.page.$$('#geoChips button')).length, 2);
-
-    await ctx.page.click('#geoChips button:first-child');
-    await ctx.page.waitForTimeout(150);
-    const left = await ctx.page.$$eval('#geoChips button', (n) => n.map((e) => e.textContent.trim()));
-    assert.equal(left.length, 1, `removing one removed both: ${left.join(' | ')}`);
-    assert.match(left[0], /Madurai/);
-  } finally {
-    await ctx.close();
-  }
-});
-
-test('a location filter that matches the typed town raises nothing', async (t) => {
-  const ctx = await openPanel(t, { idle: true });
-  if (!ctx) return;
-  try {
-    await ctx.page.click('label.seg:has(input[value="linkedin"])');
-    await ctx.page.waitForTimeout(200);
-    await ctx.page.fill('#city', 'Chennai');
-    await ctx.page.fill('#geoInput', 'Chennai');
-    await ctx.page.click('#geoAdd');
-    await ctx.page.waitForTimeout(150);
-
-    assert.equal(await ctx.page.isVisible('#useTypedCity'), false);
-    assert.match(await ctx.page.textContent('#cityIgnored'), /Searching Chennai/);
   } finally {
     await ctx.close();
   }
@@ -1423,28 +1239,6 @@ test('a phone number is one click away from the clipboard', async (t) => {
   }
 });
 
-test('a person found on the public web reads as a person, not a business', async (t) => {
-  const ctx = await openPanel(t, { web: true });
-  if (!ctx) return;
-  try {
-    await ctx.page.click('#viewResults');
-    await ctx.page.waitForTimeout(400);
-
-    const first = ctx.page.locator('#rowBody .lead:first-child');
-    assert.equal(await first.locator('.lead-name').textContent(), 'Raghu Vaidyanathan 0');
-    // Rendered as a business, this row was a name, an empty phone line and
-    // nothing else — every field it does have lives in the person layout.
-    assert.match(await first.locator('.lead-headline').textContent(), /Corporate Trainer/);
-    assert.match(await first.locator('.lead-area').textContent(), /Trioangle Technologies · Madurai/);
-    assert.equal(await first.locator('.lead-phone').count(), 0, 'a person has no phone column');
-    // No connection degree exists off LinkedIn, so the mark says where the
-    // row came from instead of sitting empty.
-    assert.equal(await first.locator('.lead-mark').textContent(), 'public');
-  } finally {
-    await ctx.close();
-  }
-});
-
 test('a person reads as a person, and the name copies their profile link', async (t) => {
   const ctx = await openPanel(t, { linkedin: true });
   if (!ctx) return;
@@ -1626,49 +1420,68 @@ test('LinkedIn’s own filters are offered — and only the ones ever observed',
     await ctx.page.waitForTimeout(150);
     assert.equal(await ctx.page.textContent('#geoChips'), 'India✕');
 
-    // And the important half: a place nobody has ever looked up is addable
-    // straight away. Its id is undocumented and cannot be guessed, so the run
-    // types the name into LinkedIn's own filter instead — which means nothing
-    // here has to know it in advance.
+    // The important half: a name LinkedIn does not offer is refused, and what
+    // it *does* offer is shown so the choice stays with the user. Guessing an
+    // id would search somewhere else and hand back a spreadsheet that looks
+    // perfectly right.
+    await ctx.page.evaluate(() => {
+      window.__resolve = {
+        ok: false,
+        reason: 'LinkedIn does not offer “Munnar”',
+        offered: ['Idukki, Kerala, India', 'Kerala, India'],
+      };
+    });
     await ctx.page.fill('#geoInput', 'Munnar');
     await ctx.page.click('#geoAdd');
+    await ctx.page.waitForTimeout(300);
+    assert.match(await ctx.page.textContent('#geoHelp'), /does not offer/i);
+    assert.match(await ctx.page.textContent('#geoHelp'), /Idukki, Kerala, India/);
+    assert.equal(await ctx.page.textContent('#geoChips'), 'India✕', 'and nothing was added');
+
+    // And the resting state says where the list comes from. A list of one
+    // reads as a broken feature unless it is clear what fills it.
+    await ctx.page.fill('#geoInput', 'India');
+    await ctx.page.click('#geoAdd');
     await ctx.page.waitForTimeout(200);
-    assert.equal(await ctx.page.textContent('#geoChips'), 'India✕Munnar✕');
-    assert.match(await ctx.page.textContent('#geoHelp'), /Type any place/i);
+    assert.match(await ctx.page.textContent('#geoHelp'), /learns these from LinkedIn/i);
   } finally {
     await ctx.close();
   }
 });
 
-test('a name with no id yet reaches the run for LinkedIn to look up', async (t) => {
-  // The previous version made the user go and apply the filter on LinkedIn by
-  // hand before LeadMine would accept it. Now the run does that itself, so an
-  // unknown name goes straight through — with no id, which is the signal to
-  // drive LinkedIn's panel rather than build a URL.
+test('a name LeadMine does not know is asked of LinkedIn, once', async (t) => {
+  // Making the user go and apply every filter by hand first is a chore, and
+  // it is one the page can do itself: the filter panel's typeahead is
+  // LinkedIn's own resolver.
   const ctx = await openPanel(t, { idle: true });
   if (!ctx) return;
   try {
-    await ctx.page.evaluate(() => {
-      window.__started = null;
-      const send = chrome.runtime.sendMessage;
-      chrome.runtime.sendMessage = async (m) => {
-        if (m.type === 'START_JOB') window.__started = m.config;
-        return send(m);
-      };
-    });
-
     await ctx.page.click('#sourceGroup label.seg:has(input[value="linkedin"])');
     await ctx.page.waitForTimeout(250);
-    await ctx.page.fill('#category', 'kotlin');
-    // Typed and never added — Start has to take it up, or the run goes out
-    // unfiltered, which is exactly what a live run did.
-    await ctx.page.fill('#geoInput', 'chennai');
-    await ctx.page.click('#start');
-    await ctx.page.waitForTimeout(400);
 
-    const config = await ctx.page.evaluate(() => window.__started);
-    assert.deepEqual(config.facetLabels.geoUrn, ['chennai'], 'the name reaches the run');
-    assert.deepEqual(config.facets.geoUrn, [''], 'with no id, because nobody knows it yet');
+    await ctx.page.evaluate(() => {
+      window.__resolve = {
+        ok: true,
+        facet: 'geoUrn',
+        id: '102784390',
+        label: 'Chennai, Tamil Nadu, India',
+      };
+    });
+    await ctx.page.fill('#geoInput', 'chennai');
+    await ctx.page.click('#geoAdd');
+    await ctx.page.waitForTimeout(300);
+
+    assert.deepEqual(await ctx.page.evaluate(() => window.__resolveAsked), {
+      facet: 'geoUrn',
+      label: 'chennai',
+    });
+    // LinkedIn's own wording, not what was typed — that is the thing being
+    // filtered on, and showing anything else would be a lie about the run.
+    assert.equal(await ctx.page.textContent('#geoChips'), 'Chennai, Tamil Nadu, India✕');
+
+    // And it was learned, so the next time costs nothing.
+    const known = await ctx.page.evaluate(() => window.__storage['mls.urns']);
+    assert.equal(known.geoUrn['chennai, tamil nadu, india'].id, '102784390');
   } finally {
     await ctx.close();
   }

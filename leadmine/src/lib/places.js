@@ -69,11 +69,6 @@ export const CITY_LIMIT = 2000;
  * question with twenty answers and "dentists in Springfield, Illinois" is not.
  * Left bare for LinkedIn, which matches keywords literally — a profile does
  * not contain the words "Tamil Nadu" just because the person is in Chennai.
- *
- * The public web is qualified like Maps, not bare like LinkedIn: a public
- * profile page prints its location in full ("Chennai, Tamil Nadu, India"), so
- * the state is really on the page — and Springfield is as ambiguous to a
- * search engine as it is to Maps.
  */
 export function citiesFor(country, regionName, { source = 'maps', limit = CITY_LIMIT } = {}) {
   if (!country || !Array.isArray(country.s)) return [];

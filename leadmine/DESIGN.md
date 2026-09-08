@@ -144,10 +144,8 @@ that shifts layout.
 
 ## Components
 
-**Segmented control** — for the source, now three options. Cheaper to read
-than a select: every choice is visible without opening anything. Three is the
-ceiling at 400px; a fourth source would have to become a select, because
-labels that truncate are worse than a list that opens.
+**Segmented control** — for exactly two options (the source). Cheaper to read
+than a select: both choices are visible without opening anything.
 
 **Segmented control, three up** — for how thorough. This was three stacked
 cards, a hundred pixels each: a third of the panel spent on one setting that

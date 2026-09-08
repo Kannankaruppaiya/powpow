@@ -5,7 +5,7 @@
 A Chrome extension that turns a search you could run by hand into **one
 downloadable file**.
 
-Three sources:
+Two sources:
 
 - **Google Maps** — every business listing for a city and a category: name,
   phone, verified email, area, rating, website, hours and more. It works around
@@ -15,10 +15,6 @@ Three sources:
 - **LinkedIn People search** — the results of a people search you have already
   set up: name, headline, company, location, connection degree, open-to-work
   and profile URL. **Read the warning below before using this one.**
-- **Public web** — the same people, found through a search engine instead of
-  through LinkedIn. No login and no connection degree, so it names people a
-  signed-in search shows only as "LinkedIn Member". See
-  [Reaching people outside your network](#reaching-people-outside-your-network).
 
 Type `dentists` + `Chennai`, press start, and you get a spreadsheet.
 
@@ -62,26 +58,6 @@ failure mode is a banned account, not a broken script.
 | Plus Code | Detail panel |
 | Google Maps URL | Results list |
 
-## What you get per person
-
-Both people sources — LinkedIn and the public web — write the same columns, so
-one file can hold rows from both.
-
-| Column | LinkedIn | Public web |
-| --- | --- | --- |
-| Name | Result card | Result title |
-| Headline | Result card | Result title, after the dash |
-| Company | Result card | The "… at Company" in the headline |
-| Location | Result card | The place in the snippet |
-| Connection | 1st / 2nd / 3rd+ | — no degree exists off LinkedIn |
-| Open To Work | The badge on the card | — not shown on a public profile |
-| Match Context | The line under the headline | The result snippet |
-| Profile URL | Result card | The result link |
-| Found Via | `linkedin` | `web` |
-
-An empty **Connection** on a public-web row is a fact about the source, not a
-missed field — which is why **Found Via** is a column and not a footnote.
-
 ---
 
 ## Install (unpacked)
@@ -109,11 +85,7 @@ npm run package     # -> dist/leadmine-v5.0.0.zip
    panel's header. After a `git pull` and a **Reload** in `chrome://extensions`,
    check that number changed — it is read from the manifest, so it cannot
    disagree with what is loaded.
-2. Pick a **source**: Google Maps for businesses, LinkedIn for people you can
-   already see, or Public web for people you cannot — see
-   [Reaching people outside your network](#reaching-people-outside-your-network).
-
-3. Type what you are looking for — `dentists`, `gyms`, `IT training
+2. Type what you are looking for — `dentists`, `gyms`, `IT training
    institutes`. Or press **+ Search several at once** and paste one search per
    line:
 
@@ -123,14 +95,14 @@ npm run package     # -> dist/leadmine-v5.0.0.zip
    orthodontists in Coimbatore
    ```
 
-4. **Where?** — pick a country, then a state, then the town, or just type the
+3. **Where?** — pick a country, then a state, then the town, or just type the
    town if you already know it (`Chennai`, `Austin, TX`). The two dropdowns
    only decide what the town box suggests; the box is what gets searched, and
    it stays editable. A town picked for Maps comes qualified with its state
    ("Chennai, Tamil Nadu"), because "dentists in Springfield" is a question
    with twenty answers.
 
-5. Optionally narrow by **Category**. A search like `wholesale store` comes
+4. Optionally narrow by **Category**. A search like `wholesale store` comes
    back as furniture wholesalers, produce markets and phone-accessory shops;
    typing `wholesale` keeps only the ones you meant. Pick from the list or
    type your own, separate several with commas, and **leave it blank to keep
@@ -152,17 +124,17 @@ npm run package     # -> dist/leadmine-v5.0.0.zip
    saved between runs, and an input holding a value from three weeks ago looks
    exactly like an empty one. Click the chip to clear it.
 
-6. Pick a **Coverage** level (see below).
+5. Pick a **Coverage** level (see below).
 
-   On a **people** search there is no grid, so the panel asks **How many
-   profiles?** instead — leave it blank for everything the source will show
+   On a **LinkedIn** search there is no grid, so the panel asks **How many
+   profiles?** instead — leave it blank for every profile LinkedIn will show
    you, or type a number to stop there.
-7. Press **Start**. A tab opens on the source you picked and drives itself.
-8. When it finishes, choose Excel / CSV / JSON and press **Download**.
+6. Press **Start**. A Google Maps tab opens and drives itself.
+7. When it finishes, choose Excel / CSV / JSON and press **Download**.
 
 The panel can be closed while it runs — the job lives in the extension's
-background worker, so reopening it shows live progress. **Leave the tab it
-opened alone**, though; that tab is doing the work.
+background worker, so reopening it shows live progress. **Leave the Google Maps
+tab open**, though; that tab is doing the work.
 
 When a run finishes the panel switches to **Results** by itself — that is what
 the run was for. You can go there at any point during a run too, to watch leads
@@ -372,12 +344,10 @@ popup  ──START_JOB──▶  service worker  ──RUN_SCRAPE──▶  cont
 
 Three design notes worth knowing:
 
-- **Adapters own the DOM; the engine owns the process.** Google Maps, LinkedIn
-  and a search engine's results page differ in every DOM detail and in almost
-  none of the process — each renders a list of results that grows as you
-  scroll or page. The engine runs that loop; an adapter answers questions
-  about the page. Adding the public web as a third source needed one new file
-  in `src/content/adapters/`, and no change to the engine at all.
+- **Adapters own the DOM; the engine owns the process.** Google Maps and
+  LinkedIn differ in every DOM detail and in almost none of the process — both
+  render a virtualised list that grows as you scroll. The engine runs that
+  loop; an adapter answers questions about the page.
 - **The run is a queue, not a loop.** Batch entries × grid cells become a list
   of tasks written to storage after every one. That is what makes a run
   resumable rather than restartable, and it is why one failed grid cell does
@@ -412,38 +382,38 @@ The real filters are separate, and they take LinkedIn's **internal ids**:
 ```
 
 Those ids are not published, not documented and not derivable from the name,
-so **there is no table to ship** — and LeadMine does not need one.
+so **there is no table to ship**. LeadMine learns them instead. Whenever you
+apply a filter on LinkedIn by hand, the content script sees both halves at
+once — the label on the checkbox you ticked and the id that lands in the URL —
+and pairs them. One filter, applied once, is known forever after.
 
-**Type any place and press Start.** The run lands on the plain keyword search
-and then works LinkedIn's own filter panel the way a person would: opens
-Locations, types the name, waits for the options, ticks the one it asked for
-and presses Show results. LinkedIn writes the URL, ids and all. Nothing had to
-be looked up in advance.
+**One applied filter teaches the whole list it came from.** Typing "usa" into
+LinkedIn's location box renders ten places at once, each carrying its id;
+learning only the one you tick throws the other nine away. Options rendered
+together belong to the same facet, so the moment any of them lands in the URL
+the whole batch is attributable — which is an observation, not a guess: they
+were on screen together.
 
-Every pairing it sees on the way is kept — the label on the checkbox and the id
-in the URL — so the same search skips all of that next time and goes straight
-to a URL. One applied filter teaches the whole list it came from: typing "usa"
-into LinkedIn's box renders ten places at once, each carrying its id, and
-options rendered together belong to the same facet.
+**And it asks LinkedIn for the ones it does not have.** Type a place LeadMine
+has never seen, press Add, and it drives LinkedIn's own filter typeahead in the
+tab beside you — types the name, reads the id off the option it offers, puts
+the panel back and remembers the answer. The chip that appears carries
+LinkedIn's own wording, not what you typed: "chennai" comes back as
+"Chennai, Tamil Nadu, India", because that is the thing actually being filtered
+on. (It needs a LinkedIn people search open in the same window; that page is
+where the answer lives.)
 
-**It never guesses.** A filter that will not apply fails the task and says so,
-rather than scraping on unfiltered: a wrong or missing location filter does not
-error, it hands back a spreadsheet of the wrong people that looks entirely
+When LinkedIn does not have the name, it says so and shows what LinkedIn *does*
+offer — the choice stays with you:
+
+> LinkedIn does not offer "Munnar". It offers: Idukki, Kerala, India · Kerala,
+> India · Kochi, Kerala, India
+
+**It never guesses.** A wrong id does not fail; it quietly searches somewhere
+else and hands back a spreadsheet of the wrong people that looks entirely
 correct. Two ids ship as seeds because both were read off a live page with the
-label and the id visible together.
-
-**The town in "Where?" is not thrown away.** Once a filter exists the town
-stops going into the keywords — rightly, since `keywords` is not a location
-filter — and it used to be dropped there and then: a service category chosen
-with no location meant a **worldwide** search from a form reading "Chennai".
-It becomes a real location filter now, applied by driving LinkedIn's panel.
-
-And when a location filter *is* chosen and it is not that town, the panel says
-which place will actually be searched — *"Searching India. 'Chennai' is not
-being used"* — with one click to swap. LinkedIn ORs its locations, so adding
-the town to a country narrows nothing; the choice has to be the user's. A
-nationwide search is also how a run comes back nearly empty: almost everyone
-it finds is outside your network, and LinkedIn will not name them.
+label and the id visible together; two more have been observed but which label
+belongs to which is an inference, so they are left to be learned properly.
 
 With more than one location chosen, **One search per location** runs them
 separately. A people search stops after a fixed number of pages however good
@@ -468,97 +438,6 @@ The narrowing filter reads a person's headline, their current role and their
 employer, not the headline alone — the best result for "kotlin trainer" had
 `Software Developer` as its headline and the word *Trainer* only in the line
 underneath.
-
----
-
-## Reaching people outside your network
-
-LinkedIn's own people search has a limit no filter can lift: **it will not tell
-you who anyone outside your network is.** The card comes back reading
-*"LinkedIn Member"*, with no name and no profile URL. A search that reaches
-every corner of the site still hands back rows nobody can act on. This is not
-rate limiting — LinkedIn is not withholding the data because the run was too
-fast. It withholds identity by degree, and no pacing changes that.
-
-**LeadMine counts them and says so.** A run that finds twelve results and
-exports three looks exactly like a broken scraper, and the natural response is
-to run it again — and get three again. So the panel says, in a line of its
-own: *"LinkedIn would not name 9 people it showed."* Nothing was lost in the
-scrape. Those nine are precisely the people the Public web source exists to
-find.
-
-The same person's **public profile page names them**, and search engines have
-indexed hundreds of millions of those pages. So the answer is not a bigger
-search on LinkedIn; it is a different door.
-
-The **Public web** source searches for public profiles instead of asking
-LinkedIn:
-
-```
-site:linkedin.com/in corporate trainer Chennai
-```
-
-**Google, and nothing is quoted.** Both were decided by running them, not by
-reasoning about them. Bing was the first choice, on the argument that Google
-challenges automated queries hardest — the live run had Bing answer with *"One
-last step — please solve the challenge"* while Google returned a full page of
-trainers. And the quoted form, `"kotlin corporate trainer"`, came back from
-Google as **No results found**, because almost nobody writes those three words
-in that order; it then quietly re-ran the query without the quotes and found
-plenty. A query that only works because the engine ignored it is not a query.
-Unquoted, the engine ranks on all the words and LeadMine's own **Category**
-filter does the narrowing — the same division of labour the LinkedIn source
-uses.
-
-A result already carries what a card would have: the title is LinkedIn's own
-page title, `Priya Sharma - Corporate Trainer at Acme Corp | LinkedIn`, and the
-snippet under it usually carries the location. Name, headline, company,
-location, profile URL — with no login, no connection degree and nobody
-anonymised.
-
-**What it does not get.** Only profiles the person made public and the engine
-indexed. No connection degree, no open-to-work badge, no email. It is a
-discovery pass, not a replacement for the LinkedIn source — which is why both
-merge into one list.
-
-**One person, one row.** Records are keyed on the profile slug, so somebody
-found both ways appears once, not twice, whichever source saw them first.
-
-### Everything is found by shape
-
-Three engines, three layouts, and every one of them rewrites its class names
-without warning. So nothing here is named:
-
-- **A result is any link that resolves to `linkedin.com/in/<slug>`** — through
-  DuckDuckGo's `/l/?uddg=` wrapper, a generic `?url=` redirect, or straight out.
-- **A result is titled, and page furniture is not.** Every engine puts the
-  title in a heading, on one side of the link or the other, with a line of
-  text underneath; a navigation link has neither. Without this rule, a search
-  that matched nothing came back with one row — the engine's own header link,
-  named "LinkedIn".
-- **The results region is the deepest element holding a majority of them.**
-  Chrome is a lone link; results come in a cluster.
-- **The title is the heading, not the link text.** Google wraps the site line
-  *and* the heading in one anchor, so reading the link put "LinkedIn · Priya
-  Sharma 500+ followers Priya Sharma - Corporate Trainer…" in the Name column.
-- **A result's own links are all of them, not the first.** The same profile is
-  linked two or three times per result — the title, the breadcrumb URL under
-  it, a thumbnail. Taking the first put `linkedin.com › in › priya-sharma` in
-  the Name column; leaving the breadcrumb in the snippet put it in the
-  Location column.
-- **A snippet stops where the next person starts** — the block is climbed
-  until it links to a second person, not until it exceeds a character count.
-- **The next page is fetched, not clicked.** On a search engine Next is a full
-  navigation, and a navigation destroys the content script mid-run: the scrape
-  would be abandoned with page one and no error anywhere. LeadMine requests
-  the next page's URL and appends its results to the ones already on screen.
-
-Profiles are never opened. The title already carries the name and the
-headline, so opening each result would multiply the request count for very
-little — the same call the LinkedIn adapter makes.
-
-If the engine puts up a CAPTCHA the run stops and says so, rather than
-scraping the challenge page into the spreadsheet.
 
 ---
 
@@ -597,7 +476,7 @@ outcome rather than the mechanism. Every value is a token in
 ## Development
 
 ```bash
-npm test          # 254 unit tests — geo, queue, dedupe, parsing, email, verify, health, xlsx, export
+npm test          # 144 unit tests — geo, queue, dedupe, parsing, email, verify, health, xlsx, export
 npm run test:dom  # browser tests of the DOM wiring (see below)
 npm run icons     # regenerate the PNG icons
 npm run package   # build the distributable zip
@@ -608,13 +487,8 @@ script against a synthetic Maps-shaped page (selectors, scroll loop, the
 click-into-detail-and-back cycle), the IndexedDB layer against a real database,
 the side panel's virtualised lead list — including a check that only a window
 of cards is ever in the DOM, and that **Start** is on screen the moment the
-panel opens — the LinkedIn adapter against a synthetic page that hydrates
-lazily the way the real one does, and the public-web adapter against a
-synthetic results page that blends both engines' quirks (a Google anchor
-wrapping the site line and the title heading together, a DuckDuckGo `uddg`
-redirect, a breadcrumb URL above the title, a profile link in the header, a
-challenge page in Bing's wording, and a Next that is a real link to a page
-served over the network). It needs a browser:
+panel opens — and the LinkedIn adapter against a synthetic page
+that hydrates lazily the way the real one does. It needs a browser:
 
 ```bash
 npm i -D playwright-core     # then either set PLAYWRIGHT_BROWSERS_PATH
@@ -650,11 +524,6 @@ Common problems:
 | LinkedIn: "You are signed out" | Sign in to LinkedIn in that tab and rerun. |
 | LinkedIn: "security check" | Solve it in the tab, then rerun — and take it as a signal to slow down. |
 | LinkedIn results stop early | The adapter stops if the query or filters change mid-run, rather than blending two searches into one file. |
-| LinkedIn cards say "LinkedIn Member" | They are outside your network, and LinkedIn will not name them. The panel says how many; run the same search on the **Public web** source to find those by name. |
-| A LinkedIn run exports far fewer rows than the page shows | Check that line. If it accounts for the gap, nothing is broken — LinkedIn withheld those identities. |
-| Public web: "asking for a CAPTCHA" | Solve it in the tab, then press Resume. Fewer, slower runs avoid it. |
-| Public web: "returned no results for this query" | The engine matched nothing — not a pagination problem. Try the rarer word alone, or a different city spelling. |
-| Public web finds far fewer than LinkedIn | Only public, indexed profiles are there at all. It is a different set, not a smaller copy of the same one. |
 
 ---
 

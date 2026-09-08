@@ -55,16 +55,11 @@ one. Each search must open a genuinely different angle.
 
 Put the place in the "city" field, never inside "query".
 
-PEOPLE (linkedin, and public web)
-When the source is linkedin or the public web you are searching for PEOPLE, so
-a search is a job title or a role plus its skills — "facility manager",
-"housekeeping head hotel" — not a company category. Both match keywords
-literally, so keep them to a few words.
-
-Write the same plain role either way. The public-web source restricts the
-engine to public LinkedIn profiles itself, so never write site:, quotes, minus
-signs or any other search-engine syntax into a query — it would be added
-twice and match nothing.
+LINKEDIN
+When the source is linkedin you are searching for PEOPLE, so a search is a job
+title or a role plus its skills — "facility manager", "housekeeping head
+hotel" — not a company category. LinkedIn matches keywords literally, so keep
+them to a few words.
 
 LOCATION
 A city stays that city. A broad region ("South India", "the Gulf") becomes
@@ -84,24 +79,11 @@ Reply in the user's own language for "understood", "reason" and "question".
 Write the searches in the language that will actually match listings in that
 country.`;
 
-/*
- * How each source is named to the model.
- *
- * The public web is a people search too — it just reaches them through a
- * search engine rather than through LinkedIn — so the plan it needs is the
- * same shape: roles, not company categories.
- */
-const SOURCE_LINE = {
-  maps: 'google maps (businesses)',
-  linkedin: 'linkedin (people)',
-  web: 'public web — search engine results for public linkedin profiles (people)',
-};
-
 /** The user turn: their brief plus whatever the form already knows. */
 export function buildUserPrompt({ brief, source = 'maps', city = '', depth = 'balanced' } = {}) {
   const limit = DEPTH_LIMITS[depth] || DEPTH_LIMITS.balanced;
   const lines = [
-    `Source: ${SOURCE_LINE[source] || SOURCE_LINE.maps}`,
+    `Source: ${source === 'linkedin' ? 'linkedin (people)' : 'google maps (businesses)'}`,
     // The form's own field is context, not an override — if the brief names a
     // different place, the brief is the more recent thing the user said.
     city ? `Location already typed into the form: ${city}` : 'Location: not given',

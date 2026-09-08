@@ -177,14 +177,13 @@ test('LinkedIn facets never reach a Maps run', () => {
   assert.equal(task.term, 'dentists in Chennai');
 });
 
-test('a LinkedIn run whose ids are all known goes straight to the URL', () => {
+test('a LinkedIn run with facets carries the URL, not a keyword place', () => {
   const [task] = buildTaskList({
     source: 'linkedin',
     category: 'kotlin',
     facets: { geoUrn: ['102713980'], serviceCategory: ['20016'] },
-    facetLabels: { geoUrn: ['India'], serviceCategory: ['Corporate Training'] },
+    facetLabels: { geoUrn: ['India'] },
   });
-  assert.equal(task.applyFilters, undefined, 'nothing has to be driven');
   assert.match(task.url, /keywords=kotlin/);
   assert.match(task.url, /geoUrn=%5B%22102713980%22%5D/);
   assert.match(task.url, /serviceCategory=%5B%2220016%22%5D/);
@@ -206,80 +205,4 @@ test('two places become two searches only when asked', () => {
   assert.deepEqual(split.map((t) => t.city), ['Theni', 'Chennai']);
   assert.match(split[0].url, /geoUrn=%5B%22101138777%22%5D/);
   assert.match(split[1].url, /geoUrn=%5B%22106888327%22%5D/);
-});
-
-test('a name with no id yet is applied through LinkedIn’s own filter panel', () => {
-  // The point of the whole design: a place nobody has ever looked up is
-  // usable immediately. Its id is undocumented, so it cannot go in a URL —
-  // but it can be typed into LinkedIn's filter, and LinkedIn writes the URL.
-  const [task] = buildTaskList({
-    source: 'linkedin',
-    category: 'kotlin',
-    facetLabels: { geoUrn: ['chennai'], serviceCategory: ['Corporate Training'] },
-    facets: { serviceCategory: ['20016'] },
-  });
-
-  assert.match(task.url, /keywords=kotlin/, 'the run starts on the plain search');
-  assert.ok(!task.url.includes('geoUrn'), 'because there is no id to put in it');
-  assert.deepEqual(task.applyFilters, [
-    { facet: 'geoUrn', label: 'chennai' },
-    { facet: 'serviceCategory', label: 'Corporate Training' },
-  ]);
-});
-
-test('splitting still works when the ids are not known', () => {
-  const split = buildTaskList({
-    source: 'linkedin',
-    category: 'kotlin',
-    facetLabels: { geoUrn: ['chennai', 'madurai'] },
-    splitLocations: true,
-  });
-  assert.equal(split.length, 2);
-  assert.deepEqual(split[0].applyFilters, [{ facet: 'geoUrn', label: 'chennai' }]);
-  assert.deepEqual(split[1].applyFilters, [{ facet: 'geoUrn', label: 'madurai' }]);
-  assert.deepEqual(split.map((t) => t.city), ['chennai', 'madurai']);
-});
-
-test('a town typed in Where becomes a real location filter, not nothing', () => {
-  // Service category chosen, no location chosen, "Chennai" in the form. The
-  // town stops going into the keywords once a facet exists — correctly, since
-  // keywords are not a location filter — so before this it was dropped and
-  // the run searched the whole world from a form that said Chennai.
-  const searches = facetSearches({
-    source: 'linkedin',
-    category: 'playwright typescript',
-    city: 'Chennai',
-    facetLabels: { serviceCategory: ['Corporate Training'] },
-  });
-
-  assert.equal(searches.length, 1);
-  const wants = searches[0].applyFilters || [];
-  assert.deepEqual(
-    wants.map((w) => `${w.facet}=${w.label}`).sort(),
-    ['geoUrn=Chennai', 'serviceCategory=Corporate Training']
-  );
-  // And the town is what lands on the records and in the filename.
-  assert.equal(searches[0].city, 'Chennai');
-  // Never in the keywords: that is the model error this whole path exists to
-  // correct.
-  assert.ok(!/chennai/i.test(searches[0].term), searches[0].term);
-});
-
-test('a location the user chose is not overridden by the Where box', () => {
-  // LinkedIn ORs its locations, so adding the town to a country would not
-  // narrow anything. The chosen filter stands; the panel is what tells the
-  // user their town is not being used.
-  const searches = facetSearches({
-    source: 'linkedin',
-    category: 'playwright typescript',
-    city: 'Chennai',
-    facetLabels: { geoUrn: ['India'] },
-  });
-  assert.equal(searches.length, 1);
-  assert.equal(searches[0].city, 'India');
-  assert.ok(!JSON.stringify(searches[0]).includes('Chennai'));
-});
-
-test('a plain keyword run is left alone', () => {
-  assert.deepEqual(facetSearches({ source: 'linkedin', category: 'x', city: 'Chennai' }), []);
 });

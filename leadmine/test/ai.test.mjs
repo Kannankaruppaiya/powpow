@@ -23,7 +23,7 @@ import {
   listModels,
   PROVIDERS,
 } from '../src/lib/ai.js';
-import { buildUserPrompt, DEPTH_LIMITS, RESPONSE_SCHEMA, SYSTEM_PROMPT } from '../src/lib/plan-prompt.js';
+import { buildUserPrompt, DEPTH_LIMITS, RESPONSE_SCHEMA } from '../src/lib/plan-prompt.js';
 
 /* ------------------------------------------------------------- fake server */
 
@@ -554,13 +554,4 @@ test('a rejected key while listing says so, in the same words as elsewhere', asy
     listModels({ provider: 'gemini', apiKey: 'AIza-bad', fetchImpl }),
     /key was rejected/i
   );
-});
-
-test('the planner is told the public web is a people search too', () => {
-  const prompt = buildUserPrompt({ brief: 'kotlin trainers', source: 'web' });
-  assert.match(prompt, /\(people\)/, 'a role plan, not a company-category plan');
-  assert.match(prompt, /public linkedin profiles/i);
-  // buildTerm wraps the query in site:linkedin.com/in "…" itself. A model that
-  // also wrote it would produce site:…in site:…in and match nothing.
-  assert.match(SYSTEM_PROMPT, /never write site:/i);
 });
