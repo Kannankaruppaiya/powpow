@@ -29,6 +29,7 @@ import * as store from '../lib/store.js';
 import { buildTaskList, expandGridTasks, insertAfter, nextPending, taskProgress } from '../lib/tasks.js';
 import { URN_KEY, withSeed, learn } from '../lib/urns.js';
 import { pageOf, pageUrl } from '../lib/linkedin-query.js';
+import { cacheKey, planFrom, absorb } from '../lib/search-cache.js';
 
 const STORE_KEY = 'mls.job';
 
@@ -260,6 +261,24 @@ async function runTask(task, config, tabId) {
     // keyword string cannot express geoUrn or serviceCategory, so it is not
     // asked to.
     const url = task.url || buildUrl(source.id, task.term, task.point);
+
+    /*
+     * A search already answered costs nothing — including its first page.
+     *
+     * This has to be checked before the tab moves. Consulted inside the
+     * paging loop instead, the first navigation and its count had already
+     * happened, so a "free" repeat still spent a search while the panel said
+     * none were spent.
+     *
+     * Only when the URL is final. A task whose filters LinkedIn still has to
+     * apply does not know its own identity yet: the facet ids are what the
+     * key is built from, and LinkedIn has not written them.
+     */
+    if (pagesByUrl(config) && !(task.applyFilters && task.applyFilters.length)) {
+      const hit = await servedFromCache(task, config, url);
+      if (hit) return hit;
+    }
+
     if (pagesByUrl(config) && (await budgetLeft(config)) <= 0) {
       throw new Error(
         'The monthly LinkedIn search budget is spent. LinkedIn gives a free account ' +
@@ -342,6 +361,32 @@ async function runTask(task, config, tabId) {
   return records;
 }
 
+/* ------------------------------------------------------------------ pacing */
+
+/**
+ * How long to wait between pages.
+ *
+ * Everything else about this extension already looks like a person: it runs
+ * in the user's own Chrome, from their own address, in their own signed-in
+ * session. There is no headless browser to detect, no datacenter address, no
+ * automation framework to fingerprint.
+ *
+ * What does not look like a person is the clock. Ten pages at a fixed 1200ms
+ * is twenty seconds of perfectly even spacing, and evenness is the signal —
+ * a person reads a page for three seconds, then eleven, then one. So the wait
+ * is a range rather than a number, and it lengthens as a run goes on, the way
+ * attention does.
+ *
+ * This makes a run slower on purpose. It is the only thing about the run that
+ * was worth hiding, and a detected run returns nothing at all.
+ */
+function pageDelay(pagesSoFar = 0) {
+  const base = 1800 + Math.min(pagesSoFar, 10) * 260;
+  return Math.round(base + Math.random() * 3400);
+}
+
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
 /* ------------------------------------------------------- the search budget */
 
 const BUDGET_KEY = 'searchBudget';
@@ -414,6 +459,43 @@ async function readBudget() {
 const pagesByUrl = (config) => config.source === 'linkedin';
 
 /**
+ * The whole answer, if it is already on disk.
+ *
+ * Returns the records and leaves the tab where it is — no navigation, no
+ * count against the allowance. Returns null when the cache cannot cover what
+ * this run wants, and the run proceeds normally from page one.
+ */
+async function servedFromCache(task, config, url) {
+  const key = cacheKey(url);
+  if (!key) return null;
+  const wantPages = Math.min(config.maxPages || 10, 100);
+  const plan = planFrom(await store.getMeta(key), wantPages);
+  if (plan.reused < wantPages) return null;
+
+  // The stored pages are raw: LinkedIn repeats people across pages, and a
+  // live run merges them. Handing back the concatenation would give a cached
+  // answer fewer unique people than the search that produced it, and report
+  // the inflated number.
+  const byKey = new Map();
+  for (const record of plan.have) {
+    const id = recordKey(record) || record.profileUrl;
+    if (id && !byKey.has(id)) byKey.set(id, record);
+  }
+  const people = [...byKey.values()];
+
+  task.pagesFetched = 0;
+  task.pagesReused = plan.reused;
+  // Deliberately not `stoppedBecause`: the panel renders that as "stopped
+  // because …", and a run answered in full from disk did not stop early.
+  await save({
+    found: people.length,
+    message: `Answered from an earlier run — ${plan.reused} pages, no LinkedIn searches spent.`,
+  });
+  const want = config.maxResults || 0;
+  return want ? people.slice(0, want) : people;
+}
+
+/**
  * The rest of the pages, one navigation each.
  *
  * A navigation kills the content script, so this cannot live in the harvest
@@ -443,7 +525,39 @@ async function pageThrough(first, task, config, tabId) {
   const start = pageOf(base);
   task.pagesFetched = 1;
 
-  for (let page = start + 1; page <= lastPage; page += 1) {
+  /*
+   * What this search already returned, the last time it was run.
+   *
+   * Most of a month's allowance went on repeats: a run stops early and is
+   * re-run, a filter is adjusted and the whole thing starts from page one
+   * again. None of those needed to touch LinkedIn. Pages already held are
+   * merged in and skipped, so a repeat is free and only going deeper costs.
+   */
+  const key = cacheKey(base);
+  let entry = key ? await store.getMeta(key) : null;
+  // Whether this run actually paid for a page. Comparing depths could not
+  // tell: `reused` is clamped to the requested depth and the stored depth is
+  // not, so a run asking for fewer pages than are held looked like a fetch
+  // and refreshed the very timestamps the cache ages on.
+  let fetchedAny = false;
+  const plan = planFrom(entry, lastPage);
+  // Page one came back with `first`, before this function was called. Folded
+  // in here, after `entry` exists — above the declarations it was a temporal
+  // dead zone, and every multi-page run threw after paying for page one.
+  if (key) entry = absorb(entry, start, first);
+  for (const record of plan.have) {
+    const id = recordKey(record) || record.profileUrl;
+    if (id && !byKey.has(id)) byKey.set(id, record);
+  }
+  if (plan.reused > 1) {
+    await save({
+      found: byKey.size,
+      message: `${plan.reused} pages already held from an earlier run — no searches spent.`,
+    });
+  }
+  task.pagesReused = plan.reused;
+
+  for (let page = Math.max(start + 1, plan.from); page <= lastPage; page += 1) {
     if (cancelRequested) break;
     if (want && byKey.size >= want) {
       task.stoppedBecause = `the limit of ${want}`;
@@ -460,9 +574,10 @@ async function pageThrough(first, task, config, tabId) {
 
     await chrome.tabs.update(tabId, { url, active: !config.background });
     await waitForTabComplete(tabId, source.urlPart);
-    await new Promise((r) => setTimeout(r, 1200));
+    await wait(pageDelay(page - start));
     await countSearchPage();
     task.pagesFetched = page - start + 1;
+    fetchedAny = true;
     if (cancelRequested) break;
 
     await ensureContentScript(tabId);
@@ -476,6 +591,10 @@ async function pageThrough(first, task, config, tabId) {
     }
 
     const before = byKey.size;
+    // Recorded only now, with the page read. Marking it held at navigation
+    // time would let a failed scrape or a cancel record a page whose people
+    // were never collected, and the next run would skip it for good.
+    if (key) entry = absorb(entry, page, next.records || []);
     for (const record of next.records || []) {
       const key = recordKey(record) || record.profileUrl;
       if (key && !byKey.has(key)) byKey.set(key, record);
@@ -493,6 +612,12 @@ async function pageThrough(first, task, config, tabId) {
   }
 
   const out = [...byKey.values()];
+  // Written even when the run stopped early: a partial answer still saves the
+  // pages it did pay for, and the next run resumes past them.
+  // Only when something was actually fetched. Rewriting the timestamp on a
+  // pure cache hit would keep a week-old answer alive forever, simply because
+  // it kept being asked for.
+  if (key && fetchedAny) await store.putMeta(key, entry);
   return want ? out.slice(0, want) : out;
 }
 

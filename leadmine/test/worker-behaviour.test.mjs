@@ -143,8 +143,9 @@ test('every page LinkedIn is asked for is counted against the allowance', () => 
     WORKER.indexOf('countSearchPage') !== -1,
     'nothing counts what this extension asks LinkedIn for'
   );
-  // The first page of a task.
-  const firstNav = WORKER.slice(WORKER.indexOf('await chrome.tabs.update(tabId, { url,'), WORKER.indexOf('applyFilters && task.applyFilters.length'));
+  // The first page of a task, between the navigation and the filter step.
+  const navigate = WORKER.indexOf('await chrome.tabs.update(tabId, { url,');
+  const firstNav = WORKER.slice(navigate, WORKER.indexOf('if (task.applyFilters && task.applyFilters.length)'));
   assert.match(firstNav, /countSearchPage/, 'the first page of a task is not counted');
   // Every page after it.
   assert.match(WORKER.slice(WORKER.indexOf('async function pageThrough')), /countSearchPage/, 'later pages are not counted');
@@ -203,4 +204,74 @@ test('the budget ceiling is a default to stop at, not a fact', () => {
   const block = WORKER.slice(WORKER.indexOf('const MONTHLY_ALLOWANCE'), WORKER.indexOf('async function countSearchPage'));
   assert.match(block, /config\.searchBudget/, 'the ceiling cannot be raised by the user');
   assert.match(block, /cap - inMonth/, 'what is left is not computed from what was spent');
+});
+
+test('the wait between pages is a range, not a number', () => {
+  // Everything else about a run already looks like a person: the user's own
+  // Chrome, their own address, their own session. The clock was the one thing
+  // that did not — ten pages at a fixed 1200ms is twenty seconds of perfectly
+  // even spacing, and evenness is the signal.
+  const block = WORKER.slice(WORKER.indexOf('function pageDelay'), WORKER.indexOf('const wait ='));
+  assert.match(block, /Math\.random\(\)/, 'the delay is still a constant');
+  assert.match(block, /pagesSoFar/, 'the delay does not change as the run goes on');
+
+  const paging = WORKER.slice(WORKER.indexOf('async function pageThrough'));
+  assert.match(paging, /wait\(pageDelay\(/, 'paging does not use it');
+  assert.ok(!/setTimeout\(r, 1200\)/.test(paging), 'the fixed wait is still there');
+});
+
+test('the cache is consulted before the tab moves, not after', () => {
+  // Consulted inside the paging loop, the first navigation and its count had
+  // already happened — so a "free" repeat still spent a search while the
+  // panel said none were spent. Order is the whole of this fix, and order is
+  // what a source assertion can actually check.
+  const check = WORKER.indexOf('const hit = await servedFromCache(');
+  const navigate = WORKER.indexOf('await chrome.tabs.update(tabId, { url,');
+  assert.ok(check > 0, 'nothing consults the cache in runTask');
+  assert.ok(check < navigate, 'the cache is read after the tab has already been sent somewhere');
+});
+
+test('a page is recorded only once it has been read', () => {
+  // Recorded at navigation time, a failed scrape or a cancel would mark a
+  // page whose people were never collected, and the next run would skip it
+  // for good. The semantics live in search-cache.js and are tested there;
+  // what this checks is that the worker calls it in the right place.
+  const paging = WORKER.slice(WORKER.indexOf('async function pageThrough'));
+  const guard = paging.indexOf('if (!next || !next.ok)');
+  const record = paging.indexOf('entry = absorb(entry, page,');
+  assert.ok(guard > 0 && record > 0, 'the page is never recorded');
+  assert.ok(record > guard, 'a page is recorded before the scrape is known to have worked');
+});
+
+test('the cache is only rewritten when a page was actually fetched', () => {
+  // Rewriting the timestamp every time it is asked for would make a week-old
+  // answer immortal, which is the failure mode of every cache written in a
+  // hurry. Comparing depths could not tell: `reused` is clamped to the
+  // requested depth and the stored depth is not, so asking for fewer pages
+  // than are held looked like a fetch.
+  const paging = WORKER.slice(WORKER.indexOf('async function pageThrough'));
+  assert.match(paging, /if \(key && fetchedAny\)/, 'the entry is rewritten even when nothing was fetched');
+  assert.match(paging, /fetchedAny = true;/, 'nothing ever records that a page was paid for');
+});
+
+test('everything used in the paging loop is declared before it is used', () => {
+  // `absorb(entry, …)` sat ten lines above `let entry`, so every multi-page
+  // run threw a ReferenceError after paying for page one — and the source
+  // assertions above all still passed. Order is checkable; this checks it.
+  const paging = WORKER.slice(WORKER.indexOf('async function pageThrough'));
+  for (const name of ['entry', 'key', 'plan', 'fetchedAny']) {
+    const declared = paging.search(new RegExp(`(?:const|let) ${name}\\b`));
+    const used = paging.search(new RegExp(`[^.\\w$]${name}\\b(?! *=[^=])`));
+    assert.ok(declared > 0, `${name} is never declared`);
+    assert.ok(declared < used || used === -1, `${name} is used before it is declared`);
+  }
+});
+
+test('a cached answer is deduplicated the way a live one is', () => {
+  // LinkedIn repeats people across pages and a live run merges them. Handing
+  // back the raw concatenation gave a cached answer fewer unique people than
+  // the search that produced it, and reported the inflated number.
+  const cached = WORKER.slice(WORKER.indexOf('async function servedFromCache'), WORKER.indexOf('async function pageThrough'));
+  assert.match(cached, /recordKey\(record\)/, 'a cache hit hands back duplicates');
+  assert.ok(!/task\.stoppedBecause/.test(cached), 'a run answered in full from disk reads as one that stopped early');
 });

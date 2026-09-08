@@ -310,17 +310,61 @@
     return null;
   }
 
-  /** The URL a Next control leads to, or '' if it is not a plain link. */
+  /**
+   * The URL a Next control leads to, or '' if it is not one.
+   *
+   * The origin check is the whole of this function's safety. `findNext`
+   * searches every link on the page, and on a search engine the links are
+   * results — content an attacker can rank and title. A result titled "Show
+   * more results for kotlin trainers" matches the label pattern as well as
+   * the engine's own control does, and sits above it in document order.
+   *
+   * Without this check that URL was fetched with credentials and its markup
+   * imported into the live page: a request to a site of the attacker's
+   * choosing carrying whatever cookies the user has there, and their HTML
+   * dropped into the search engine's own origin.
+   *
+   * The next page of a search is on the search engine. Anything else is not
+   * a next page, whatever it calls itself.
+   */
   function nextUrl(doc) {
     const el = findNext(doc);
     if (!el) return '';
     const href = el.getAttribute('href') || '';
     if (!href || href.startsWith('#') || /^javascript:/i.test(href)) return '';
     try {
-      return new URL(href, location.href).href;
+      const url = new URL(href, location.href);
+      return url.origin === location.origin ? url.href : '';
     } catch {
       return '';
     }
+  }
+
+  /*
+   * Markup from another page, made inert before it touches this one.
+   *
+   * DOMParser does not run anything, but these nodes are about to be inserted
+   * into a live document, where an `onerror` on an <img> fires immediately —
+   * in the page's own origin, not this script's isolated world. Result markup
+   * is not trusted input, so nothing that can execute survives the trip.
+   */
+  const EXECUTABLE = 'script, iframe, object, embed, link, meta, base, form';
+
+  function sanitise(node) {
+    for (const el of [node, ...node.querySelectorAll('*')]) {
+      for (const attr of [...el.attributes]) {
+        const name = attr.name.toLowerCase();
+        if (name.startsWith('on')) el.removeAttribute(attr.name);
+        else if (
+          (name === 'href' || name === 'src' || name === 'action' || name === 'formaction') &&
+          /^\s*javascript:/i.test(attr.value)
+        ) {
+          el.removeAttribute(attr.name);
+        }
+      }
+    }
+    for (const el of node.querySelectorAll(EXECUTABLE)) el.remove();
+    return node.matches && node.matches(EXECUTABLE) ? null : node;
   }
 
   let endReason = '';
@@ -425,9 +469,18 @@
 
       let doc = null;
       try {
-        const response = await fetch(url, { credentials: 'include' });
+        // same-origin, not include: the URL is already checked to be this
+        // engine, and `include` is what would have sent the user's cookies
+        // to somebody else's server if that check were ever bypassed.
+        const response = await fetch(url, { credentials: 'same-origin', redirect: 'follow' });
         if (!response.ok) {
           endReason = `the search engine answered ${response.status} for the next page`;
+          return false;
+        }
+        // A redirect can land anywhere. Where it landed is what was actually
+        // fetched, so that is what has to be on the engine.
+        if (response.url && new URL(response.url).origin !== location.origin) {
+          endReason = 'the next page redirected off the search engine';
           return false;
         }
         doc = new DOMParser().parseFromString(await response.text(), 'text/html');
@@ -448,7 +501,8 @@
       // header's own profile link would start counting as a person again.
       const into = resultsRoot(document);
       for (const node of [...resultsRoot(doc).children]) {
-        into.appendChild(document.importNode(node, true));
+        const safe = sanitise(document.importNode(node, true));
+        if (safe) into.appendChild(safe);
       }
       latest = doc;
 

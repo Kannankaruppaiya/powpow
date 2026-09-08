@@ -216,8 +216,9 @@ async function run(t, { url, body, nextBody, config = {}, instead } = {}) {
         { scrollDelay: 60, deep: false, ...config }
       );
 
+  const pwned = instead ? undefined : await page.evaluate(() => window.__pwned);
   await browser.close();
-  return instead ? result : { ...result, served };
+  return instead ? result : { ...result, served, pwned };
 }
 
 const by = (records, name) => records.find((r) => r.name === name);
@@ -402,6 +403,43 @@ test('a CAPTCHA is recognised in each engine’s own words', async (t) => {
   // An empty result set is not a challenge, and calling it one hides a real
   // "your query matched nothing".
   assert.equal(wordings.results, false);
+});
+
+test('the next page must be on the search engine itself', async (t) => {
+  // findNext searches every link on the page, and on a search engine the
+  // links are results — content an attacker can rank and title. A result
+  // titled "Show more results for kotlin trainers" matches the label as well
+  // as the engine's own control and sits above it in document order.
+  // Followed, that URL was fetched with credentials and its markup imported
+  // into the live page.
+  const result = await run(t, {
+    // The Next control points at another origin. Nothing should be fetched.
+    body: fixture(PAGE_ONE, { next: 'https://attacker.example/next' }),
+    config: { maxResults: 20 },
+  });
+  if (!result) return;
+  assert.ok(
+    !result.served.some((u) => /attacker\.example/.test(u)),
+    `an off-engine URL was fetched: ${result.served.join(' | ')}`
+  );
+  assert.match(result.stoppedBecause, /no next page|no results/i);
+});
+
+test('markup from the next page cannot execute in this one', async (t) => {
+  const hostile = fixture(
+    PAGE_TWO +
+      `<li class="MjjYud"><h3><a href="https://www.linkedin.com/in/evil-x">Evil X - Trainer | LinkedIn</a></h3>
+         <img src="x" onerror="window.__pwned = true">
+         <script>window.__pwned = true;<\/script>
+         <a href="javascript:window.__pwned=true">click</a>
+         <p>Chennai, Tamil Nadu, India</p></li>`,
+    { next: '' }
+  );
+  const result = await run(t, { nextBody: hostile, config: { maxResults: 20 } });
+  if (!result) return;
+  // The page still pages — sanitising must not throw the results away.
+  assert.ok(result.records.some((r) => r.name === 'Meera T'), JSON.stringify(result.records.map((r) => r.name)));
+  assert.equal(result.pwned, undefined, 'imported markup ran in the page');
 });
 
 test('maxResults is honoured', async (t) => {

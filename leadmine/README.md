@@ -357,6 +357,7 @@ popup  ──START_JOB──▶  service worker  ──RUN_SCRAPE──▶  cont
 | `src/lib/places.js` | The country / state / town lists behind the "Where?" picker |
 | `src/lib/tasks.js` | The search queue — batch parsing, grid expansion, resume points |
 | `src/lib/dedupe.js` | Stable business identity, record merging, the cross-run seen index |
+| `src/lib/search-cache.js` | What a LinkedIn search already returned, so it is never paid for twice |
 | `src/lib/email.js` | Fetches business websites, extracts/ranks emails, finds social links |
 | `src/lib/verify.js` | Email verification over DNS-over-HTTPS |
 | `src/lib/store.js` | IndexedDB: job metadata, records, the cross-run seen index |
@@ -492,6 +493,26 @@ of them, with the extension turned off entirely.
 | "One search per location", four places | ×4 |
 | Re-running the same query | full price again |
 
+**A search already answered costs nothing.** Most of the allowance did not go
+on new searches — it went on the same ones: a run stops early and is re-run, a
+filter is adjusted and the whole thing starts from page one again. None of
+those needed to touch LinkedIn; the results were already on disk.
+
+Answers are keyed on what the search *is* — its keywords and its filters, with
+LinkedIn's own tracking parameters stripped, since `origin`, `searchId` and
+`spellCorrectionEnabled` change between two runs of the identical search and
+would make every repeat a miss. Pages are held individually and age
+individually, so a repeat of the same depth spends nothing, going deeper pays
+only for the difference, and a page older than a week is refetched rather than
+served beside a fresh one.
+
+**The wait between pages is a range, not a number.** Everything else about a
+run already looks like a person — the user's own Chrome, their own address,
+their own signed-in session, no headless browser and no automation framework
+to fingerprint. The clock was the one thing that did not: ten pages at a fixed
+1200ms is twenty seconds of perfectly even spacing, and evenness is the
+signal. It is a range now, and it lengthens as a run goes on.
+
 **A run stops at the budget rather than discovering the wall.** Paging by URL
 made reaching all 100 pages reliable for the first time, which is exactly the
 danger — at 100 pages a run, three runs spend a month, and the version before
@@ -600,6 +621,21 @@ without warning. So nothing here is named:
   Location column.
 - **A snippet stops where the next person starts** — the block is climbed
   until it links to a second person, not until it exceeds a character count.
+- **The next page has to be on the search engine.** `findNext` searches every
+  link on the page, and on a search engine the links are *results* — content
+  anyone can rank and title. A result titled "Show more results for kotlin
+  trainers" matches the label as well as the engine's own control does, and
+  sits above it in document order. Followed, that URL was fetched **with
+  credentials** and its markup imported into the live page: a request to
+  somebody else's server carrying whatever cookies the user has there, and
+  their HTML dropped into the engine's own origin. The next page of a search
+  is on the search engine; anything else is not a next page, whatever it calls
+  itself. Redirects are checked where they land, not where they start.
+- **Imported markup is made inert first.** `DOMParser` runs nothing, but these
+  nodes are about to be inserted into a live document, where an `onerror` on
+  an `<img>` fires immediately — in the page's own origin, not the content
+  script's isolated world. Scripts, frames and event handlers do not survive
+  the trip.
 - **The next page is fetched, not clicked.** On a search engine Next is a full
   navigation, and a navigation destroys the content script mid-run: the scrape
   would be abandoned with page one and no error anywhere. LeadMine requests
