@@ -142,6 +142,27 @@ that shifts layout.
 
 ---
 
+## The panel does not draw its own header
+
+Chrome renders the side panel's own header above this document, with the
+extension's icon and its name in it. The panel drew both again directly
+underneath — the mark and the word "LeadMine", twice on screen, forty pixels
+apart.
+
+Forty pixels is not nothing here. Vertical space is the one dimension a 400px
+side panel has none of; it is what put **Start** below the fold once already,
+and it is why the six-column table became lead cards.
+
+So the brand row is gone. What stays is what Chrome's header does not show —
+the loaded version, and what the run is doing — and both ride on the tab row
+rather than on a row of their own. The `<h1>` stays too, clipped to a pixel:
+a screen reader has no side-panel chrome to read, and the document still
+needs a name.
+
+The rule generalises. **Do not redraw what the host already draws.** A panel,
+a popup and a page each sit inside something that has already said whose they
+are.
+
 ## Components
 
 **Segmented control** — for the source, now three options. Cheaper to read

@@ -47,20 +47,18 @@ body {
 
 /* --- chrome ------------------------------------------------------------ */
 
-.masthead {
+/* One row where there were two: the tabs, and — pushed to the far end — the
+   loaded version and what the run is doing. The brand is not here, because
+   Chrome's own side-panel header is already showing it directly above. */
+.topbar {
   display: flex;
   align-items: center;
   gap: var(--s-2);
   flex: none;
-  padding: 10px var(--s-4);
+  padding-right: var(--s-4);
+  border-bottom: 1px solid var(--hairline);
 }
-.masthead h1 {
-  flex: 1;
-  margin: 0;
-  font-size: var(--t-title);
-  font-weight: var(--w-semi);
-  letter-spacing: -0.01em;
-}
+.topbar .version { margin-left: auto; }
 
 /* Small, muted, always visible: it answers "did my reload take?" without
    competing with anything. */
@@ -91,7 +89,6 @@ body {
   flex: none;
   gap: var(--s-4);
   padding: 0 var(--s-4);
-  border-bottom: 1px solid var(--hairline);
 }
 .tab {
   padding: var(--s-2) 0 10px;

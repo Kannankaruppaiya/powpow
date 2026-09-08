@@ -22,21 +22,29 @@
         is now below them, quiet, and collapsible.
   -->
   <body>
-    <header class="masthead">
-      <img src="../../icons/icon32.png" alt="" width="20" height="20" />
-      <h1>LeadMine</h1>
+    <!-- Chrome draws the side panel's own header above this one, with the
+         extension's icon and its name in it. Repeating both here spent forty
+         pixels of a 400px panel saying what was already on screen twice — in
+         the one dimension this panel has none of, and which put Start below
+         the fold once already.
+
+         What Chrome does not show is the version and what the run is doing,
+         so those are all that is left, and they ride on the tab row rather
+         than on a row of their own. The heading stays for screen readers,
+         which have no side-panel chrome to read. -->
+    <div class="topbar">
+      <h1 class="sr-only">LeadMine</h1>
+      <nav class="tabbar" role="tablist">
+        <button type="button" id="viewSetup" class="tab is-active" role="tab">Search</button>
+        <button type="button" id="viewResults" class="tab" role="tab">
+          Results <span id="tabCount" class="tab-count" hidden>0</span>
+        </button>
+      </nav>
       <!-- Read from the manifest, so it is proof the reload landed rather
            than a number someone remembered to bump in two places. -->
       <span id="version" class="version" title="Loaded version"></span>
       <span id="statusPill" class="pill" hidden>Idle</span>
-    </header>
-
-    <nav class="tabbar" role="tablist">
-      <button type="button" id="viewSetup" class="tab is-active" role="tab">Search</button>
-      <button type="button" id="viewResults" class="tab" role="tab">
-        Results <span id="tabCount" class="tab-count" hidden>0</span>
-      </button>
-    </nav>
+    </div>
 
     <!-- ==================================================== search ===== -->
     <section id="paneSetup" class="pane">

@@ -1593,7 +1593,7 @@ chrome.runtime.onMessage.addListener((msg) => {
 });
 
 /**
- * Stamp the running version into the masthead.
+ * Stamp the running version into the top bar.
  *
  * Reloading an unpacked extension gives no feedback inside the panel, so
  * "did the reload land?" meant opening chrome://extensions to check. Reading

@@ -1907,3 +1907,56 @@ test('a paused run still keeps the screen, because Resume lives there', async (t
     await ctx.close();
   }
 });
+
+test('the panel does not repeat the name Chrome is already showing', async (t) => {
+  const ctx = await openPanel(t, { idle: true });
+  if (!ctx) return;
+  try {
+    // Chrome draws the side panel's own header directly above this document,
+    // with the extension's icon and name in it. Drawing both again spent
+    // forty pixels of a 400px panel restating what was already on screen —
+    // in the one dimension this panel has none of.
+    const brand = await ctx.page.evaluate(() => {
+      const bar = document.querySelector('.topbar');
+      const seen = (el) => el.getBoundingClientRect().height > 0;
+      // What a sighted user reads: the bar with anything screen-reader-only
+      // taken out. innerText keeps sr-only text, since clipping to a pixel is
+      // not the same as being display:none — which is the whole point of it.
+      const shown = bar.cloneNode(true);
+      for (const el of shown.querySelectorAll('.sr-only')) el.remove();
+      const h1 = document.querySelector('h1');
+      return {
+        // Scoped to the bar above the panes: the empty-results state has a
+        // mark of its own and that one is doing a job Chrome's header is not.
+        marks: [...bar.querySelectorAll('img, svg')].filter(seen).length,
+        name: /leadmine/i.test(shown.textContent || ''),
+        heading: h1 ? h1.textContent.trim() : '',
+        headingHeight: h1 ? Math.round(h1.getBoundingClientRect().height) : -1,
+      };
+    });
+    assert.equal(brand.marks, 0, 'the mark is drawn a second time');
+    assert.equal(brand.name, false, 'the name is drawn a second time');
+    // Screen readers have no side-panel chrome to read, so the heading stays —
+    // clipped to a pixel, taking no room from the panel.
+    assert.equal(brand.heading, 'LeadMine');
+    assert.ok(brand.headingHeight <= 1, `the heading takes ${brand.headingHeight}px of the panel`);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('the version and the run status survive the row they lost', async (t) => {
+  const ctx = await openPanel(t, { idle: true });
+  if (!ctx) return;
+  try {
+    // These are the two things Chrome's header does not show, and the version
+    // is what answers "did my reload actually land?" — which this session
+    // leaned on repeatedly.
+    assert.equal(await ctx.page.isVisible('#version'), true);
+    assert.match(await ctx.page.textContent('#version'), /^v\d+\.\d+\.\d+$/);
+    assert.equal(await ctx.page.isVisible('#viewSetup'), true);
+    assert.equal(await ctx.page.isVisible('#viewResults'), true);
+  } finally {
+    await ctx.close();
+  }
+});
