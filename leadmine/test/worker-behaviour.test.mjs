@@ -52,6 +52,28 @@ test('the retry is bounded, so a persistent fault still ends the task', () => {
   assert.match(WORKER, /isTransient\(message\)/);
 });
 
+test('the do-not-contact list is applied before anything is spent on a row', () => {
+  const finish = WORKER.slice(WORKER.indexOf('async function finishRun'), WORKER.indexOf('async function notifyPowPow'));
+  const dnc = finish.indexOf('store.getSuppression');
+  assert.ok(dnc > 0, 'the list is read');
+  assert.ok(dnc < finish.indexOf('enrichEmails(records'), 'before any website is fetched');
+  const block = finish.slice(dnc, finish.indexOf('config.skipSeen'));
+  assert.ok(block.includes("setAside: 'on your do-not-contact list'"), 'set aside with its reason');
+  assert.ok(!block.includes('deleteRecords'), 'never deleted');
+});
+
+test('a render tab is always closed, and never focused', () => {
+  const render = WORKER.slice(WORKER.indexOf('function renderInTab'), WORKER.indexOf('async function enrichEmails'));
+  assert.match(render, /active:\s*false/);
+  assert.match(render, /finally\s*{[^}]*chrome\.tabs\.remove/);
+  assert.match(render, /renderChain = work\.catch/, 'one failed site cannot stop the queue');
+});
+
+test('the hand-off to PowPow comes after the run is saved as done', () => {
+  const finish = WORKER.slice(WORKER.indexOf('async function finishRun'), WORKER.indexOf('async function notifyPowPow'));
+  assert.ok(finish.lastIndexOf("status: 'done'") < finish.indexOf('await notifyPowPow(config)'));
+});
+
 /** Pull the helper out of the worker without running the extension APIs. */
 async function loadTransient() {
   const start = WORKER.indexOf('function isTransient');

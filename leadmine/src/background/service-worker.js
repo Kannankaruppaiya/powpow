@@ -31,6 +31,11 @@ import { URN_KEY, withSeed, learn } from '../lib/urns.js';
 import { pageOf, pageUrl } from '../lib/linkedin-query.js';
 import { cacheKey, planFrom, absorb, markEnd, clearEnd } from '../lib/search-cache.js';
 import { annotatePost, narrowPosts } from '../lib/posts.js';
+import { suppressionChecker } from '../lib/crm.js';
+import { HOOK_KEY, DEFAULT_HOOK, buildHookMessage, sendToPowPow, shouldSend } from '../lib/powpow.js';
+import {
+  SCHEDULE_KEY, ALARM_NAME, DEFAULT_SCHEDULE, nextRunAt, scheduledConfig, cannotSchedule, missedRun,
+} from '../lib/schedule.js';
 
 const STORE_KEY = 'mls.job';
 
@@ -49,6 +54,14 @@ const DEFAULT_JOB = {
   emailsFound: 0,
   verified: 0,
   sendable: 0,
+  // Sites that needed a real tab to show their email.
+  rendered: 0,
+  // Rows on the do-not-contact list, set aside before any enrichment.
+  suppressed: 0,
+  // Started by the schedule rather than by a person.
+  scheduled: false,
+  // What happened when the run was handed to PowPow, in words.
+  notified: '',
   skippedSeen: 0,
   filteredOut: 0,
   // Set when a settled run survives a restart. It stays readable, but it
@@ -155,6 +168,9 @@ function publicJob() {
       [...tasks].reverse().find((t) => t.stoppedBecause) &&
       [...tasks].reverse().find((t) => t.stoppedBecause).stoppedBecause,
     canResume: job.status === 'paused' && tasks.some((t) => t.status === 'pending'),
+    // Selectors that stopped matching and were found again from memory. The
+    // run worked; the selectors still want repairing.
+    healed: [...new Set(tasks.flatMap((t) => (t.context && t.context.healed) || []))],
     // A preview only — the side panel pages the full set out of IndexedDB.
     preview: records.slice(0, 60),
   };
@@ -213,6 +229,7 @@ async function ensureContentScript(tabId) {
     target: { tabId },
     files: [
       'src/lib/parse.js',
+      'src/content/heal.js',
       'src/content/engine.js',
       'src/content/adapters/maps.js',
       'src/content/adapters/linkedin.js',
@@ -757,42 +774,108 @@ async function drainQueue(config, tabId) {
 
 /* --------------------------------------------------------- email enrichment */
 
+/*
+ * A real tab, for the sites a plain fetch cannot read.
+ *
+ * Some sites answer a request that is not a browser with a 403, a challenge
+ * page, or an empty shell their JavaScript fills in later. A visitor sees an
+ * email on all of them; a fetch saw none. Opening the page in a background tab
+ * lets the browser do what browsers do, and the HTML it built is read back.
+ *
+ * One tab at a time, never focused, always closed — and capped per run,
+ * because a tab is slow and it is the user's browser.
+ */
+let renderChain = Promise.resolve();
+let rendersThisRun = 0;
+
+function renderInTab(url, { timeout = 20000, settle = 1500 } = {}) {
+  const work = renderChain.then(async () => {
+    if (cancelRequested) return '';
+    let tab = null;
+    try {
+      tab = await chrome.tabs.create({ url, active: false });
+      // "http" rather than the host: a site may redirect to www., to https,
+      // or to another domain entirely, and any real page will do.
+      await waitForTabComplete(tab.id, 'http', timeout);
+      await wait(settle);
+      const [result] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => document.documentElement.outerHTML,
+      });
+      return (result && result.result) || '';
+    } catch (err) {
+      console.warn('[leadmine] render failed', url, err);
+      return '';
+    } finally {
+      if (tab) chrome.tabs.remove(tab.id).catch(() => {});
+    }
+  });
+  // The chain must survive a failure, or one bad site stops every later one.
+  renderChain = work.catch(() => '');
+  return work;
+}
+
 async function enrichEmails(records, config) {
-  const targets = records.filter((r) => r.website && !r.email);
+  const targets = records.filter((r) => r.website && (!r.email || !r.siteText));
   await save({ phase: 'emails', emailed: 0, total: targets.length, message: 'Looking up emails…' });
 
   let done = 0;
   let hits = 0;
+  rendersThisRun = 0;
+  const renderCap = Number(config.maxRenders) || 150;
+  const render =
+    config.renderBlockedSites === false
+      ? null
+      : (url) => {
+          if (rendersThisRun >= renderCap) return Promise.resolve('');
+          rendersThisRun += 1;
+          return renderInTab(url);
+        };
 
   await mapWithConcurrency(targets, config.emailConcurrency || 4, async (record) => {
     if (cancelRequested) return;
     try {
-      const { email, allEmails, source, social } = await findEmailForSite(record.website, {
+      const found = await findEmailForSite(record.website, {
         timeout: config.emailTimeout || 12000,
         followContactPage: config.followContactPage !== false,
+        render,
       });
-      if (email) {
+      const { email, allEmails, source, social, siteText, structured, rendered } = found;
+      if (email && !record.email) {
         record.email = email;
         record.allEmails = allEmails.slice(1, 5);
         record.emailSource = source;
         hits += 1;
       }
+      // What the site says about itself, for the lead judge. Kept on the row
+      // but never exported as a column — it is working material, not a lead
+      // field.
+      if (siteText) record.siteText = siteText;
+      if (structured) {
+        if (structured.description) record.siteDescription = structured.description;
+        if (structured.people.length) record.sitePeople = structured.people.join('; ');
+        if (structured.employees) record.employees = structured.employees;
+        if (!record.phone && structured.phones.length) record.phone = structured.phones[0];
+      }
+      if (rendered) record.siteRendered = true;
       // Social profiles are free — they come out of the HTML already fetched.
       if (social) {
-        record.facebook = social.facebook || '';
-        record.instagram = social.instagram || '';
-        record.linkedin = social.linkedin || '';
-        record.twitter = social.twitter || '';
-        record.youtube = social.youtube || '';
+        record.facebook = social.facebook || record.facebook || '';
+        record.instagram = social.instagram || record.instagram || '';
+        record.linkedin = social.linkedin || record.linkedin || '';
+        record.twitter = social.twitter || record.twitter || '';
+        record.youtube = social.youtube || record.youtube || '';
       }
     } catch (err) {
       console.warn('[leadmine] email lookup failed', record.website, err);
     }
     done += 1;
-    if (done % 3 === 0 || done === targets.length) await save({ emailed: done, emailsFound: hits });
+    if (done % 3 === 0 || done === targets.length) {
+      await save({ emailed: done, emailsFound: hits, rendered: rendersThisRun });
+    }
   });
 
-  await save({ emailed: done, emailsFound: hits });
+  await save({ emailed: done, emailsFound: hits, rendered: rendersThisRun });
 }
 
 async function verifyEmails(records, config) {
@@ -887,6 +970,31 @@ async function finishRun(config) {
     }
   }
 
+  /*
+   * The do-not-contact list, before anything else is spent on these rows.
+   *
+   * An opt-out follows the person, not the run: whoever asked not to be
+   * contacted must not come back because a new search found them again. Set
+   * aside with the reason — never deleted — like every other narrowing.
+   */
+  const suppression = await store.getSuppression().catch(() => []);
+  if (suppression.length) {
+    const notes = await store.getNotes(records.map((r) => r.key)).catch(() => new Map());
+    const blocked = suppressionChecker(suppression);
+    const hits = records.filter((r) => blocked(r, notes.get(r.key) || {}));
+    if (hits.length) {
+      await store.putRecords(job.jobId, hits.map((r) => ({ ...r, setAside: 'on your do-not-contact list' })));
+      const drop = new Set(hits.map((r) => r.key));
+      records = records.filter((r) => !drop.has(r.key));
+      await save({
+        suppressed: hits.length,
+        filteredOut: (job.filteredOut || 0) + hits.length,
+        found: records.length,
+        message: `${hits.length} ${source.noun} set aside — on your do-not-contact list.`,
+      });
+    }
+  }
+
   // Cross-run dedupe happens before enrichment so we never spend fetches on
   // businesses the user already exported.
   if (config.skipSeen) {
@@ -929,6 +1037,34 @@ async function finishRun(config) {
       (failedTasks.length ? `, ${failedTasks.length} of them failed` : '') +
       '.',
     finishedAt: Date.now(),
+  });
+
+  await notifyPowPow(config);
+}
+
+/**
+ * Hand the finished run to PowPow, if the user asked for that.
+ *
+ * Never fails the run: the leads are already safe in the database, and a
+ * gateway that is down is a line in the panel, not an error.
+ */
+async function notifyPowPow(config) {
+  const stored = (await chrome.storage.local.get(HOOK_KEY))[HOOK_KEY] || {};
+  const settings = { ...DEFAULT_HOOK, ...stored };
+  if (!shouldSend(settings, { scheduled: job.scheduled })) return;
+
+  const notes = await store.getNotes(records.map((r) => r.key)).catch(() => new Map());
+  const message = buildHookMessage({
+    records,
+    notes,
+    config,
+    job,
+    scheduled: job.scheduled,
+    maxLeads: Number(settings.maxLeads) || 15,
+  });
+  const sent = await sendToPowPow(settings, message);
+  await save({
+    notified: sent.ok ? `Sent to PowPow (${settings.channel === 'last' ? 'your last chat' : settings.channel}).` : sent.error,
   });
 }
 
@@ -975,7 +1111,7 @@ async function acquireTab(config) {
   return active;
 }
 
-async function startJob(config) {
+async function startJob(config, { scheduled = false } = {}) {
   if (job.status === 'running') throw new Error('A scrape is already running.');
 
   const settings = { ...config, source: config.source || DEFAULT_SOURCE };
@@ -993,7 +1129,8 @@ async function startJob(config) {
     config: settings,
     jobId,
     tasks,
-    message: `Opening ${sourceFor(settings.source).label}…`,
+    scheduled,
+    message: `${scheduled ? 'Scheduled run — ' : ''}Opening ${sourceFor(settings.source).label}…`,
     startedAt: Date.now(),
   });
 
@@ -1107,17 +1244,86 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 });
 
+/* ---------------------------------------------------------------- schedule */
+
+/**
+ * Arm the alarm for the saved schedule, or clear it.
+ *
+ * `when`, not `periodInMinutes`: "weekdays at 8:30" is not a fixed period,
+ * so each firing arms the next one. Re-armed on install, on startup and
+ * whenever the panel changes the schedule.
+ */
+async function armSchedule({ catchUp = false } = {}) {
+  const schedule = { ...DEFAULT_SCHEDULE, ...((await chrome.storage.local.get(SCHEDULE_KEY))[SCHEDULE_KEY] || {}) };
+  await chrome.alarms.clear(ALARM_NAME);
+  if (!schedule.enabled || cannotSchedule(schedule.config)) return;
+  // Chrome was closed at the scheduled time. Clearing the alarm above would
+  // lose that run, so it is run now — runScheduled re-arms for the next one.
+  if (catchUp && missedRun(schedule)) {
+    void runScheduled();
+    return;
+  }
+  const when = nextRunAt(schedule);
+  if (when) await chrome.alarms.create(ALARM_NAME, { when });
+}
+
+/**
+ * At startup Chrome may fire an overdue alarm while the catch-up above is
+ * starting the same run; one flag makes the second arrival a no-op.
+ */
+let scheduledStarting = false;
+
+async function runScheduled() {
+  if (scheduledStarting) return;
+  scheduledStarting = true;
+  await ready;
+  const schedule = { ...DEFAULT_SCHEDULE, ...((await chrome.storage.local.get(SCHEDULE_KEY))[SCHEDULE_KEY] || {}) };
+  try {
+    if (!schedule.enabled) return;
+    const why = cannotSchedule(schedule.config);
+    if (why) throw new Error(why);
+    // A run already going is the user's; the schedule waits for tomorrow
+    // rather than stopping it.
+    if (job.status === 'running') return;
+    await chrome.storage.local.set({ [SCHEDULE_KEY]: { ...schedule, lastRunAt: Date.now() } });
+    const started = startJob(scheduledConfig(schedule.config), { scheduled: true });
+    // The job's own status guards from here on; the flag only has to cover
+    // the moments before startJob marks it running.
+    scheduledStarting = false;
+    await started;
+  } catch (err) {
+    await save({ status: 'error', error: String(err.message || err), message: String(err.message || err) });
+  } finally {
+    scheduledStarting = false;
+    await armSchedule();
+  }
+}
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm && alarm.name === ALARM_NAME) void runScheduled();
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes[SCHEDULE_KEY]) {
+    // Only the panel's edits re-arm; the run's own lastRunAt write arms in
+    // its `finally`, and re-arming twice is harmless anyway.
+    void armSchedule();
+  }
+});
+
 /**
  * Clicking the toolbar icon opens the side panel. Without this the action has
  * no popup and would do nothing at all.
  */
 chrome.runtime.onInstalled.addListener(() => {
   ready.catch(() => {});
+  void armSchedule();
   chrome.sidePanel
     .setPanelBehavior({ openPanelOnActionClick: true })
     .catch((err) => console.warn('[leadmine] side panel behaviour', err));
 });
 
 chrome.runtime.onStartup.addListener(() => {
+  void armSchedule({ catchUp: true });
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
 });

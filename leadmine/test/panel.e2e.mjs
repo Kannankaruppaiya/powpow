@@ -254,7 +254,13 @@ const SETUP = (total) => {
       const tx = req.result.transaction('records', 'readwrite');
       const os = tx.objectStore('records');
       for (const r of RECORDS) os.put({ ...r, jobId: 'job-1' });
-      tx.oncomplete = resolve;
+      // Seeded at version 1 — an existing user's data from before notes and
+      // the do-not-contact list existed — and closed, as a reloaded extension
+      // would be, so the panel's own upgrade to the current version runs.
+      tx.oncomplete = () => {
+        req.result.close();
+        resolve();
+      };
     };
     req.onerror = resolve;
   });
@@ -1304,7 +1310,10 @@ const SET_ASIDE = (kept) => {
       const tx = req.result.transaction('records', 'readwrite');
       const os = tx.objectStore('records');
       for (const r of records) os.put({ ...r, jobId: 'job-1' });
-      tx.oncomplete = resolve;
+      tx.oncomplete = () => {
+        req.result.close();
+        resolve();
+      };
     };
     req.onerror = resolve;
   });
@@ -2066,6 +2075,196 @@ test('the Posts source asks how recent, and sends it with the run', async (t) =>
     assert.equal(sent.source, 'posts');
     assert.equal(sent.postsDays, 7);
     assert.equal(sent.postsIntentOnly, true, 'only asking posts, unless told otherwise');
+  } finally {
+    await ctx.close();
+  }
+});
+
+/* ------------------------------------------------ after the run (6.0) */
+
+/** Capture what Download writes, instead of saving it. */
+async function captureDownload(ctx) {
+  await ctx.page.evaluate(() => {
+    window.__written = null;
+    chrome.downloads.download = async () => {};
+    const blob = window.Blob;
+    window.Blob = class extends blob {
+      constructor(parts, opts) {
+        super(parts, opts);
+        window.__written = String(parts[0]);
+      }
+    };
+  });
+}
+
+test('judging puts a verdict and its reason on the card, and the view follows it', async (t) => {
+  const ctx = await openPanel(t, { aiKey: 'AIza-test' });
+  if (!ctx) return;
+  try {
+    await ctx.page.click('#viewResults');
+    await ctx.page.waitForTimeout(400);
+    // One lead on screen, so one batch is one request.
+    await ctx.page.fill('#filter', 'Clinic 2399');
+    await ctx.page.waitForTimeout(150);
+    await ctx.page.evaluate((body) => {
+      window.__aiNext = { status: 200, body };
+    }, geminiBody({ results: [{ id: 'L1', verdict: 'fit', reason: 'A busy clinic in Adyar that fits.' }] }));
+
+    await ctx.page.evaluate(() => {
+      document.getElementById('toolsBox').open = true;
+    });
+    await ctx.page.fill('#judgeBrief', 'Dental clinics that could buy our equipment');
+    assert.equal(await ctx.page.isDisabled('#judgeRun'), false, 'the planner’s key unlocks the judge');
+    await ctx.page.click('#judgeRun');
+    await ctx.page.waitForTimeout(600);
+
+    assert.match(await ctx.page.textContent('#judgeStatus'), /1 fit/);
+    assert.equal(await ctx.page.textContent('.lead .verdict'), 'Fit');
+    assert.match(await ctx.page.textContent('.lead .lead-why'), /busy clinic in Adyar/);
+
+    // Contact details are not what fit is judged on, and never leave for it.
+    const sent = await ctx.page.evaluate(() => JSON.stringify(window.__aiCalls.at(-1).body));
+    assert.match(sent, /Clinic 2399/);
+    assert.ok(!sent.includes('2399 1122'), 'no phone number in the prompt');
+    assert.ok(!sent.includes('c2399@x.test'), 'no email in the prompt');
+
+    // The view filter shows what was decided.
+    await ctx.page.fill('#filter', '');
+    await ctx.page.selectOption('#show', 'fit');
+    await ctx.page.waitForTimeout(200);
+    assert.equal(await ctx.page.locator('.lead').count(), 1);
+    assert.deepEqual(ctx.errors, []);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('a thumbs-down beats the judge, and pressing it again takes it back', async (t) => {
+  const ctx = await openPanel(t);
+  if (!ctx) return;
+  try {
+    await ctx.page.click('#viewResults');
+    await ctx.page.waitForTimeout(400);
+    await ctx.page.click('.lead:first-child .mark[data-mark="bad"]');
+    await ctx.page.waitForTimeout(200);
+    assert.equal(await ctx.page.getAttribute('.lead:first-child .mark[data-mark="bad"]', 'aria-pressed'), 'true');
+    assert.equal(await ctx.page.textContent('.lead:first-child .verdict'), 'Not a fit');
+    await ctx.page.click('.lead:first-child .mark[data-mark="bad"]');
+    await ctx.page.waitForTimeout(200);
+    assert.equal(await ctx.page.getAttribute('.lead:first-child .mark[data-mark="bad"]', 'aria-pressed'), 'false');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('contacting a lead sets its follow-up; do-not-contact puts it on the list', async (t) => {
+  const ctx = await openPanel(t);
+  if (!ctx) return;
+  try {
+    await ctx.page.click('#viewResults');
+    await ctx.page.waitForTimeout(400);
+    await ctx.page.selectOption('.lead:nth-child(2) .lead-status', 'contacted');
+    await ctx.page.waitForTimeout(200);
+    assert.match(await ctx.page.getAttribute('.lead:nth-child(2) .lead-status', 'title'), /Follow up on \d{4}-\d{2}-\d{2}/);
+
+    await ctx.page.selectOption('.lead:nth-child(2) .lead-status', 'do_not_contact');
+    await ctx.page.waitForTimeout(300);
+    assert.equal(await ctx.page.evaluate(() => document.querySelector('.lead:nth-child(2)').classList.contains('is-dnc')), true);
+    const list = await ctx.page.inputValue('#dncText');
+    assert.match(list, /c1@x\.test/, 'the address');
+    assert.match(list, /\+91 44 2001 1122/, 'and the phone');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('the cold-email export holds only rows it is right to write to', async (t) => {
+  const ctx = await openPanel(t);
+  if (!ctx) return;
+  try {
+    await ctx.page.click('#viewResults');
+    await ctx.page.waitForTimeout(400);
+    await captureDownload(ctx);
+    await ctx.page.selectOption('#format', 'sequencer');
+    await ctx.page.click('#download');
+    await ctx.page.waitForTimeout(800);
+    const file = await ctx.page.evaluate(() => window.__written);
+    const lines = file.replace(/^﻿/, '').split('\r\n').filter(Boolean);
+    assert.match(lines[0], /^"email","first_name","last_name","company"/);
+    // 1,800 rows carry an address; 164 of those are certain to bounce.
+    assert.equal(lines.length - 1, 1636);
+    assert.ok(!file.includes('c11@x.test'), 'a no-MX address is not sent to a sequencer');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('a do-not-contact entry is honoured by the cold-email export', async (t) => {
+  const ctx = await openPanel(t);
+  if (!ctx) return;
+  try {
+    await ctx.page.click('#viewResults');
+    await ctx.page.waitForTimeout(400);
+    await ctx.page.evaluate(() => {
+      document.getElementById('toolsBox').open = true;
+    });
+    await ctx.page.fill('#dncText', 'c1@x.test\nnot a thing');
+    await ctx.page.click('#dncSave');
+    await ctx.page.waitForTimeout(300);
+    assert.match(await ctx.page.textContent('#dncStatus'), /1 on the list\. Not understood: not a thing/);
+    await captureDownload(ctx);
+    await ctx.page.selectOption('#format', 'sequencer');
+    await ctx.page.click('#download');
+    await ctx.page.waitForTimeout(800);
+    assert.ok(!(await ctx.page.evaluate(() => window.__written)).includes('"c1@x.test"'));
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('the PowPow token and the schedule stay out of the run config', async (t) => {
+  const ctx = await openPanel(t, { idle: true });
+  if (!ctx) return;
+  try {
+    await ctx.page.evaluate(() => {
+      document.getElementById('aiSettings').closest('details').open = true;
+    });
+    await ctx.page.fill('#category', 'dentists');
+    await ctx.page.fill('#city', 'Chennai');
+    await ctx.page.check('#powpowOn');
+    await ctx.page.fill('#powpowToken', 'hook-secret');
+    await ctx.page.press('#powpowToken', 'Enter');
+    await ctx.page.check('#scheduleOn');
+    await ctx.page.waitForTimeout(300);
+
+    const stored = await ctx.page.evaluate(() => window.__storage);
+    assert.equal(stored['mls.powpow'].token, 'hook-secret');
+    assert.equal(stored['mls.schedule'].enabled, true);
+    assert.equal(stored['mls.schedule'].config.category, 'dentists', 'the search is saved as it stood');
+    assert.ok(!JSON.stringify(stored['mls.settings'] || {}).includes('hook-secret'));
+    assert.ok(!JSON.stringify(stored['mls.schedule']).includes('hook-secret'));
+    assert.match(await ctx.page.textContent('#scheduleNote'), /Weekdays at 08:30 — dentists, Chennai/);
+    // Enter in a settings box must not have started a scrape.
+    assert.equal(await ctx.page.isVisible('#runView'), false);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('a search that reads the current tab cannot be scheduled, and says why', async (t) => {
+  const ctx = await openPanel(t, { idle: true });
+  if (!ctx) return;
+  try {
+    await ctx.page.click('#sourceGroup label.seg:has(input[value="linkedin"])');
+    await ctx.page.check('#useCurrentTab');
+    await ctx.page.evaluate(() => {
+      document.getElementById('aiSettings').closest('details').open = true;
+    });
+    // A click, not check(): refusing to stay ticked is the behaviour under test.
+    await ctx.page.click('#scheduleOn');
+    await ctx.page.waitForTimeout(200);
+    assert.equal(await ctx.page.isChecked('#scheduleOn'), false);
+    assert.match(await ctx.page.textContent('#scheduleNote'), /cannot run on its own/);
   } finally {
     await ctx.close();
   }

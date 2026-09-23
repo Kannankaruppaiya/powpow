@@ -18,6 +18,15 @@ import { planSearches, listModels, planToBatch, providerFor, DEFAULT_PROVIDER } 
 import { loadCountries, loadCountry, citiesFor, regionsFor, CITY_LIMIT } from '../lib/places.js';
 import { URN_KEY, withSeed, lookup, labelsFor } from '../lib/urns.js';
 import * as store from '../lib/store.js';
+import { judgeLeads, effectiveVerdict, VERDICT_LABEL } from '../lib/qualify.js';
+import { lookupTargets, findEmails, FINDERS, DEFAULT_FINDER } from '../lib/enrich.js';
+import {
+  STATUSES, statusPatch, isDue, suppressionChecker, suppressionEntriesFor,
+  parseSuppressionText, suppressionText,
+} from '../lib/crm.js';
+import { linkRecords } from '../lib/link.js';
+import { HOOK_KEY, DEFAULT_HOOK, sendToPowPow } from '../lib/powpow.js';
+import { SCHEDULE_KEY, DEFAULT_SCHEDULE, cannotSchedule, describeSchedule, nextRunAt } from '../lib/schedule.js';
 
 const SETTINGS_KEY = 'mls.settings';
 /**
@@ -28,6 +37,13 @@ const SETTINGS_KEY = 'mls.settings';
  * business in any of those, so it never joins that object.
  */
 const AI_KEY = 'mls.ai';
+/**
+ * The email finder's provider, key and spend limit. Its own slot for the same
+ * reason as the AI key: a paid credential has no business in the run config.
+ */
+const FINDER_KEY = 'mls.finder';
+/** What the user said a good lead is — the judge's brief, kept between runs. */
+const JUDGE_BRIEF_KEY = 'mls.judgeBrief';
 /**
  * Row height, read from the stylesheet rather than duplicated here.
  *
@@ -69,6 +85,14 @@ const ui = Object.fromEntries(
     'aiResult', 'aiUnderstood', 'aiList', 'aiApply', 'aiDiscard',
     'aiSettings', 'aiProvider', 'aiProviderName', 'aiKey', 'aiKeyLink',
     'aiModel', 'aiModelRow', 'aiModelToggle', 'aiModelHelp',
+    'optRender', 'renderBlockedSites',
+    'scheduleOn', 'scheduleRow', 'scheduleDays', 'scheduleTime', 'scheduleNote', 'scheduleUpdate',
+    'powpowOn', 'powpowBody', 'powpowUrl', 'powpowToken', 'powpowChannel', 'powpowTo', 'powpowWhen',
+    'powpowTest', 'powpowStatus',
+    'runNotes', 'show', 'dueNote', 'dueText', 'dueShow', 'toolsBox',
+    'judgeBrief', 'judgeScope', 'judgeRun', 'judgeStatus', 'judgeHelp',
+    'finderBox', 'finderProvider', 'finderMax', 'finderKey', 'finderMaybe', 'finderRun', 'finderStatus',
+    'finderHelp', 'dncText', 'dncSave', 'dncStatus', 'linkNote',
   ].map((id) => [id, el(id)])
 );
 
@@ -308,7 +332,7 @@ function applySource() {
   // The detail pass only exists for Maps; a LinkedIn card already carries
   // everything, so offering the option would be a lie about what it does.
   ui.optDeep.hidden = !conf.grid;
-  for (const node of [ui.optEmails, ui.optContact, ui.optVerify]) node.hidden = !conf.emails;
+  for (const node of [ui.optEmails, ui.optContact, ui.optVerify, ui.optRender]) node.hidden = !conf.emails;
   ui.sourceNote.hidden = !conf.note;
   ui.sourceNote.textContent = conf.note;
   ui.postsRow.hidden = ui.source.value !== 'posts';
@@ -685,6 +709,8 @@ async function restoreSettings() {
   ui.fetchEmails.checked = s.fetchEmails !== false;
   ui.followContactPage.checked = s.followContactPage !== false;
   ui.verifyEmails.checked = s.verifyEmails !== false;
+  ui.renderBlockedSites.checked = s.renderBlockedSites !== false;
+  ui.show.value = ['all', 'fit', 'fitmaybe', 'unjudged', 'due', 'active'].includes(s.show) ? s.show : 'all';
   ui.skipSeen.checked = Boolean(s.skipSeen);
   ui.useCurrentTab.checked = Boolean(s.useCurrentTab);
   ui.categoryFilter.value = s.categoryFilter ?? '';
@@ -738,8 +764,12 @@ function readConfig() {
     fetchEmails: ui.fetchEmails.checked,
     followContactPage: ui.followContactPage.checked,
     verifyEmails: ui.verifyEmails.checked,
+    renderBlockedSites: ui.renderBlockedSites.checked,
     skipSeen: ui.skipSeen.checked,
     format: ui.format.value,
+    // Which leads Results shows. A view setting, kept with the others so the
+    // panel reopens on the list the user was working through.
+    show: ui.show.value,
     // Pacing knobs — deliberately unhurried so Maps keeps serving results.
     scrollDelay: 900,
     detailDelay: 250,
@@ -875,6 +905,8 @@ function applyKeyState() {
   // No key means nothing here can run, so it starts folded — until the user
   // says otherwise, at which point their choice is the one that counts.
   if (!assistChosen) setAssistOpen(has);
+  // The judge uses the same key, so it unlocks with it.
+  applyJudgeState();
 }
 
 function setAiStatus(text, kind = '') {
@@ -1018,6 +1050,45 @@ ui.aiModelToggle.addEventListener('click', () => {
 
 /* ---------------------------------------------------------- virtual table */
 
+/*
+ * What was decided about the leads, loaded beside the leads themselves.
+ *
+ * `notes` are the judge's verdicts and the user's marks, statuses and found
+ * emails (store.js keeps them apart from the records so a re-scrape cannot
+ * wipe them). `library` is every record from every run, which is what
+ * linking a person to the business they work at needs. `isSuppressed` is the
+ * do-not-contact list as a check.
+ */
+let notes = new Map();
+let library = [];
+let links = { personToBusiness: new Map(), businessToPeople: new Map() };
+let suppression = [];
+let isSuppressed = () => false;
+let libraryAt = 0;
+
+async function refreshAnnotations(all) {
+  notes = await store.getNotes(all.map((r) => r.key)).catch(() => new Map());
+  // Every record from every run is a read of the whole database, so it is
+  // not repeated on every two-second poll of a run in progress.
+  const running = current && current.status === 'running';
+  if (!running || Date.now() - libraryAt > 30000) {
+    library = await store.getAllRecords().catch(() => all);
+    links = linkRecords(library);
+    libraryAt = Date.now();
+  }
+  await loadSuppression();
+  renderDue();
+  renderLinkNote();
+  applyFinderBox();
+}
+
+async function loadSuppression() {
+  suppression = await store.getSuppression().catch(() => []);
+  isSuppressed = suppressionChecker(suppression);
+  // Never overwrite a list the user is in the middle of typing.
+  if (document.activeElement !== ui.dncText) ui.dncText.value = suppressionText(suppression);
+}
+
 /** Load this job's records from IndexedDB and redraw the table. */
 async function refreshRows() {
   const jobId = current && current.jobId;
@@ -1027,8 +1098,49 @@ async function refreshRows() {
   // Nothing kept and something set aside is the filter being wrong, not the
   // scraper finding nothing — so show the rows rather than an empty table.
   if (!rows.length && asideRows.length) showAside = true;
+  await refreshAnnotations(all);
   refreshCategoryOptions();
   applyFilter();
+}
+
+/** Somebody is waiting on a reply today — said before anything else. */
+function renderDue() {
+  const due = rows.filter((r) => isDue(notes.get(r.key)));
+  ui.dueNote.hidden = !due.length || ui.show.value === 'due';
+  if (due.length) {
+    ui.dueText.textContent = `${due.length} ${due.length === 1 ? 'lead is' : 'leads are'} due a follow-up today.`;
+  }
+}
+
+function renderLinkNote() {
+  const people = rows.filter((r) => links.personToBusiness.has(r.key)).length;
+  const businesses = rows.filter((r) => links.businessToPeople.has(r.key)).length;
+  ui.linkNote.hidden = !people && !businesses;
+  ui.linkNote.textContent = people
+    ? `${people} of these ${people === 1 ? 'person works' : 'people work'} at a business you found on Maps — the export has its phone and website.`
+    : businesses
+      ? `${businesses} of these businesses have people you found on LinkedIn — the export names them.`
+      : '';
+}
+
+/** A view filter over what was decided, not what the lead says. */
+function passesShow(record) {
+  const note = notes.get(record.key) || {};
+  const verdict = effectiveVerdict(note);
+  switch (ui.show.value) {
+    case 'fit':
+      return verdict === 'fit';
+    case 'fitmaybe':
+      return verdict === 'fit' || verdict === 'maybe';
+    case 'unjudged':
+      return !verdict;
+    case 'due':
+      return isDue(note);
+    case 'active':
+      return ['contacted', 'followed_up', 'replied', 'meeting'].includes(note.status);
+    default:
+      return true;
+  }
 }
 
 /**
@@ -1089,7 +1201,7 @@ function refreshCategoryOptions() {
 function applyFilter() {
   const needle = ui.filter.value.trim().toLowerCase();
   // What is on screen is what Download writes — no hidden discrepancy.
-  const source = showAside ? [...rows, ...asideRows] : rows;
+  const source = (showAside ? [...rows, ...asideRows] : rows).filter(passesShow);
   visibleRows = !needle
     ? source
     : source.filter((r) =>
@@ -1097,7 +1209,13 @@ function applyFilter() {
         // cover business fields only, so typing "trainer" over a page of
         // people matched nobody: a headline was never searched.
         [r.name, r.area, r.category, r.city, r.email, r.phone,
-          r.headline, r.company, r.location, r.summary, r.text, r.emails, r.phones, r.intent]
+          r.headline, r.company, r.location, r.summary, r.text, r.emails, r.phones, r.intent,
+          ...(() => {
+            // What the judge said is searchable too: "trainer" should find
+            // the business whose reason reads "hires trainers".
+            const n = notes.get(r.key) || {};
+            return [n.reason, n.services, n.decisionMaker, n.personEmail];
+          })()]
           .some((v) => String(v || '').toLowerCase().includes(needle))
       );
 
@@ -1155,6 +1273,11 @@ function renderBudget(budget) {
 function leadCard(record) {
   const card = document.createElement('div');
   card.className = 'lead';
+  card.dataset.key = record.key || '';
+  const note = notes.get(record.key) || {};
+  if (isSuppressed(record, note)) card.classList.add('is-dnc');
+  const business = links.personToBusiness.get(record.key);
+  const staff = links.businessToPeople.get(record.key) || [];
   // A record about a person, whichever door it came through. Rendering a
   // web-sourced person as a business gave a card with an empty phone row and
   // no headline at all.
@@ -1180,8 +1303,13 @@ function leadCard(record) {
         [
           'lead-3',
           [
+            // A found work email is the thing to act on, so it leads the line.
+            note.personEmail ? copyable(note.personEmail, 'lead-email') : null,
             text('lead-sub lead-area', [record.company, record.location].filter(Boolean).join(' · ')),
-            text('lead-tag', record.openToWork ? 'open to work' : ''),
+            text(
+              'lead-tag',
+              business ? `at ${business.name} (Maps)` : record.openToWork ? 'open to work' : ''
+            ),
           ],
         ],
       ]
@@ -1196,10 +1324,13 @@ function leadCard(record) {
             copyable(record.phone, 'lead-phone'),
             record.area ? text('lead-dot', '·') : null,
             record.area ? text('lead-sub lead-area', record.area) : null,
+            staff.length ? text('lead-tag', `${staff.length} ${staff.length === 1 ? 'person' : 'people'} on LinkedIn`) : null,
           ],
         ],
         ['lead-3', [emailCell(record), text('lead-tag', record.category)]],
       ];
+
+  lines.push(['lead-4', decisionLine(record, note)]);
 
   for (const [cls, kids] of lines) {
     const row = document.createElement('div');
@@ -1208,6 +1339,59 @@ function leadCard(record) {
     card.appendChild(row);
   }
   return card;
+}
+
+/**
+ * The fourth line: what was decided about this lead.
+ *
+ * The verdict and its reason come first because the reason is the point — a
+ * verdict alone can only be accepted, a reason can be disagreed with. Then
+ * where the conversation is, and the user's own mark, which beats the judge.
+ */
+function decisionLine(record, note) {
+  const verdict = effectiveVerdict(note);
+  const badge = document.createElement('span');
+  badge.className = 'verdict';
+  if (verdict) {
+    badge.dataset.v = verdict;
+    badge.textContent = VERDICT_LABEL[verdict];
+  }
+  const reason = note.feedback && note.feedbackWhy ? note.feedbackWhy : note.reason || '';
+  const why = text('lead-why', reason || (note.services ? note.services : ''));
+  if (note.decisionMaker) why.title = `${reason}${reason ? ' — ' : ''}${note.decisionMaker}`;
+
+  const status = document.createElement('select');
+  status.className = 'lead-status';
+  status.dataset.status = record.key || '';
+  status.setAttribute('aria-label', `Status of ${record.name || record.author || 'this lead'}`);
+  for (const option of STATUSES) status.append(new Option(option.label, option.id));
+  status.value = note.status || 'new';
+  if (isDue(note)) {
+    status.classList.add('is-due');
+    status.title = `Follow up due ${note.followUpOn}`;
+  } else if (note.followUpOn) {
+    status.title = `Follow up on ${note.followUpOn}`;
+  }
+
+  const mark = (value, glyph, label) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'mark';
+    button.dataset.mark = value;
+    button.textContent = glyph;
+    button.title = label;
+    button.setAttribute('aria-label', label);
+    button.setAttribute('aria-pressed', String(note.feedback === value));
+    return button;
+  };
+
+  return [
+    verdict ? badge : null,
+    why,
+    status,
+    mark('good', '👍', 'A good lead — the judge should find more like this'),
+    mark('bad', '👎', 'Not a good lead — the judge should skip ones like this'),
+  ];
 }
 
 /**
@@ -1233,7 +1417,11 @@ function postLines(record) {
     [
       'lead-3',
       [
-        record.emails ? copyable(String(record.emails).split(';')[0].trim(), 'lead-email') : null,
+        (notes.get(record.key) || {}).personEmail
+          ? copyable(notes.get(record.key).personEmail, 'lead-email')
+          : record.emails
+            ? copyable(String(record.emails).split(';')[0].trim(), 'lead-email')
+            : null,
         record.phones ? copyable(String(record.phones).split(';')[0].trim(), 'lead-phone') : null,
         text('lead-tag', record.setAside || (record.intent && record.intent !== 'DEMAND' ? record.intent.toLowerCase() : '')),
       ],
@@ -1320,7 +1508,32 @@ function flash(message) {
   }, 1400);
 }
 
+/** The record a card belongs to, from what is on screen. */
+const recordFor = (key) => visibleRows.find((r) => r.key === key) || rows.find((r) => r.key === key);
+
+/** Merge a patch into the in-memory notes as well as the store. */
+async function saveNote(key, patch) {
+  await store.putNotes([{ key, ...patch }]);
+  const next = { ...(notes.get(key) || { key }), ...patch };
+  for (const [field, value] of Object.entries(next)) if (value === null) delete next[field];
+  notes.set(key, next);
+}
+
 ui.rowBody.addEventListener('click', async (event) => {
+  const markButton = event.target.closest('.mark');
+  if (markButton) {
+    const key = markButton.closest('.lead').dataset.key;
+    if (!key) return;
+    const value = markButton.dataset.mark;
+    const note = notes.get(key) || {};
+    // Pressing the mark that is already on takes it back.
+    const next = note.feedback === value ? null : value;
+    await saveNote(key, { feedback: next, feedbackAt: next ? Date.now() : null });
+    flash(next ? (next === 'good' ? 'Marked good — the judge will learn from it' : 'Marked not a fit') : 'Mark removed');
+    applyFilter();
+    return;
+  }
+
   const target = event.target.closest('.copy');
   if (!target) return;
   try {
@@ -1331,8 +1544,40 @@ ui.rowBody.addEventListener('click', async (event) => {
   }
 });
 
+ui.rowBody.addEventListener('change', async (event) => {
+  const select = event.target.closest('.lead-status');
+  if (!select) return;
+  const key = select.dataset.status;
+  const record = recordFor(key);
+  const note = notes.get(key) || {};
+  await saveNote(key, statusPatch(note, select.value));
+
+  // "Do not contact" is not a label, it is a promise: the address, the
+  // profile and the phone go on the list every future run checks.
+  if (select.value === 'do_not_contact' && record) {
+    await store.addSuppression(suppressionEntriesFor(record, notes.get(key)));
+    await loadSuppression();
+    flash('On the do-not-contact list');
+  } else if (select.value === 'contacted') {
+    flash(`Follow up on ${notes.get(key).followUpOn}`);
+  }
+  renderDue();
+  applyFilter();
+});
+
 ui.viewport.addEventListener('scroll', () => requestAnimationFrame(drawWindow), { passive: true });
 ui.filter.addEventListener('input', applyFilter);
+ui.show.addEventListener('change', () => {
+  renderDue();
+  applyFilter();
+  saveSettings();
+});
+ui.dueShow.addEventListener('click', () => {
+  ui.show.value = 'due';
+  renderDue();
+  applyFilter();
+  saveSettings();
+});
 
 /* ---------------------------------------------------------------- rendering */
 
@@ -1442,6 +1687,8 @@ function render(job) {
       (!running && job.stoppedBecause ? ` · stopped because ${job.stoppedBecause}` : '');
   }
 
+  renderRunNotes(job, running);
+
   // Progress belongs to a run in progress. Once it has settled, the title and
   // the status chip say everything, and a full-width bar is just weight.
   ui.barFill.parentElement.hidden = !running;
@@ -1484,6 +1731,29 @@ function render(job) {
   // A finished run exists for the rows it produced, and reaching them meant
   // noticing a tab and clicking it. Hand the user over once, on the edge.
   if (job.status === 'done' && previousStatus === 'running' && job.count) setView(true);
+}
+
+/** What the run did beyond collecting, one line each, only when it happened. */
+function renderRunNotes(job, running) {
+  const lines = [];
+  if (job.healed && job.healed.length) {
+    lines.push(
+      `Maps moved part of its page (${job.healed.join(', ')}). LeadMine found it again by how it looks, ` +
+        'so the results are fine — docs/SELECTORS.md still wants updating.'
+    );
+  }
+  if (job.rendered) {
+    lines.push(`${job.rendered} ${job.rendered === 1 ? 'website' : 'websites'} needed a real browser tab to show their email.`);
+  }
+  if (job.suppressed && !running) {
+    lines.push(`${job.suppressed} set aside — on your do-not-contact list.`);
+  }
+  if (job.scheduled) lines.push('This was a scheduled run: only leads you had not seen before.');
+  if (job.notified && !running) lines.push(job.notified);
+  ui.runNotes.hidden = !lines.length;
+  ui.runNotes.replaceChildren(
+    ...lines.map((line) => Object.assign(document.createElement('li'), { textContent: line }))
+  );
 }
 
 /**
@@ -1667,7 +1937,22 @@ ui.download.addEventListener('click', async () => {
     }
 
     const meta = (current && current.config) || readConfig();
-    const { content, mime, filename } = await buildFile(all, ui.format.value, meta);
+    // What was decided about each lead rides along: the verdict and its
+    // reason, the status, a found work email, and who works where.
+    const allNotes = await store.getNotes(all.map((r) => r.key)).catch(() => notes);
+    const { content, mime, filename, count } = await buildFile(all, ui.format.value, meta, {
+      notes: allNotes,
+      linked: links.personToBusiness,
+      people: links.businessToPeople,
+      isSuppressed,
+    });
+    if (ui.format.value === 'sequencer' && !count) {
+      showError(
+        'No lead here has an email a cold-email tool can send to. Leads without an address, ' +
+          'on the do-not-contact list, judged not a fit or closed are left out of this file.'
+      );
+      return;
+    }
 
     const url = URL.createObjectURL(new Blob([content], { type: mime }));
     await chrome.downloads.download({ url, filename, saveAs: true });
@@ -1682,6 +1967,352 @@ ui.download.addEventListener('click', async () => {
     ui.download.disabled = false;
     ui.download.textContent = label;
   }
+});
+
+/* ------------------------------------------------------------ the judge */
+
+/*
+ * Judge the leads against what the user says a good one is.
+ *
+ * Runs here, never in the worker: the AI key lives in this page only, and a
+ * judgement the user did not ask for is a bill they did not choose. Verdicts
+ * land batch by batch, so a long list shows progress and a failure halfway
+ * keeps everything already judged.
+ */
+let judging = false;
+let stopJudging = false;
+
+function aiCredentials() {
+  const provider = ui.aiProvider.value;
+  return {
+    provider,
+    apiKey: (ai.keys[provider] || ui.aiKey.value || '').trim(),
+    model: (ai.models[provider] || '').trim(),
+  };
+}
+
+function applyJudgeState() {
+  const { apiKey } = aiCredentials();
+  ui.judgeRun.textContent = judging ? 'Stop' : 'Judge leads';
+  ui.judgeRun.disabled = !judging && !apiKey;
+  if (!apiKey && !judging) {
+    ui.judgeStatus.textContent = 'Needs the free Gemini or Groq key — add it under More options on the Search tab.';
+  }
+}
+
+ui.judgeBrief.addEventListener('input', () => {
+  clearTimeout(ui.judgeBrief._t);
+  ui.judgeBrief._t = setTimeout(
+    () => chrome.storage.local.set({ [JUDGE_BRIEF_KEY]: ui.judgeBrief.value }),
+    300
+  );
+});
+
+ui.judgeRun.addEventListener('click', async () => {
+  if (judging) {
+    stopJudging = true;
+    ui.judgeStatus.textContent = 'Stopping after this batch…';
+    return;
+  }
+  const brief = ui.judgeBrief.value.trim();
+  if (!brief) {
+    ui.judgeStatus.textContent = 'Say what a good lead looks like first — one or two sentences is enough.';
+    ui.judgeBrief.focus();
+    return;
+  }
+  const targets =
+    ui.judgeScope.value === 'shown'
+      ? visibleRows
+      : visibleRows.filter((r) => !(notes.get(r.key) || {}).verdict);
+  if (!targets.length) {
+    ui.judgeStatus.textContent = 'Every lead shown has been judged already. Pick “Everything shown” to judge again.';
+    return;
+  }
+
+  // Every mark the user ever made, not only this run's: a thumbs-down from
+  // last week's search still says where the line is.
+  const everyNote = await store.getAllNotes().catch(() => notes);
+
+  judging = true;
+  stopJudging = false;
+  applyJudgeState();
+  const counts = { fit: 0, maybe: 0, no_fit: 0 };
+  ui.judgeStatus.textContent = `Judging ${targets.length} leads…`;
+  try {
+    await judgeLeads({
+      records: targets,
+      brief,
+      notes: everyNote,
+      allRecords: library.length ? library : rows,
+      ...aiCredentials(),
+      shouldStop: () => stopJudging,
+      onBatch: async (patches, { done, total }) => {
+        await store.putNotes(patches);
+        for (const patch of patches) {
+          notes.set(patch.key, { ...(notes.get(patch.key) || {}), ...patch });
+          counts[patch.verdict] += 1;
+        }
+        ui.judgeStatus.textContent =
+          `${done} of ${total} read — ${counts.fit} fit, ${counts.maybe} maybe, ${counts.no_fit} not a fit.`;
+        applyFilter();
+      },
+    });
+    ui.judgeStatus.textContent =
+      `${stopJudging ? 'Stopped' : 'Done'} — ${counts.fit} fit, ${counts.maybe} maybe, ${counts.no_fit} not a fit. ` +
+      'Disagree with one? Mark it 👍 or 👎 and judge again.';
+  } catch (err) {
+    ui.judgeStatus.textContent = `${err.message} Verdicts already given are kept.`;
+  } finally {
+    judging = false;
+    applyJudgeState();
+  }
+});
+
+/* ---------------------------------------------------- the email finder */
+
+let finder = { provider: DEFAULT_FINDER, keys: {}, max: 10, maybe: false };
+let finding = false;
+let stopFinding = false;
+/** Spending money takes two presses: the first says how much. */
+let finderArmed = null;
+
+async function restoreFinder() {
+  const stored = (await chrome.storage.local.get(FINDER_KEY))[FINDER_KEY] || {};
+  finder = { ...finder, ...stored, keys: { ...(stored.keys || {}) } };
+  ui.finderProvider.value = FINDERS[finder.provider] ? finder.provider : DEFAULT_FINDER;
+  ui.finderKey.value = finder.keys[ui.finderProvider.value] || '';
+  ui.finderMax.value = String(finder.max || 10);
+  ui.finderMaybe.checked = Boolean(finder.maybe);
+  applyFinderHelp();
+}
+
+function saveFinder() {
+  finder.provider = ui.finderProvider.value;
+  finder.keys[finder.provider] = ui.finderKey.value.trim();
+  finder.max = Math.max(1, Math.min(500, Number(ui.finderMax.value) || 10));
+  finder.maybe = ui.finderMaybe.checked;
+  finderArmed = null;
+  return chrome.storage.local.set({ [FINDER_KEY]: finder });
+}
+
+function applyFinderHelp() {
+  const conf = FINDERS[ui.finderProvider.value] || FINDERS[DEFAULT_FINDER];
+  ui.finderHelp.textContent =
+    `${conf.label}: ${conf.costNote}. Only people judged a fit (or maybe, if ticked) with a LinkedIn ` +
+    'profile and no email yet are looked up, and only their profile link is sent. The key stays in this browser.';
+}
+
+/** People and posts only: a business already has its website's address. */
+function applyFinderBox() {
+  const people = rows.some((r) => r.source === 'linkedin' || r.source === 'web' || r.source === 'posts');
+  ui.finderBox.hidden = !people;
+}
+
+ui.finderProvider.addEventListener('change', () => {
+  ui.finderKey.value = finder.keys[ui.finderProvider.value] || '';
+  applyFinderHelp();
+  saveFinder();
+});
+for (const field of [ui.finderKey, ui.finderMax, ui.finderMaybe]) field.addEventListener('change', saveFinder);
+
+ui.finderRun.addEventListener('click', async () => {
+  if (finding) {
+    stopFinding = true;
+    ui.finderStatus.textContent = 'Stopping after this one…';
+    return;
+  }
+  await saveFinder();
+  const apiKey = ui.finderKey.value.trim();
+  if (!apiKey) {
+    ui.finderStatus.textContent = 'Add the email finder API key first.';
+    ui.finderKey.focus();
+    return;
+  }
+  const targets = lookupTargets(visibleRows, notes, {
+    include: finder.maybe ? ['fit', 'maybe'] : ['fit'],
+    limit: finder.max,
+    isSuppressed,
+  });
+  if (!targets.length) {
+    ui.finderStatus.textContent =
+      'Nobody here to look up: judge the leads first, or tick “maybe”. People who already have an email, ' +
+      'were looked up before, or are on the do-not-contact list are skipped.';
+    return;
+  }
+  const signature = targets.map((r) => r.key).join('|');
+  if (finderArmed !== signature) {
+    finderArmed = signature;
+    ui.finderRun.textContent = `Yes, look up ${targets.length}`;
+    ui.finderStatus.textContent =
+      `${targets.length} ${targets.length === 1 ? 'person' : 'people'} — up to ${targets.length} credits. Press again to go ahead.`;
+    return;
+  }
+
+  finderArmed = null;
+  finding = true;
+  stopFinding = false;
+  ui.finderRun.textContent = 'Stop';
+  let found = 0;
+  try {
+    await findEmails({
+      records: targets,
+      finder: finder.provider,
+      apiKey,
+      shouldStop: () => stopFinding,
+      onEach: async (patch, { done, total, found: hit }) => {
+        await store.putNotes([patch]);
+        notes.set(patch.key, { ...(notes.get(patch.key) || {}), ...patch });
+        if (hit) found += 1;
+        ui.finderStatus.textContent = `${done} of ${total} looked up — ${found} verified ${found === 1 ? 'email' : 'emails'}.`;
+        drawWindow();
+      },
+    });
+    ui.finderStatus.textContent = `Done — ${found} verified ${found === 1 ? 'email' : 'emails'} found.`;
+  } catch (err) {
+    // A bad key or an empty wallet stops every later lookup too, so the run
+    // stops at the first one rather than failing forty times.
+    ui.finderStatus.textContent = `${err.message} ${found ? `${found} found before that are kept.` : ''}`;
+  } finally {
+    finding = false;
+    ui.finderRun.textContent = 'Find work emails';
+    applyFilter();
+  }
+});
+
+/* --------------------------------------------------- do not contact */
+
+ui.dncSave.addEventListener('click', async () => {
+  const { entries, errors } = parseSuppressionText(ui.dncText.value);
+  await store.setSuppression(entries);
+  await loadSuppression();
+  ui.dncStatus.textContent =
+    `${entries.length} on the list.` + (errors.length ? ` Not understood: ${errors.slice(0, 2).join('; ')}` : '');
+  applyFilter();
+});
+
+/* ----------------------------------------------------- automation */
+
+/*
+ * The schedule and the hand-off to PowPow. Both are read by the service
+ * worker — a scheduled run finishes with nobody looking at this panel — so
+ * both live in their own storage slots, apart from the form's settings.
+ */
+let schedule = { ...DEFAULT_SCHEDULE };
+let hook = { ...DEFAULT_HOOK };
+
+async function restoreAutomation() {
+  const stored = await chrome.storage.local.get([SCHEDULE_KEY, HOOK_KEY]);
+  schedule = { ...DEFAULT_SCHEDULE, ...(stored[SCHEDULE_KEY] || {}) };
+  hook = { ...DEFAULT_HOOK, ...(stored[HOOK_KEY] || {}) };
+  ui.scheduleOn.checked = Boolean(schedule.enabled);
+  ui.scheduleTime.value = schedule.time || DEFAULT_SCHEDULE.time;
+  ui.scheduleDays.value = schedule.days === 'daily' ? 'daily' : 'weekdays';
+  ui.powpowOn.checked = Boolean(hook.enabled);
+  ui.powpowUrl.value = hook.url || DEFAULT_HOOK.url;
+  ui.powpowToken.value = hook.token || '';
+  ui.powpowChannel.value = hook.channel || 'last';
+  ui.powpowTo.value = hook.to || '';
+  ui.powpowWhen.value = hook.when === 'always' ? 'always' : 'scheduled';
+  applyAutomation();
+}
+
+function applyAutomation() {
+  ui.scheduleRow.hidden = !ui.scheduleOn.checked;
+  ui.powpowBody.hidden = !ui.powpowOn.checked;
+  ui.scheduleUpdate.hidden = !schedule.enabled || !schedule.config;
+  const described = describeSchedule(schedule);
+  const next = schedule.enabled ? nextRunAt(schedule) : null;
+  ui.scheduleNote.textContent = described
+    ? `${described}. Next: ${new Date(next).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}. ` +
+      'Chrome has to be open; a missed time runs when it next starts.'
+    : 'Chrome has to be open at that time; a missed time runs when Chrome next starts.';
+}
+
+async function saveSchedule(patch) {
+  schedule = { ...schedule, ...patch, time: ui.scheduleTime.value || DEFAULT_SCHEDULE.time, days: ui.scheduleDays.value };
+  await chrome.storage.local.set({ [SCHEDULE_KEY]: schedule });
+  applyAutomation();
+}
+
+ui.scheduleOn.addEventListener('change', async () => {
+  if (!ui.scheduleOn.checked) {
+    await saveSchedule({ enabled: false });
+    return;
+  }
+  const config = readConfig();
+  const why = cannotSchedule(config);
+  if (why) {
+    ui.scheduleOn.checked = false;
+    ui.scheduleNote.textContent = why;
+    return;
+  }
+  // The search as it stands now is what runs — saved, not live, so editing
+  // the form for a one-off search does not change tomorrow morning's.
+  // `since` is where a missed run is counted from, so switching the
+  // schedule on never fires one straight away.
+  await saveSchedule({ enabled: true, config, since: Date.now(), lastRunAt: 0 });
+});
+for (const field of [ui.scheduleTime, ui.scheduleDays]) {
+  field.addEventListener('change', () => {
+    if (schedule.enabled) saveSchedule({});
+  });
+}
+ui.scheduleUpdate.addEventListener('click', async () => {
+  const config = readConfig();
+  const why = cannotSchedule(config);
+  if (why) {
+    ui.scheduleNote.textContent = why;
+    return;
+  }
+  await saveSchedule({ config });
+  flash('Scheduled search updated');
+});
+
+function readHook() {
+  return {
+    ...hook,
+    enabled: ui.powpowOn.checked,
+    url: ui.powpowUrl.value.trim() || DEFAULT_HOOK.url,
+    token: ui.powpowToken.value.trim(),
+    channel: ui.powpowChannel.value,
+    to: ui.powpowTo.value.trim(),
+    when: ui.powpowWhen.value,
+  };
+}
+
+async function saveHook() {
+  hook = readHook();
+  await chrome.storage.local.set({ [HOOK_KEY]: hook });
+  applyAutomation();
+}
+
+for (const field of [ui.powpowOn, ui.powpowUrl, ui.powpowToken, ui.powpowChannel, ui.powpowTo, ui.powpowWhen]) {
+  field.addEventListener('change', saveHook);
+}
+
+// These boxes sit inside the search form, where Enter means "start the run".
+// Pressing Enter after pasting a token must not start a scrape.
+for (const field of [ui.powpowUrl, ui.powpowToken, ui.powpowTo, ui.scheduleTime]) {
+  field.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    field.dispatchEvent(new Event('change'));
+  });
+}
+
+ui.powpowTest.addEventListener('click', async () => {
+  await saveHook();
+  if (!hook.token) {
+    ui.powpowStatus.textContent = 'Add the hooks.token from the gateway config first.';
+    return;
+  }
+  ui.powpowStatus.textContent = 'Sending…';
+  const sent = await sendToPowPow(
+    hook,
+    'LeadMine test message. If this reached you, LeadMine can hand its leads to PowPow. ' +
+      'Reply to the user with one short line confirming it works.'
+  );
+  ui.powpowStatus.textContent = sent.ok ? 'Sent — watch your chat for the reply.' : sent.error;
 });
 
 chrome.runtime.onMessage.addListener((msg) => {
@@ -1711,6 +2342,16 @@ function showVersion() {
   // And after them: this is what reads the country file the saved code names.
   await applyCountry({ keepRegion: true });
   await restoreAi();
+  await restoreFinder();
+  await restoreAutomation();
+  {
+    const stored = await chrome.storage.local.get(JUDGE_BRIEF_KEY);
+    // The planner's description is the natural first draft of what a good
+    // lead is; after that the judge's own brief is kept.
+    ui.judgeBrief.value = stored[JUDGE_BRIEF_KEY] || ui.aiBrief.value || '';
+  }
+  applyJudgeState();
+  await loadSuppression().catch(() => {});
   applyFilterNote();
   const res = await chrome.runtime.sendMessage({ type: 'GET_JOB' });
   render((res && res.job) || { status: 'idle', count: 0, tasksTotal: 0 });

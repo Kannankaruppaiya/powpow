@@ -28,6 +28,15 @@ Four sources:
 
 Type `dentists` + `Chennai`, press start, and you get a spreadsheet.
 
+Then it helps with what comes after the spreadsheet: an AI **judge** says which
+leads fit what you are after and **why**, reading each business's own website;
+an optional **email finder** gets work addresses for the people worth writing
+to; each lead carries a **status and a follow-up date**; a **do-not-contact**
+list is honoured by every future run; a **cold-email** export goes straight
+into Instantly or Smartlead; and a search can **run on its own every morning**
+and send what it found to your phone through **PowPow**. See
+[After the run](#after-the-run-judge-follow-up-find-emails).
+
 ---
 
 ## ⚠️ Before you use the LinkedIn source
@@ -65,6 +74,7 @@ failure mode is a banned account, not a broken script.
 | Price Level | Detail panel |
 | Claimed | Whether the listing shows "Claim this business" |
 | Other Emails | Additional addresses found on the site |
+| Website Description / People Named On Website / Employees | The site's own schema.org data — what it says about itself, who it names (founder, director), its headcount |
 | Plus Code | Detail panel |
 | Google Maps URL | Results list |
 
@@ -277,6 +287,7 @@ exactly as it did before — type a category and a city and press Start.
 | **Open each listing for phone & address** | Clicks into every result to read the phone number and full address. Slower, but it is the difference between a list of names and a usable lead list. Leave it on. |
 | **Find emails from business websites** | Visits each business's website and reads the email it publishes. |
 | **Also check each site's contact page** | When the homepage has no email, follows the site's contact link. |
+| **Open sites that block a plain visit in a background tab** | When a site answers with a 403, a challenge page or an empty JavaScript shell, opens it in a background tab, reads what the browser built, and closes it. One tab at a time, at most 150 a run. |
 | **Verify emails** | Looks up the domain's MX records over DNS-over-HTTPS and labels each address. |
 | **Skip businesses from earlier runs** | Remembers what you have already exported and leaves it out of the next run. |
 
@@ -285,6 +296,143 @@ comes back, and if something Maps shows for every listing (a name, a place
 link) is suddenly mostly missing, the run **pauses** rather than filling a
 spreadsheet with blank columns. Expand **Extraction health** in the panel to
 see the per-field rates.
+
+---
+
+## After the run: judge, follow up, find emails
+
+Collecting is half the job. Six hundred rows with nothing saying which are
+worth a call is a spreadsheet you still have to read, so the Results tab now
+carries what happens next. It is behind **Judge, find emails, do not contact**,
+because Download is still that view's one action.
+
+Every lead card has a fourth line: the verdict, the reason, where the
+conversation stands, and your own 👍 / 👎.
+
+### Judge leads (AI)
+
+Say in a sentence or two what a good lead is — *"companies in Chennai with 20+
+staff that train their own teams, not institutes selling courses"* — and press
+**Judge leads**. Each lead comes back **Fit**, **Maybe** or **Not a fit**, with
+one sentence saying *why*, naming the evidence. The reason is the point (the
+idea is OpenOutreach's): a verdict can only be accepted, a reason can be
+disagreed with, and the fix for a wrong one is to say more precisely what you
+want.
+
+- **Businesses** are judged on their listing *and their own website* — the text
+  the email pass already read. The same call pulls out what they actually
+  sell, a named owner or director, and how big they look.
+- **People** are judged on their headline, company and location.
+- **Posts** get a second opinion on the keyword classifier: is the author
+  *asking* for what you offer, or selling it, or thanking a client?
+- **Your 👍 and 👎 are the memory.** The newest of them go with every call as
+  worked examples, and your mark always beats the model's — in the filter, the
+  email finder and every export.
+
+It uses the same free Gemini or Groq key as the search planner, twelve leads
+per request. Phones and emails are never sent to the model; they have nothing
+to do with fit. Verdicts arrive batch by batch and are kept if a run is
+stopped or a key runs out halfway.
+
+The filter beside the search box shows **Fit**, **Fit + maybe**, **Not judged**,
+**Follow up due** or **In conversation**.
+
+### Work emails for people (paid, optional)
+
+LinkedIn, public-web and post rows name a person and a profile and nothing you
+can write to. **Find work emails** looks the profile up with an email finder —
+**Apollo** (`people/match`, a miss is free) or **BetterContact** (async, one
+credit per lookup) — using your own key. Request and response shapes follow
+OpenOutFind's clients, which were written against the providers' docs.
+
+Rules, all about money: only leads judged **Fit** (tick *maybe* to widen it),
+only ones with a profile link and no email yet, never anyone on the
+do-not-contact list, capped at the number you type — and the button takes two
+presses, the first saying how many credits it will spend. Only the profile link
+is sent. A "guessed" address counts as a miss: an invented first.last@ would
+sit in the Email column looking exactly like a real one, and bounce.
+
+### Follow-ups
+
+Each card has a status: New → Contacted → Followed up → Replied → Meeting →
+Won, or Not interested / Do not contact. **Contacted** sets a follow-up three
+working days out; **Followed up** sets the next one five working days after
+that; the third unanswered email is where it stops (the rhythm is
+OpenOutSend's). When something is due, Results says so first: *"3 leads are
+due a follow-up today"*. Statuses live in their own store, so re-scraping the
+same street never wipes them.
+
+### Do not contact
+
+A list of addresses, whole domains, LinkedIn profiles and phone numbers,
+one per line. Marking a card **Do not contact** adds its email, profile and
+phone. Everyone on it is **set aside by every future run** before any website
+is fetched (never deleted — shown with the reason), and **never written into a
+cold-email export**. An opt-out follows the person, not the row: the same
+number written differently, the same person found through a post, or an address
+a finder returned later are all caught. Free-mail domains (gmail.com and the
+like) cannot be blocked whole, because that would block everyone.
+
+### People ↔ businesses
+
+A person whose company matches a business you found on Maps — by website
+domain, or by company name with "Pvt Ltd", "Inc" and punctuation ignored — is
+linked to it across runs. The person's card says *at Acme Training (Maps)*, the
+business's card says *2 people on LinkedIn*, and the export fills a **Linked**
+column with the business's phone and website, or the names of its people. A
+name two businesses share (a chain) links to neither.
+
+### Exports
+
+When anything has been judged, marked or linked, the Excel, CSV and JSON files
+gain **Fit, Why, What They Do / Need, Decision Maker, Size, Person Email,
+Linked, Status, Follow Up On, Do Not Contact**. A file with nothing to add gets
+no empty columns.
+
+**Cold-email tool (.csv)** is a fourth format, in the column names Instantly
+and Smartlead import without mapping — `email, first_name, last_name, company,
+title, website, linkedin_url, phone, location, reason, …` — and only the rows it
+is right to write to: an address, not on the do-not-contact list, not judged or
+marked a poor fit, not closed, not certain to bounce. `reason` arrives as a
+custom variable, which is the best first line a cold email can have. Turn on
+your sequencer's import dedupe.
+
+---
+
+## Running on its own, and PowPow
+
+### A schedule
+
+Under **More options → Run it on its own**, tick **Repeat this search
+automatically** and pick weekdays or every day, and a time. The search is saved
+as it stands at that moment; **Schedule the search that is in the form now**
+replaces it. Each scheduled run skips everything you have already downloaded,
+so it brings only what is new — *"who posted this week that they need a SAP
+trainer?"*, every morning. Chrome has to be open at that time; a missed time
+runs when Chrome next starts (that is how Chrome alarms work). A search that
+reads "the tab I'm on" cannot be scheduled, and says so.
+
+### Send results to PowPow
+
+[PowPow](../README.md) is the gateway between an agent and Telegram, WhatsApp,
+Slack and the rest. Its `POST /hooks/agent` endpoint (see
+`docs/automation/webhook.md`) takes a message, runs an agent turn on it, and
+delivers the reply to a channel. Tick **Send results to PowPow**, and a finished
+run is posted there: the leads, best first, with contact details and the
+judge's reasons — and the agent sends you the short version on your phone.
+
+1. In the gateway config: `hooks: { enabled: true, token: "<secret>" }`.
+2. In LeadMine: the hook address (default
+   `http://127.0.0.1:18789/hooks/agent`), the same token, and optionally a
+   channel and recipient. **Send a test** checks the whole path.
+3. By default only scheduled runs are sent; a run you started by hand has you
+   right there.
+
+The token goes in an `Authorization` header, never in the URL. Unlike the AI
+and email-finder keys it is readable by the background worker — a scheduled
+run finishes with nobody looking at the panel — and it is kept in its own slot,
+never in a job, a record or an export. The agent is told not to contact anyone
+itself.
 
 ---
 
@@ -365,9 +513,16 @@ popup  ──START_JOB──▶  service worker  ──RUN_SCRAPE──▶  cont
 | `src/lib/dedupe.js` | Stable business identity, record merging, the cross-run seen index |
 | `src/lib/search-cache.js` | What a LinkedIn search already returned, so it is never paid for twice |
 | `src/lib/posts.js` | Post ids to dates, the DEMAND/SUPPLY/RECAP classifier, contacts in a post, the date and intent narrowing |
-| `src/lib/email.js` | Fetches business websites, extracts/ranks emails, finds social links |
+| `src/lib/email.js` | Fetches business websites, extracts/ranks emails (incl. Cloudflare-hidden, `[at]` spellings, entities, JSON-LD), finds social links, keeps the page text for the judge, and says when a page needs a real tab |
 | `src/lib/verify.js` | Email verification over DNS-over-HTTPS |
-| `src/lib/store.js` | IndexedDB: job metadata, records, the cross-run seen index |
+| `src/lib/store.js` | IndexedDB: job metadata, records, the cross-run seen index, notes (verdicts, marks, statuses — never wiped by a re-scrape) and the do-not-contact list |
+| `src/lib/qualify.js` | The lead judge: digests, the prompt, your marks as examples, and checking what the model says |
+| `src/lib/enrich.js` | Work emails for people through Apollo or BetterContact, behind the spend gate |
+| `src/lib/crm.js` | Statuses and follow-up dates, the do-not-contact list, and the cold-email export rows |
+| `src/lib/link.js` | Joining people to the businesses they work at, across runs |
+| `src/lib/schedule.js` | When the saved search runs next, and what an unattended run may do |
+| `src/lib/powpow.js` | Handing a finished run to PowPow's `/hooks/agent` |
+| `src/content/heal.js` | Self-healing selectors: remembers what working elements look like and finds them again when Maps moves them |
 | `src/lib/health.js` | Extraction fill rates and the gate that stops a broken run |
 | `src/lib/categories.js` | Optional category narrowing, and the suggestions behind the picker |
 | `src/data/geo/` | Generated: one small file per country, plus an index. See below |
@@ -769,7 +924,9 @@ outcome rather than the mechanism. Every value is a token in
 ## Development
 
 ```bash
-npm test          # unit tests — geo, queue, dedupe, parsing, posts, email, verify, health, xlsx, export
+npm test          # unit tests — geo, queue, dedupe, parsing, posts, email, verify, health, xlsx, export,
+                  # the judge, the email finder, follow-ups and do-not-contact, linking, healing,
+                  # the schedule and the PowPow hand-off
 npm run test:dom  # browser tests of the DOM wiring (see below)
 npm run icons     # regenerate the PNG icons
 npm run package   # build the distributable zip
@@ -818,6 +975,11 @@ Common problems:
 | Every email says `unknown` | A network or firewall is blocking DNS-over-HTTPS. Verification degrades to unverified; the emails themselves are still fine. |
 | Nothing happens | Reload the extension at `chrome://extensions`, then reopen the Maps tab. |
 | The run paused itself | The extraction health gate fired: a field Maps always shows came back mostly empty, which means a selector broke. See `docs/SELECTORS.md`. Your partial results are kept. |
+| "Maps moved part of its page … found it again" | A selector stopped matching and `heal.js` found the element by how it looks. The results are fine; update the selector in `docs/SELECTORS.md` anyway. Only elements every search has — the feed, the result links, the Back button — are ever healed. |
+| Judge leads is greyed out | It needs the Gemini or Groq key from More options on the Search tab. |
+| Lookup says "no credits" or "rejected the API key" | That is the email finder's answer. It stops at the first one rather than failing on every lead; what was found before is kept. |
+| PowPow test fails with 401 / 404 | 401: the token differs from `hooks.token`. 404: `hooks.enabled` is off, or the path is not `/hooks/agent`. |
+| A scheduled run did not happen | Chrome was closed at that time — it runs when Chrome next starts. |
 | The panel does not open | Chrome 116+ is required. Check `chrome://extensions` for a manifest error. |
 | LinkedIn: "You are signed out" | Sign in to LinkedIn in that tab and rerun. |
 | LinkedIn: "security check" | Solve it in the tab, then rerun — and take it as a signal to slow down. |
@@ -846,6 +1008,12 @@ does not make it unlimited.
   lawful basis, accurate sender details and a working opt-out.
 - Do not raise the speed. The pacing is what keeps this looking like a person
   browsing rather than an attack.
+- The judge, the email finder and PowPow send lead data to services you chose
+  (Gemini or Groq, Apollo or BetterContact, your own gateway). Only what each
+  needs is sent — no contact details to the judge, only a profile link to the
+  finder — but it does leave your browser.
+- Honour opt-outs. The do-not-contact list exists so that "no" is permanent;
+  put every opt-out you receive on it.
 
 ---
 

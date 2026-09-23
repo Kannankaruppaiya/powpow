@@ -81,6 +81,18 @@ export function toGeminiSchema(schema) {
 
 const GEMINI_SCHEMA = toGeminiSchema(RESPONSE_SCHEMA);
 
+/**
+ * What a call must come back as, in both providers' dialects.
+ *
+ * Gemini enforces a schema at the API; Groq's JSON mode needs the shape spelt
+ * out in the prompt. The planner was the only caller once, so both were baked
+ * into the requests. The lead judge (`qualify.js`) asks for a different shape,
+ * so the pair is a value now, and the planner's is simply the default.
+ */
+export function responseSpec(schema, hint) {
+  return { gemini: toGeminiSchema(schema), hint: String(hint || '') };
+}
+
 /** Why a candidate came back with no text. The enum is from the spec. */
 const GEMINI_STOPPED = {
   MAX_TOKENS: 'The planner ran out of room before it finished. Try a shorter description.',
@@ -123,7 +135,7 @@ export const PROVIDERS = {
         .filter((m) => m.id);
     },
 
-    request(model, key, system, user) {
+    request(model, key, system, user, spec = PLAN_SPEC) {
       return {
         // The path parameter is `models/{model}` and the spec constrains it to
         // ^models/[^/]+$ — a name with a slash in it is the "unexpected model
@@ -141,7 +153,7 @@ export const PROVIDERS = {
           generationConfig: {
             temperature: 0.3,
             responseMimeType: 'application/json',
-            responseSchema: GEMINI_SCHEMA,
+            responseSchema: spec.gemini,
           },
         },
       };
@@ -199,7 +211,7 @@ export const PROVIDERS = {
         .filter((m) => m.id && !/whisper|tts|guard|^distil/i.test(m.id));
     },
 
-    request(model, key, system, user) {
+    request(model, key, system, user, spec = PLAN_SPEC) {
       return {
         url: 'https://api.groq.com/openai/v1/chat/completions',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
@@ -211,7 +223,7 @@ export const PROVIDERS = {
           // user picked is worse than one that states the shape in the prompt.
           response_format: { type: 'json_object' },
           messages: [
-            { role: 'system', content: `${system}\n\n${SCHEMA_HINT}` },
+            { role: 'system', content: `${system}\n\n${spec.hint}` },
             { role: 'user', content: user },
           ],
         },
@@ -239,6 +251,9 @@ const SCHEMA_HINT = `Reply with JSON only, in this exact shape:
               "reason":"why this finds real leads"}]}
 If one missing fact would change every search:
 {"status":"needs_clarification","question":"the single question"}`;
+
+/** The planner's shape: the default for every request, as it always was. */
+const PLAN_SPEC = { gemini: GEMINI_SCHEMA, hint: SCHEMA_HINT };
 
 export const DEFAULT_PROVIDER = 'gemini';
 
@@ -408,7 +423,7 @@ export function planToBatch(searches) {
 /* ------------------------------------------------------------ the request */
 
 /** What went wrong, in words that say what to do about it. */
-function httpError(status, body, model) {
+function httpError(status, body, model, what = 'planner') {
   if (status === 400 && /api key not valid/i.test(body)) {
     return new Error('That API key was rejected. Check it in More options.');
   }
@@ -426,7 +441,7 @@ function httpError(status, body, model) {
   }
   if (status >= 500) return new Error('The provider is having trouble. Try again in a moment.');
   // The body can echo the request, so it is truncated rather than shown whole.
-  return new Error(`The planner failed (HTTP ${status}). ${clip(body, 160)}`);
+  return new Error(`The ${what} failed (HTTP ${status}). ${clip(body, 160)}`);
 }
 
 /**
@@ -485,29 +500,33 @@ function mismatchError(belongsTo, conf) {
 }
 
 /**
- * Plan the searches for a brief.
+ * One JSON answer from the chosen provider.
  *
- * `fetchImpl` and `sleepImpl` are injectable so the tests can drive every
- * failure path without a network or an API key.
+ * The request, the single retry, the refusal handling and the parse were the
+ * planner's alone; the lead judge needs every one of them unchanged, so they
+ * live here and each caller only brings its prompt and its shape. `what`
+ * names the feature in the messages a user reads — "Could not reach the
+ * planner" is wrong about a judge.
+ *
+ * Returns the parsed object. Checking what is inside it stays with the
+ * caller, because only the caller knows what a usable answer is.
  */
-export async function planSearches({
-  brief,
-  source = 'maps',
-  city = '',
-  depth = 'balanced',
+export async function requestJson({
   provider = DEFAULT_PROVIDER,
   apiKey = '',
   model = '',
+  system,
+  user,
+  spec = PLAN_SPEC,
+  what = 'planner',
   timeout = 30000,
   fetchImpl = typeof fetch === 'function' ? fetch : null,
   sleepImpl = sleep,
 } = {}) {
-  const text = String(brief || '').trim();
-  if (!text) throw new Error('Describe what you are looking for first.');
   if (!String(apiKey).trim()) {
-    throw new Error('Add an API key in More options to use the planner.');
+    throw new Error(`Add an API key in More options to use the ${what}.`);
   }
-  if (!fetchImpl) throw new Error('This browser cannot reach the planner.');
+  if (!fetchImpl) throw new Error(`This browser cannot reach the ${what}.`);
 
   const conf = providerFor(provider);
   const key = String(apiKey).trim();
@@ -516,12 +535,7 @@ export async function planSearches({
   if (belongsTo && belongsTo.id !== conf.id) throw mismatchError(belongsTo, conf);
 
   const wanted = cleanModel(model, conf.defaultModel);
-  const req = conf.request(
-    wanted,
-    key,
-    SYSTEM_PROMPT,
-    buildUserPrompt({ brief: text, source, city, depth })
-  );
+  const req = conf.request(wanted, key, system, user, spec);
 
   let lastError = null;
   // One retry only. A second failure is a real one, and the user is waiting.
@@ -542,8 +556,8 @@ export async function planSearches({
     } catch (err) {
       lastError =
         err && err.name === 'AbortError'
-          ? new Error('The planner took too long. Try again.')
-          : new Error('Could not reach the planner. Check your connection.');
+          ? new Error(`The ${what} took too long. Try again.`)
+          : new Error(`Could not reach the ${what}. Check your connection.`);
       continue;
     } finally {
       if (timer) clearTimeout(timer);
@@ -551,7 +565,7 @@ export async function planSearches({
 
     if (!response.ok) {
       const body = await response.text().catch(() => '');
-      lastError = httpError(response.status, body, wanted);
+      lastError = httpError(response.status, body, wanted, what);
       // Only a transient status is worth a second attempt; a rejected key
       // will be rejected just as fast the second time.
       if (response.status === 429 || response.status >= 500) continue;
@@ -568,13 +582,47 @@ export async function planSearches({
       continue;
     }
 
-    const plan = parseJsonish(text);
-    if (!plan) {
-      lastError = new Error('The planner returned something unreadable. Try again.');
+    const parsed = parseJsonish(text);
+    if (!parsed) {
+      lastError = new Error(`The ${what} returned something unreadable. Try again.`);
       continue;
     }
-    return normalisePlan(plan, { depth, city });
+    return parsed;
   }
 
-  throw lastError || new Error('The planner failed.');
+  throw lastError || new Error(`The ${what} failed.`);
+}
+
+/**
+ * Plan the searches for a brief.
+ *
+ * `fetchImpl` and `sleepImpl` are injectable so the tests can drive every
+ * failure path without a network or an API key.
+ */
+export async function planSearches({
+  brief,
+  source = 'maps',
+  city = '',
+  depth = 'balanced',
+  provider = DEFAULT_PROVIDER,
+  apiKey = '',
+  model = '',
+  timeout = 30000,
+  fetchImpl = typeof fetch === 'function' ? fetch : null,
+  sleepImpl = sleep,
+} = {}) {
+  const text = String(brief || '').trim();
+  if (!text) throw new Error('Describe what you are looking for first.');
+
+  const plan = await requestJson({
+    provider,
+    apiKey,
+    model,
+    system: SYSTEM_PROMPT,
+    user: buildUserPrompt({ brief: text, source, city, depth }),
+    timeout,
+    fetchImpl,
+    sleepImpl,
+  });
+  return normalisePlan(plan, { depth, city });
 }

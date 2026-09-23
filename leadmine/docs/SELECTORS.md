@@ -7,6 +7,23 @@ scraper with them.
 Everything the content script matches on lives in the `SEL` object at the top of
 `src/content/scraper.js`. Fix it there and nothing else needs touching.
 
+## When a selector breaks, the run may heal it first
+
+`src/content/heal.js` remembers what the element each always-present selector
+found looked like — its tag, attributes, text, place in the tree, parent and
+siblings — once a day. When the selector later finds nothing, every element of
+the same tag is scored against that memory (Scrapling's `relocate`, ported),
+and the best one is used if it clears the bar. The run view then says *"Maps
+moved part of its page (feed) … found it again"*.
+
+Only the feed, the result links and the Back button are healed. A phone,
+address or website button is legitimately absent from some listings, and
+"relocating" it would put another element's text in that column — so those stay
+exact, and the extraction-health gate still pauses a run whose fields go blank.
+
+A healed run is a working run with a broken selector. Fix the selector here
+anyway; the memory is a bridge, not a repair.
+
 ## The stability ladder
 
 Prefer selectors from the top of this list. The scraper already does, falling

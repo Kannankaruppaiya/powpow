@@ -331,6 +331,16 @@
               <input type="checkbox" id="followContactPage" checked />
               <span>Also check each site's contact page</span>
             </label>
+            <!-- Sites that answer a plain request with a 403, a challenge or an
+                 empty JavaScript shell still show a visitor their email. A
+                 background tab is the second look; see email.js. -->
+            <label class="check" id="optRender">
+              <input type="checkbox" id="renderBlockedSites" checked />
+              <span>
+                <strong>Open sites that block a plain visit in a background tab</strong>
+                <em>Finds emails behind a firewall or built by JavaScript. Slower, at most 150 a run.</em>
+              </span>
+            </label>
             <label class="check" id="optVerify">
               <input type="checkbox" id="verifyEmails" checked />
               <span>Check the emails are real</span>
@@ -376,6 +386,70 @@
               </label>
             </div>
 
+            <!-- A search worth asking every morning should not need a person
+                 to press Start. The search is saved as it stands when this is
+                 switched on; each run brings only what is new. -->
+            <div class="field" id="scheduleSettings">
+              <span class="label">Run it on its own</span>
+              <label class="check">
+                <input type="checkbox" id="scheduleOn" />
+                <span>Repeat this search automatically — only new leads each time</span>
+              </label>
+              <div class="row" id="scheduleRow" hidden>
+                <select id="scheduleDays" class="input grow" aria-label="Which days">
+                  <option value="weekdays">Weekdays</option>
+                  <option value="daily">Every day</option>
+                </select>
+                <input id="scheduleTime" class="input" type="time" value="08:30" aria-label="At what time" />
+              </div>
+              <span class="help" id="scheduleNote">
+                Chrome has to be open at that time; a missed time runs when Chrome next starts.
+              </span>
+              <button type="button" id="scheduleUpdate" class="linkish" hidden>Schedule the search that is in the form now</button>
+            </div>
+
+            <!-- PowPow is the gateway to Telegram, WhatsApp and Slack. A run
+                 handed to its /hooks/agent endpoint arrives on the phone as a
+                 summary its agent wrote. See src/lib/powpow.js. -->
+            <div class="field" id="powpowSettings">
+              <span class="label">Send results to PowPow</span>
+              <label class="check">
+                <input type="checkbox" id="powpowOn" />
+                <span>Message me the leads on Telegram, WhatsApp or Slack through my PowPow gateway</span>
+              </label>
+              <div class="stack tight" id="powpowBody" hidden>
+                <input id="powpowUrl" class="input" spellcheck="false" autocomplete="off"
+                       placeholder="http://127.0.0.1:18789/hooks/agent" aria-label="PowPow hook address" />
+                <input id="powpowToken" class="input" type="password" spellcheck="false" autocomplete="off"
+                       placeholder="hooks.token from the gateway config" aria-label="PowPow hook token" />
+                <div class="row">
+                  <select id="powpowChannel" class="input grow" aria-label="Which channel">
+                    <option value="last">My last chat</option>
+                    <option value="telegram">Telegram</option>
+                    <option value="whatsapp">WhatsApp</option>
+                    <option value="slack">Slack</option>
+                    <option value="discord">Discord</option>
+                    <option value="signal">Signal</option>
+                    <option value="msteams">Microsoft Teams</option>
+                  </select>
+                  <input id="powpowTo" class="input grow" spellcheck="false" autocomplete="off"
+                         placeholder="Chat id or number (optional)" aria-label="Recipient" />
+                </div>
+                <select id="powpowWhen" class="input" aria-label="Which runs">
+                  <option value="scheduled">Only the scheduled runs</option>
+                  <option value="always">Every run</option>
+                </select>
+                <div class="row">
+                  <button type="button" id="powpowTest" class="btn btn--sm">Send a test</button>
+                  <span id="powpowStatus" class="muted small" role="status" aria-live="polite"></span>
+                </div>
+                <span class="help">
+                  Turn on <code>hooks</code> in the gateway config first (docs/automation/webhook.md).
+                  The token stays in this browser and only ever goes to that address.
+                </span>
+              </div>
+            </div>
+
           </div>
         </details>
 
@@ -397,6 +471,10 @@
 
         <div class="bar"><div id="barFill" class="bar-fill"></div></div>
         <p id="taskLine" class="muted small"></p>
+        <!-- What the run did beyond collecting: selectors it had to find
+             again, sites it had to open in a tab, the do-not-contact list,
+             the hand-off to PowPow. One line each, only when it happened. -->
+        <ul id="runNotes" class="runnotes" hidden></ul>
 
         <!-- "Why only three?" gets its own line, not a clause at the end of
              the task line. It is the first question a short run raises and
@@ -432,7 +510,89 @@
 
     <!-- =================================================== results ===== -->
     <section id="paneResults" class="pane" hidden>
-      <input id="filter" class="input" type="search" placeholder="Filter these results…" />
+      <div class="row">
+        <input id="filter" class="input grow" type="search" placeholder="Filter these results…" />
+        <!-- Which leads, by what was decided about them rather than by what
+             they say: the judge's verdict and where the conversation is. -->
+        <select id="show" class="input" aria-label="Which leads">
+          <option value="all">All</option>
+          <option value="fit">Fit</option>
+          <option value="fitmaybe">Fit + maybe</option>
+          <option value="unjudged">Not judged</option>
+          <option value="due">Follow up due</option>
+          <option value="active">In conversation</option>
+        </select>
+      </div>
+
+      <!-- The one thing Results should say before anything else, when it is
+           true: somebody is waiting on a reply from you today. -->
+      <p id="dueNote" class="callout callout--warn" hidden>
+        <span id="dueText"></span>
+        <button type="button" id="dueShow" class="linkish">Show them</button>
+      </p>
+
+      <!-- After the scrape: judging, email finding and the do-not-contact
+           list. Folded, because Download is still this view's one action. -->
+      <details class="advanced" id="toolsBox">
+        <summary>Judge, find emails, do not contact</summary>
+        <div class="stack advanced-body">
+          <div class="field">
+            <label class="label" for="judgeBrief">What makes a lead a good fit for you?</label>
+            <textarea id="judgeBrief" class="input" rows="3" spellcheck="false"
+              placeholder="Companies in Chennai with 20+ staff that run corporate training for their teams — not training institutes selling courses"></textarea>
+            <div class="row">
+              <select id="judgeScope" class="input grow" aria-label="Which leads to judge">
+                <option value="unjudged">The ones not judged yet</option>
+                <option value="shown">Everything shown</option>
+              </select>
+              <button type="button" id="judgeRun" class="btn btn--sm">Judge leads</button>
+            </div>
+            <span id="judgeStatus" class="muted small" role="status" aria-live="polite"></span>
+            <span class="help" id="judgeHelp">
+              Every lead gets fit, maybe or not a fit, and one sentence saying why — read
+              from its listing and its own website. Mark leads 👍 or 👎 and the next
+              judging follows your call.
+            </span>
+          </div>
+
+          <div class="field" id="finderBox" hidden>
+            <span class="label">Work emails for people <em class="optional">paid</em></span>
+            <div class="row">
+              <select id="finderProvider" class="input grow" aria-label="Email finder">
+                <option value="apollo">Apollo</option>
+                <option value="bettercontact">BetterContact</option>
+              </select>
+              <input id="finderMax" class="input" type="number" min="1" max="500" value="10"
+                     aria-label="Most lookups to spend" title="Most lookups to spend" />
+            </div>
+            <input id="finderKey" class="input" type="password" autocomplete="off" spellcheck="false"
+                   placeholder="Email finder API key" aria-label="Email finder API key" />
+            <label class="check">
+              <input type="checkbox" id="finderMaybe" />
+              <span>Also look up “maybe” leads, not only “fit”</span>
+            </label>
+            <div class="row">
+              <button type="button" id="finderRun" class="btn btn--sm">Find work emails</button>
+              <span id="finderStatus" class="muted small" role="status" aria-live="polite"></span>
+            </div>
+            <span class="help" id="finderHelp"></span>
+          </div>
+
+          <div class="field">
+            <label class="label" for="dncText">Do not contact</label>
+            <textarea id="dncText" class="input" rows="3" spellcheck="false"
+              placeholder="One per line — an email, a whole domain, a LinkedIn profile or a phone number"></textarea>
+            <div class="row">
+              <button type="button" id="dncSave" class="btn btn--sm">Save list</button>
+              <span id="dncStatus" class="muted small" role="status" aria-live="polite"></span>
+            </div>
+            <span class="help">
+              Everyone here is set aside by every future run and never written into a
+              cold-email export. Marking a lead “Do not contact” adds them.
+            </span>
+          </div>
+        </div>
+      </details>
 
       <!-- Rows the category filter set aside are kept, not deleted, so this is
            a view switch rather than a re-run. -->
@@ -458,6 +618,8 @@
           <div id="rowBody" class="rows"></div>
         </div>
       </div>
+
+      <p id="linkNote" class="muted small" hidden></p>
 
       <div class="row">
         <p id="rowNote" class="muted small grow"></p>
@@ -500,6 +662,7 @@
           <option value="xlsx">Excel (.xlsx)</option>
           <option value="csv">CSV (.csv)</option>
           <option value="json">JSON (.json)</option>
+          <option value="sequencer">Cold-email tool (.csv)</option>
         </select>
         <button type="button" id="download" class="btn btn--primary btn--lg grow">Download</button>
       </div>

@@ -34,6 +34,20 @@
     consent: 'form[action*="consent"], div[aria-label*="Before you continue"]',
   };
 
+  /*
+   * Self-healing for the four elements every Maps search has (heal.js). A
+   * working selector teaches it what the element looks like; a broken one
+   * falls back to finding the element that still looks like that. Optional
+   * fields are never healed — see heal.js for why.
+   */
+  const heal = globalThis.MLSHeal || null;
+  const LIST_ITEM = { ignore: ['href', 'text', 'aria-label'] };
+
+  function findFeed() {
+    if (!heal) return document.querySelector(SEL.feed);
+    return heal.pick('feed', SEL.feed, document, { threshold: 65 });
+  }
+
   const END_OF_LIST_HINTS = [
     "you've reached the end of the list",
     'you have reached the end of the list',
@@ -217,12 +231,23 @@
 
     async waitForResults() {
       const { waitFor } = globalThis.MLSEngine;
-      return waitFor(() => document.querySelector(SEL.feed), { timeout: 15000 });
+      if (heal) await heal.load();
+      const feed = await waitFor(() => document.querySelector(SEL.feed), { timeout: 15000 });
+      if (feed) {
+        if (heal) heal.remember('feed', feed);
+        return feed;
+      }
+      // The selector found nothing for fifteen seconds. Before calling that
+      // a missing list, look for the element that still looks like the feed.
+      return heal ? heal.relocate('feed', document, { threshold: 65 }) : null;
     },
 
     getResultIds(feed) {
       // The href is the identity: stable per business within a page.
-      return [...feed.querySelectorAll(SEL.cardLink)].map((a) => a.href);
+      const links = heal
+        ? heal.pickAll('cardLink', SEL.cardLink, feed, LIST_ITEM)
+        : [...feed.querySelectorAll(SEL.cardLink)];
+      return links.map((a) => a.href).filter(Boolean);
     },
 
     extractResult(id, feed) {
@@ -251,13 +276,16 @@
     },
 
     async openDetail(record, config, { waitFor, sleep }) {
-      const feed = document.querySelector(SEL.feed);
+      const feed = findFeed();
       if (!feed) return null;
 
       let link = feed.querySelector(`a[href="${CSS.escape(record.mapsUrl)}"]`);
       if (!link) {
         // The card scrolled out of the rendered window — find it again by name.
-        link = [...feed.querySelectorAll(SEL.cardLink)].find(
+        const links = heal
+          ? heal.pickAll('cardLink', SEL.cardLink, feed, LIST_ITEM)
+          : [...feed.querySelectorAll(SEL.cardLink)];
+        link = links.find(
           (a) => nameKey(a.getAttribute('aria-label')) === nameKey(record.name)
         );
       }
@@ -278,7 +306,10 @@
     },
 
     async closeDetail({ waitFor, sleep }) {
-      const back = document.querySelector(SEL.backButton);
+      // A high bar: relocating the wrong button means clicking it.
+      const back = heal
+        ? heal.pick('backButton', SEL.backButton, document, { threshold: 75, ignore: ['text'] })
+        : document.querySelector(SEL.backButton);
       if (back) back.click();
       else history.back();
       await waitFor(() => document.querySelector(SEL.feed), { timeout: 6000 });

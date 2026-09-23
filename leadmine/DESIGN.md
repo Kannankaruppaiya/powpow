@@ -251,6 +251,30 @@ of what?", not eight searches for the wrong thing.
 
 ---
 
+## After the run, the proposal rule again
+
+The judge follows the planner's rule: it proposes, the user decides. A verdict
+never deletes, hides or sends anything by itself — it is a badge and a
+sentence on the card, and the sentence comes first because a reason can be
+disagreed with and a verdict can only be accepted. The user's own 👍 / 👎 beats
+it everywhere, and those marks are what the next judging learns from.
+
+The card grew a fourth line for this — verdict, reason, status, marks — and
+`--row-h` grew from 72px to 94px with it. Every card has the line, judged or
+not, because the virtual list multiplies by one height.
+
+Everything that happens after collecting — judging, email finding, the
+do-not-contact list — sits in one disclosure on Results. Download is still the
+view's one primary action; these are tools you reach for, not the next step.
+
+**Spending money takes two presses.** The email finder's first press says how
+many lookups it would spend; only the second spends them. Nothing else in the
+extension asks twice, so the second press means something.
+
+**Colour is never the only signal**, here too: a verdict is a word in a tinted
+pill, a due follow-up is a word and an outline, and a do-not-contact lead is
+struck through as well as faded.
+
 ## The four states
 
 The form and the run never share the screen. While a scrape is going, the

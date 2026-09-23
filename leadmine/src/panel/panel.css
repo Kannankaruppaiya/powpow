@@ -650,6 +650,10 @@ select.input { appearance: auto; }
 }
 .lead-1 { height: 18px; }
 .lead-2, .lead-3 { height: 17px; }
+/* The fourth line is what was decided about the lead: the judge's verdict and
+   its reason, where the conversation stands, and the user's own mark. Always
+   present, so every card is the same height — the virtual list multiplies. */
+.lead-4 { height: 20px; margin-top: 2px; align-items: center; }
 
 .lead-name {
   flex: 1;
@@ -696,6 +700,68 @@ select.input { appearance: auto; }
   color: var(--ink-3);
 }
 .lead-dot { flex: none; color: var(--ink-3); }
+
+/* A verdict is text first and colour second — "Not a fit" reads without it. */
+.verdict {
+  flex: none;
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: var(--w-medium);
+  line-height: 16px;
+  border-radius: var(--r-pill);
+}
+.verdict[data-v="fit"] { color: var(--ok); background: var(--ok-soft); }
+.verdict[data-v="maybe"] { color: var(--warn); background: var(--warn-soft); }
+.verdict[data-v="no_fit"] { color: var(--danger); background: var(--danger-soft); }
+.lead-why {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.lead-status {
+  flex: none;
+  max-width: 110px;
+  height: 18px;
+  padding: 0 2px;
+  font: var(--w-regular) 11px / 1 var(--font);
+  color: var(--ink-2);
+  background: var(--canvas);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+}
+.lead-status.is-due { color: var(--warn); border-color: var(--warn); font-weight: var(--w-medium); }
+.lead-status:focus-visible { outline: none; box-shadow: var(--ring); }
+/* The user's own mark. Grey until pressed, so a card is not a row of emoji. */
+.mark {
+  flex: none;
+  padding: 0 2px;
+  font-size: 12px;
+  line-height: 1;
+  background: none;
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
+  opacity: 0.4;
+  filter: grayscale(1);
+}
+.mark:hover { opacity: 0.8; }
+.mark[aria-pressed="true"] { opacity: 1; filter: none; }
+.mark:focus-visible { outline: none; box-shadow: var(--ring); }
+/* Do not contact: struck through as well as faded — never colour alone. */
+.lead.is-dnc .lead-name { color: var(--ink-3); text-decoration: line-through; }
+
+/* One short line per thing the run did beyond collecting. */
+.runnotes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--t-small);
+  color: var(--ink-2);
+}
+.runnotes li + li { margin-top: var(--s-1); }
 .lead-none {
   min-width: 0;
   overflow: hidden;

@@ -1,4 +1,7 @@
 import { buildXlsx } from './xlsx.js';
+import { sequencerRows, SEQUENCER_COLUMNS, STATUS_LABEL } from './crm.js';
+import { effectiveVerdict, VERDICT_LABEL } from './qualify.js';
+import { peopleSummary } from './link.js';
 
 /**
  * Serialisers for the three download formats.
@@ -35,6 +38,12 @@ export const MAPS_COLUMNS = [
   { key: 'priceLevel', label: 'Price Level' },
   { key: 'claimed', label: 'Claimed' },
   { key: 'allEmails', label: 'Other Emails' },
+  // What the business's own website says about itself — its schema.org
+  // description, the people it names, its headcount. Read during the email
+  // pass at no extra request.
+  { key: 'siteDescription', label: 'Website Description' },
+  { key: 'sitePeople', label: 'People Named On Website' },
+  { key: 'employees', label: 'Employees' },
   { key: 'plusCode', label: 'Plus Code' },
   { key: 'mapsUrl', label: 'Google Maps URL' },
 ];
@@ -90,6 +99,67 @@ export const LINKEDIN_COLUMNS = PEOPLE_COLUMNS;
 /** Kept as the default so existing callers and tests keep working. */
 export const COLUMNS = MAPS_COLUMNS;
 
+/*
+ * What the user and the judge said about each lead.
+ *
+ * Kept in the notes store, not on the record, so a re-scrape cannot wipe
+ * them (see store.js). Joined in only at export time, and only when there is
+ * something to join — a file with eleven empty columns on the end is a file
+ * that looks broken.
+ */
+export const ANNOTATION_COLUMNS = [
+  { key: 'fit', label: 'Fit' },
+  { key: 'fitReason', label: 'Why' },
+  { key: 'services', label: 'What They Do / Need' },
+  { key: 'decisionMaker', label: 'Decision Maker' },
+  { key: 'size', label: 'Size' },
+  { key: 'personEmail', label: 'Person Email' },
+  { key: 'personEmailStatus', label: 'Person Email Status' },
+  { key: 'linked', label: 'Linked' },
+  { key: 'status', label: 'Status' },
+  { key: 'followUpOn', label: 'Follow Up On' },
+  { key: 'doNotContact', label: 'Do Not Contact' },
+];
+
+/**
+ * Records with their notes and links folded in, as export fields.
+ *
+ * `linked` maps a person's key to the business they work at; `people` maps a
+ * business's key to the people found working there.
+ */
+export function annotate(records, { notes = new Map(), linked = new Map(), people = new Map(), isSuppressed } = {}) {
+  return (records || []).map((record) => {
+    const note = notes.get(record.key) || {};
+    const verdict = effectiveVerdict(note);
+    const business = linked.get(record.key);
+    const staff = people.get(record.key);
+    const dnc = isSuppressed ? isSuppressed(record, note) : Boolean(note.suppressed);
+    return {
+      ...record,
+      fit: verdict ? VERDICT_LABEL[verdict] : '',
+      fitReason: note.feedback && note.feedbackWhy ? note.feedbackWhy : note.reason || '',
+      services: note.services || '',
+      decisionMaker: note.decisionMaker || '',
+      size: note.size || '',
+      personEmail: note.personEmail || '',
+      personEmailStatus: note.personEmail ? note.personEmailStatus || '' : '',
+      linked: business
+        ? `Works at ${business.name}${business.phone ? ` · ${business.phone}` : ''}${business.website ? ` · ${business.website}` : ''}`
+        : staff && staff.length
+          ? peopleSummary(staff)
+          : '',
+      status: note.status ? STATUS_LABEL[note.status] || note.status : '',
+      followUpOn: note.followUpOn || '',
+      doNotContact: dnc ? 'Yes' : '',
+    };
+  });
+}
+
+/** Whether any record carries an annotation worth a column. */
+export function hasAnnotations(records) {
+  return (records || []).some((r) => ANNOTATION_COLUMNS.some((c) => r[c.key]));
+}
+
 /** Choose columns from what the records actually are. */
 export function columnsFor(records) {
   const first = (records || []).find((r) => r && r.source);
@@ -144,7 +214,7 @@ export function toRows(records, columns = columnsFor(records)) {
  * Async because the workbook writer compresses through CompressionStream; CSV
  * and JSON resolve immediately.
  */
-export async function buildFile(records, format, meta = {}) {
+export async function buildFile(records, format, meta = {}, extras = null) {
   const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
   const slug = (s) =>
     String(s || '')
@@ -158,19 +228,48 @@ export async function buildFile(records, format, meta = {}) {
   const source = meta.source || ((records || []).find((r) => r && r.source) || {}).source || '';
   const base = `${source ? `${slug(source)}_` : ''}${search || 'leads'}_${stamp}`;
 
+  /*
+   * For a cold-email tool: its own column names, only rows with an address,
+   * and never a lead that is suppressed, judged a poor fit or closed. A
+   * sequencer mails every row it is given, so this is the last place a "no"
+   * can be honoured.
+   */
+  if (format === 'sequencer') {
+    const rows = sequencerRows(records, (extras && extras.notes) || new Map(), {
+      isSuppressed: (extras && extras.isSuppressed) || (() => false),
+      linked: (extras && extras.linked) || new Map(),
+    });
+    return {
+      content: toCsv(rows, SEQUENCER_COLUMNS),
+      mime: 'text/csv;charset=utf-8',
+      filename: `${base}_cold-email.csv`,
+      count: rows.length,
+    };
+  }
+
+  let rows = records;
+  let columns = columnsFor(records);
+  if (extras) {
+    const annotated = annotate(records, extras);
+    if (hasAnnotations(annotated)) {
+      rows = annotated;
+      columns = [...columns, ...ANNOTATION_COLUMNS];
+    }
+  }
+
   if (format === 'json') {
-    return { content: toJson(records), mime: 'application/json', filename: `${base}.json` };
+    return { content: toJson(rows, columns), mime: 'application/json', filename: `${base}.json` };
   }
 
   if (format === 'xlsx' || format === 'xls') {
-    const { headers, rows } = toRows(records);
+    const { headers, rows: cells } = toRows(rows, columns);
     const sheetName = `${meta.category || 'Leads'} ${meta.city || ''}`.trim();
     return {
-      content: await buildXlsx({ headers, rows, sheetName }),
+      content: await buildXlsx({ headers, rows: cells, sheetName }),
       mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       filename: `${base}.xlsx`,
     };
   }
 
-  return { content: toCsv(records), mime: 'text/csv;charset=utf-8', filename: `${base}.csv` };
+  return { content: toCsv(rows, columns), mime: 'text/csv;charset=utf-8', filename: `${base}.csv` };
 }

@@ -257,6 +257,13 @@
     }
 
     if (typeof adapter.finalise === 'function') adapter.finalise(records, config, context);
+    // Which selectors had to be found again from memory (heal.js). A run
+    // that healed is a run whose selectors need looking at, even though it
+    // worked — so the worker is told, and the panel says so.
+    if (globalThis.MLSHeal && context) {
+      const healed = globalThis.MLSHeal.healedList();
+      if (healed.length) context.healed = healed;
+    }
     // An adapter that reads two kinds of result says which one each record
     // is; otherwise the adapter is the source.
     for (const record of records) record.source = record.source || adapter.id;

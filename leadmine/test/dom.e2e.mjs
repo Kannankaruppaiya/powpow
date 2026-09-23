@@ -22,6 +22,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 // and the source adapter. Load them in the same order the manifest does.
 const CONTENT_SCRIPTS = [
   'src/lib/parse.js',
+  'src/content/heal.js',
   'src/content/engine.js',
   'src/content/adapters/maps.js',
 ].map((f) => readFileSync(join(ROOT, f), 'utf8'));
@@ -171,7 +172,7 @@ function findChromium() {
 const CHROMIUM = findChromium();
 
 /** Loads the fixture, injects the real content script, and runs one scrape. */
-async function scrape(browser, config) {
+async function scrape(browser, config, before = null) {
   const page = await browser.newPage();
   // Serve the fixture from a real Maps URL: the adapter is chosen by
   // matchesUrl, and the search term is read out of the path.
@@ -181,6 +182,7 @@ async function scrape(browser, config) {
   await page.goto('https://www.google.com/maps/search/dentists+in+Chennai/@13.0827,80.2707,12z?hl=en');
   await page.addScriptTag({ content: CHROME_STUB });
   for (const src of CONTENT_SCRIPTS) await page.addScriptTag({ content: src });
+  if (before) await page.evaluate(before);
 
   const result = await page.evaluate(
     (cfg) =>
@@ -277,6 +279,29 @@ test('list-only mode reads category, address and phone off the cards', async (t)
     const noPhone = result.records.find((r) => r.name === 'Smile Studio');
     assert.equal(noPhone.phone, '');
     assert.equal(noPhone.category, 'Dental clinic');
+  } finally {
+    await browser.close();
+  }
+});
+
+test('a feed that lost its selector is found again by how it looks', async (t) => {
+  const browser = await launch(t);
+  if (!browser) return;
+
+  try {
+    // Teach heal.js the feed and a result link the way a working run does,
+    // then do what a Maps redesign does: the attribute the selector keys on
+    // changes, and nothing else about the element does.
+    const { result } = await scrape(browser, { deep: false }, () => {
+      const feed = document.querySelector('div[role="feed"]');
+      window.MLSHeal.remember('feed', feed);
+      window.MLSHeal.remember('cardLink', feed.querySelector('a[href*="/maps/place/"]'));
+      feed.setAttribute('role', 'list');
+    });
+
+    assert.equal(result.ok, true, result.error);
+    assert.equal(result.records.length, 3, 'every listing is still collected');
+    assert.deepEqual(result.context.healed, ['feed'], 'and the run says which selector it healed');
   } finally {
     await browser.close();
   }
