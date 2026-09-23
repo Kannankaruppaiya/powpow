@@ -181,6 +181,52 @@
     return { author: '', text };
   }
 
+  /*
+   * An engine's snippet for a LinkedIn post, with the engine's furniture taken
+   * out and the author read off it.
+   *
+   * Read off a real run of 140 results. Google puts all of this in the text
+   * around a post result:
+   *
+   *   "Web results"
+   *   "linkedin.comhttps://www.linkedin.com › posts › joe-adams-9a93556b..."
+   *   "LinkedIn · RAJENDRA SHARMA9 reactions"      ← the author, glued to a count
+   *   "Asif Ebrahim posted this —", "Pramita Kaur Sidhu's Post - …"
+   *   "· 1 week ago", "2w. Report this post; Close menu.", "Like · Reply."
+   *
+   * Left in, they were the Post column, the name "39 comments" was the
+   * Author, and "LinkedIn · Tech Talent Sourcing, Diversity Hiring…" was read
+   * as somebody hiring.
+   */
+  const COUNT = /\d[\d,.]*\s*K?\+?\s*(?:reactions?|comments?|followers?|reposts?)/i;
+
+  function cleanPostSnippet(raw) {
+    let text = norm(raw);
+    let author = '';
+
+    const site = text.match(new RegExp(`LinkedIn\\s*·\\s*(.{2,80}?)\\s*(?:${COUNT.source}|·|$)`, 'i'));
+    if (site && !/^https?:|linkedin\.com/i.test(site[1])) author = site[1].trim();
+    const postedThis = text.match(/(?:^|—\s*)([^—|·]{2,60}?)\s+posted this\b/i);
+    if (!author && postedThis) author = postedThis[1].trim();
+    const possessive = text.match(/(?:^|—\s*)([^—|·]{2,60}?)['’]s?\s+Post\b/i);
+    if (!author && possessive) author = possessive[1].trim();
+
+    text = text
+      .replace(/\bWeb results\b/gi, ' ')
+      // "linkedin.comhttps://www.linkedin.com › posts › slug..." and "LinkedInhttps://…"
+      .replace(/(?:linkedin\.com|LinkedIn)?\s*https?:\/\/(?:[\w-]+\.)?linkedin\.com(?:\s*›\s*[\w%-]+)*(?:\.{2,}|…)?/gi, ' ')
+      .replace(new RegExp(`LinkedIn\\s*·\\s*.{0,80}?${COUNT.source}`, 'gi'), ' ')
+      .replace(/LinkedIn\s*·\s*[^·—]{0,80}?(?=\s*·|\s*—|$)/gi, ' ')
+      .replace(/\s*·\s*\d+\s+(?:minutes?|hours?|days?|weeks?|months?)\s+ago\b/gi, ' ')
+      .replace(/(?:^|\s)\d+\s*(?:h|d|w|mo|yr)\.?\s+Report this (?:post|comment)[;.]?\s*(?:Close menu\.?)?/gi, ' ')
+      .replace(/\bReport this (?:post|comment)[;.]?\s*(?:Close menu\.?)?/gi, ' ')
+      .replace(/\bLike\s*·\s*Reply\.?/gi, ' ')
+      .replace(new RegExp(`(?:^|\\s)${COUNT.source}`, 'gi'), ' ')
+      .replace(/[^—|]{2,60}?\s+posted this\s*(?:—|-)?/gi, ' ')
+      .replace(/^\s*(?:—|-|\|)\s*/, '');
+    return { text: norm(text), author };
+  }
+
   globalThis.MLSParse = {
     norm,
     nameKey,
@@ -190,5 +236,6 @@
     deriveArea,
     phoneFromItemId,
     parsePostTitle,
+    cleanPostSnippet,
   };
 })();

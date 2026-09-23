@@ -716,6 +716,22 @@ The classifier reads a post in three passes:
    version read those as the trainer's own post and sent a real requirement
    to SUPPLY.
 
+Checked against a real run: 140 posts from a "looking for corporate
+trainers" search, each labelled by hand.
+
+- **Before:** 16 wrong leads kept and 11 real ones missed.
+- **After:** no wrong leads and one real one missed. That post's snippet
+  stopped at "…CODEIT Infotech seeks …". A second real post is now set
+  aside as **CLOSED** ("Closed - Thank you for the overwhelming response").
+
+What made the difference, besides the rules above:
+
+- **Clean the engine's snippet first.** "LinkedIn · Name 9 reactions",
+  "linkedin.comhttps://… › posts › slug…" and "Report this post; Close menu"
+  are removed, and the author is read off the site line.
+- **Judge a post as it lands, and again whenever a second sighting brings
+  more text.** A run you stop halfway is already narrowed.
+
 `test/posts-corpus.test.mjs` holds the real posts this was checked against,
 in both directions. A change that breaks one of them is a regression.
 

@@ -26,7 +26,7 @@
 (() => {
   'use strict';
 
-  const { norm, parsePostTitle } = globalThis.MLSParse;
+  const { norm, parsePostTitle, cleanPostSnippet } = globalThis.MLSParse;
 
   const PROFILE = /(?:^|\.)linkedin\.com\/in\/([^/?#]+)/i;
 
@@ -471,8 +471,19 @@
 
   /** One post result as a record. The worker dates and classifies it. */
   function postRecord(hit) {
-    const { author, text: fromTitle } = parsePostTitle(titleOf(hit.anchor));
-    const snippet = snippetFor(hit.anchor).replace(ENGINE_DATE, '').trim();
+    const title = parsePostTitle(titleOf(hit.anchor));
+    const cleaned = cleanPostSnippet(snippetFor(hit.anchor).replace(ENGINE_DATE, '').trim());
+    const snippet = cleaned.text.replace(ENGINE_DATE, '').trim();
+    const fromTitle = title.text;
+    /*
+     * The author, from the line the engine prints for it ("LinkedIn · Name
+     * 9 reactions") before the title's " | tail": on a real run the tail
+     * gave "39 comments", "Immediate Requirement We are ..." and
+     * "L&D Manager 📍 Location: Gurgaon & ..." as names.
+     */
+    const plausible = (name) =>
+      Boolean(name) && name.length <= 60 && !/\d+\s*(?:comments?|reactions?)|\.\.\.|…|:|📍/.test(name);
+    const author = cleaned.author || (plausible(title.author) ? title.author : '');
     // The title is usually the post's first line and the snippet the next
     // few. Keep both, once: some engines repeat the title in the snippet.
     const text =
