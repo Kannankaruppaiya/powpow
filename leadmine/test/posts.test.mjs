@@ -16,6 +16,7 @@ import {
   topicWords,
   annotatePost,
   narrowPosts,
+  postVerdict,
   postQueries,
   postSearchUrl,
   engineWindowDays,
@@ -216,4 +217,17 @@ test('the engine window is a little wider than asked for, and the URL carries it
   assert.equal(url.searchParams.get('tbs'), 'qdr:d9');
   assert.equal(url.searchParams.get('filter'), '0');
   assert.equal(url.searchParams.get('q'), 'site:linkedin.com/posts trainer');
+});
+
+test('a row is judged on its own as it arrives, and a stale verdict is never inherited', () => {
+  const now = Date.now();
+  assert.equal(postVerdict(post(1, now), { now }), '');
+  assert.equal(postVerdict(post(12, now), { now }), 'older than 10 days');
+  assert.equal(postVerdict(post(1, now, { intent: 'OTHER' }), { now }), 'not a requirement post (other)');
+  assert.equal(postVerdict(post(1, now, { intent: 'OTHER' }), { now, intentOnly: false }), '');
+  // Set aside while its text was a one-line title, kept once the whole post
+  // arrived: the old reason must not ride along.
+  const { kept } = narrowPosts([post(1, now, { setAside: 'not a requirement post (other)' })], { now });
+  assert.equal(kept.length, 1);
+  assert.equal(kept[0].setAside, undefined);
 });

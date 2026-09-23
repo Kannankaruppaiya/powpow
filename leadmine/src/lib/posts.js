@@ -126,9 +126,133 @@ export function contactsIn(text) {
 /* --------------------------------------------------------------- intent */
 
 /*
- * Cues, each with the label a row shows when it fires. Weights are small
- * integers on purpose: a cue either says "asking" strongly (2) or only
- * suggests it (1), and a finer scale would be precision nobody measured.
+ * How the classifier reads a post, in three passes.
+ *
+ * 1. **Blank out the clauses that borrow a buyer's words.** "If you require
+ *    corporate training, DM me" is an advert; "looking for new
+ *    opportunities" is a job seeker. Both contain exactly the words a
+ *    requirement is written in, so they are removed before anything asks
+ *    whether the post is asking.
+ *
+ * 2. **Find the requirement itself: a role next to a need.** The two posts
+ *    this was tuned on say it the way almost every requirement does —
+ *    "A QA Automation corporate trainer is required", "Technical Training
+ *    Specialist (AI, Machine Learning, & Business Intelligence) is required",
+ *    "We are seeking an experienced … Technical Training Specialist". A role
+ *    word (trainer, training, specialist, facilitator…) within a sentence of a
+ *    need word (required, needed, seeking, looking for, hiring…) is the
+ *    strongest single signal there is, and it outweighs any one stray word.
+ *
+ * 3. **Weigh what is left.** Selling cues only count in the first person or
+ *    when they sell something ("I am a certified trainer", "enrol now"), and
+ *    thank-you cues only when someone says *they* ran the session. A
+ *    requirement routinely says "should have delivered corporate training",
+ *    "we offer flexible hours" or "our training programs", and an earlier
+ *    version read those as the trainer's own post — a real requirement,
+ *    "Technical Training Specialist is required", came back as SUPPLY.
+ */
+
+/* Pass 1: clauses that are not asking, however they are worded. */
+const PITCH = [
+  // "If you / your team require(s) / need(s) / are looking for …" up to the end of the sentence.
+  /\bif\s+(?:you|your\s+(?:team|company|organi[sz]ation|employees))\s+(?:require|requires|need|needs|are\s+looking\s+for|is\s+looking\s+for|want)\b[^.!?\n]*/gi,
+  // "Looking for new opportunities / a job / my next role".
+  /\b(?:I\s+am|I'm|am)?\s*(?:actively\s+)?(?:looking|searching)\s+for\s+(?:a\s+|my\s+)?(?:new\s+|next\s+)?(?:opportunit(?:y|ies)|jobs?|roles?|positions?|openings|assignments|freelance\s+(?:work|projects?))\b[^.!?\n]*/gi,
+  // "I am actively looking for the same role" — a commenter wanting the job.
+  /\bI(?:'m|\s+am)\s+(?:\w+\s+){0,2}looking\s+for\s+(?:the\s+same\s+|a\s+|an\s+)?(?:\w+\s+){0,3}(?:roles?|jobs?|positions?|opportunit(?:y|ies)|openings?)\b[^.!?\n]*/gi,
+  // "looking for Training Referrals — attractive commission": selling training.
+  /\b(?:looking\s+for|seeking)\s+(?:training\s+|client\s+|business\s+)?(?:referrals?|leads)\b[^.!?\n]*/gi,
+  // A question put to the reader — "Looking for corporate trainers? We have a
+  // pool of 500." — is an advert opening. A buyer states the need; a seller
+  // asks whether you have it.
+  /(?:^|[.!?]\s+|\n)\s*(?:are\s+you\s+)?(?:looking|searching)\s+for\b[^.!?\n]*\?/gi,
+  /(?:^|[.!?]\s+|\n)\s*(?:do\s+you\s+)?need\s+(?:an?\s+)?[^.!?\n]*\?/gi,
+];
+
+function withoutPitches(text) {
+  let out = text;
+  for (const re of PITCH) out = out.replace(re, ' ');
+  return out;
+}
+
+/*
+ * Pass 2: someone asking for a trainer.
+ *
+ * Tightened on a real run of 140 posts, where a loose "a role word anywhere
+ * near a need word" read "The best trainers don't walk in looking for someone
+ * to blame" and "Diversity Hiring, Executive Search, Corporate Training" as
+ * requirements. What a requirement actually looks like is narrower:
+ *
+ *   - the ask, then the role: "looking for an experienced Corporate Trainer",
+ *     "seeking … Technical Training Specialist", "Hiring: Corporate AI Trainer"
+ *   - or the role, then a passive need: "trainer is required", "Trainer
+ *     Requirement", "Trainers Wanted", "Trainer Opportunity"
+ *
+ * "looking for" after the role is how a sentence *about* trainers reads, not
+ * how a requirement for one does.
+ */
+const ROLE_CORE =
+  '(?:trainers?|facilitators?|instructors?|faculty|train-the-trainer|training\\s+(?:partners?|providers?|vendors?|specialists?|consultants?|experts?|firms?|compan(?:y|ies)|organi[sz]ations?))';
+// People whose title does not say "trainer" — only when the post is about
+// training at all, or "looking for a Salesforce consultant" becomes a lead.
+const ROLE_SOFT = '(?:coach(?:es)?|mentors?|speakers?|consultants?|specialists?|experts?|smes?|subject\\s+matter\\s+experts?|resource\\s+persons?|educators?)';
+// Training delivered, not a trainer: "corporate training required",
+// "need a 2-day workshop". Not after "hiring" — "We're Hiring – CA
+// Industrial Training" is an articleship.
+const ROLE_THING = '(?:training|trainings|workshops?|sessions?|masterclass(?:es)?|bootcamps?)';
+// Words that turn a role into a different job: a Training Manager is an HR
+// hire, a training institute is a place, training referrals are a sale.
+const NOT_A_ROLE =
+  '(?!\\s*(?:managers?|head|heads|leads?|leaders?|directors?|coordinators?|executives?|officers?|interns?|institutes?|academy|academies|cent(?:re|er)s?|referrals?|content|needs|calendar|budget|&\\s*quality|and\\s+placement|&\\s*placement)\\b)';
+
+const ASK =
+  '(?:looking\\s+(?:for|to\\s+(?:connect\\s+with|bring\\s+in|hire|onboard|engage|collaborate\\s+with|partner\\s+with|empanel))|' +
+  'searching\\s+for|seeking|seeks|in\\s+search\\s+of|on\\s+the\\s+lookout\\s+for|need(?:s|ed)?\\s+(?:an?|some|experienced|good|certified|freelance)|' +
+  'require(?:s)?\\s+(?:an?|some|experienced)|inviting|exploring|want\\s+(?:an?|to\\s+hire)|' +
+  '(?:can|could)\\s+(?:anyone|someone|you)\\s+(?:please\\s+)?(?:recommend|suggest|refer))';
+const HIRING = '(?:we(?:\\x27re|\\s+are)?\\s+hiring|hiring|urgent(?:ly)?\\s+hiring)';
+const PASSIVE = '(?:required|requirement|requirements|needed|wanted|opportunit(?:y|ies))';
+
+/*
+ * Between the ask and the role, no other job: "looking for a remote L&D
+ * Manager to join the Pocket Trainer team" asks for a manager, and the
+ * trainer in it is a company's name.
+ */
+const GAP =
+  '(?:(?!\\b(?:managers?|executives?|developers?|officers?|associates?|analysts?|interns?|engineers?|directors?|heads?|recruiters?|designers?|writers?|creators?|professionals?)\\b)[^.!?\\n]){0,80}?';
+
+const ASK_THEN_ROLE = new RegExp(
+  `\\b${ASK}\\b${GAP}\\b(?:${ROLE_CORE}|${ROLE_THING}|${ROLE_SOFT})\\b${NOT_A_ROLE}`,
+  'gi'
+);
+// After "hiring", a trainer only. "Hiring … Valentra Consultants" names the
+// firm, and a consultant hired is a job, not a training requirement.
+const HIRING_THEN_ROLE = new RegExp(`\\b${HIRING}\\b${GAP.replace('{0,80}', '{0,60}')}\\b${ROLE_CORE}\\b${NOT_A_ROLE}`, 'gi');
+const ROLE_THEN_NEED = new RegExp(
+  `\\b(?:${ROLE_CORE}|${ROLE_THING}|${ROLE_SOFT})\\b${NOT_A_ROLE}[^.!?\\n]{0,40}?\\b(?:(?:is|are)\\s+)?${PASSIVE}\\b`,
+  'gi'
+);
+const TRAINING_WORLD = /\btrain(?:er|ers|ing|ings)?\b|\bfacilitat|\bworkshops?\b|\bteach|\binstruct|\bL&D\b|\blearning\s+(?:and|&)\s+development\b/i;
+const SOFT_ONLY = new RegExp(`^[^]*?\\b${ROLE_SOFT}\\b`, 'i');
+
+/** The phrase that asks for a trainer, or ''. */
+function roleAsk(text) {
+  for (const re of [ASK_THEN_ROLE, HIRING_THEN_ROLE, ROLE_THEN_NEED]) {
+    re.lastIndex = 0;
+    for (let m = re.exec(text); m; m = re.exec(text)) {
+      const phrase = m[0];
+      const core = new RegExp(`\\b(?:${ROLE_CORE}|${ROLE_THING})\\b`, 'i').test(phrase);
+      // A coach, consultant or expert counts only in a post about training.
+      if (!core && !(SOFT_ONLY.test(phrase) && TRAINING_WORLD.test(text))) continue;
+      return phrase;
+    }
+  }
+  return '';
+}
+
+/*
+ * Cues, each with the label a row shows when it fires, and a weight: 3 says
+ * "this is the point of the post", 2 is a strong sign, 1 only suggests.
  */
 const DEMAND = [
   { re: /\b(?:looking|searching)\s+for\b/i, label: 'looking for', w: 2 },
@@ -136,41 +260,80 @@ const DEMAND = [
   // "Trainer needed" and "need a trainer" — not "need to thank", which is
   // how half of all thank-you posts open.
   { re: /\bneeded\b|\bneed\s+(?:an?|some|experienced|freelance|certified|good)\b/i, label: 'need', w: 2 },
+  { re: /\bseeking\b|\bwanted\b/i, label: 'seeking', w: 2 },
   { re: /\burgent(?:ly)?\b|\bimmediate(?:ly)?\b|\basap\b/i, label: 'urgent', w: 1 },
   { re: /\bwe(?:'re| are)? hiring\b|\bhiring\b/i, label: 'hiring', w: 1 },
-  { re: /\bseeking\b|\bwanted\b/i, label: 'seeking', w: 1 },
-  { re: /\b(?:share|send|drop|mail)\s+(?:your|their|me your|us your)?\s*(?:updated\s+)?(?:profile|cv|resume|details)\b/i, label: 'share your profile', w: 2 },
-  { re: /\binterested\s+(?:trainers?|candidates?|consultants?|freelancers?|vendors?|professionals?|experts?)\b/i, label: 'interested trainers', w: 2 },
-  { re: /\bcommercials?\b|\bper\s+(?:day|hour|session)\b|\bbudget\b/i, label: 'commercials', w: 1 },
+  { re: /\b(?:share|send|drop|mail|dm)\s+(?:your|their|me your|us your)?\s*(?:updated\s+)?(?:profiles?|cvs?|resumes?|details)\b/i, label: 'share your profile', w: 2 },
+  { re: /\binterested\s+(?:trainers?|candidates?|consultants?|freelancers?|vendors?|professionals?|experts?|people|folks)\b/i, label: 'interested trainers', w: 2 },
+  { re: /\bcommercials?\b|\bper\s+(?:day|hour|session)\b|\bbudget\b|\bpay\s*out\b/i, label: 'commercials', w: 1 },
   { re: /\b(?:rfp|rfq|empanel(?:ment|led)?|vendor(?:s)?\s+(?:required|needed|wanted))\b/i, label: 'vendor ask', w: 2 },
   { re: /\b(?:can|could)\s+anyone\s+(?:recommend|suggest|refer)\b|\b(?:any|please)\s+(?:recommendations?|referrals?|leads?)\b/i, label: 'asking for referrals', w: 2 },
-  { re: /\b(?:dm|inbox|ping|whatsapp)\s+(?:me|us)\b|\bconnect with me\b/i, label: 'contact me', w: 1 },
+  { re: /\b(?:dm|inbox|ping|whatsapp)\s+(?:me|us)\b|\bconnect with me\b|\breach out\b/i, label: 'contact me', w: 1 },
+  // A requirement is usually laid out like a job description.
+  { re: /\b(?:position\s+overview|job\s+description|\bjd\b|key\s+responsibilities|required\s+skill(?:s|set|sets)?|skill\s*sets?\s+required|skills?\s+required|start\s+date|duration\s*:|mode\s*:|location\s*:|no\.?\s+of\s+(?:days|sessions|batches))\b/i, label: 'requirement details', w: 1 },
+  { re: /\bfreelanc(?:e|er|ers|ing)\b|\bpart[\s-]time\b|\bcontract(?:ual)?\s+(?:basis|role|trainer)\b/i, label: 'freelance / part-time', w: 1 },
 ];
 
+/*
+ * Selling. First person, or selling something — never a bare "we offer",
+ * which a requirement uses for its own perks ("we offer flexible hours").
+ */
+const NOT_ASKING = '(?!\\s*(?:looking|searching|seeking|hiring|in\\s+need|in\\s+search))';
 const SUPPLY = [
-  { re: /#opentowork|\bopen to (?:work|opportunities|new opportunities)\b/i, label: 'open to work' },
-  { re: /\bI(?:'m| am)\s+(?:an?\s+)?(?:\w+\s+){0,4}(?:trainer|consultant|coach|facilitator|freelancer|speaker)\b/i, label: 'introduces self' },
-  { re: /\bI(?:'m| am)\s+available\b|\bavailable for\s+(?:corporate\s+)?(?:training|sessions?|workshops?|assignments?)\b/i, label: 'available' },
-  { re: /\b(?:my|our)\s+(?:training\s+)?(?:services|offerings|programs?|courses?)\b/i, label: 'own services' },
-  { re: /\b(?:we|I)\s+(?:offer|provide|deliver)\b/i, label: 'offers' },
-  { re: /\benrol+(?:ment)?(?:\s+now)?\b|\bregister\s+(?:now|here|today)\b|\blimited seats\b/i, label: 'enrol now' },
-  { re: /\bnew batch\b|\bbatch (?:starts?|starting)\b|\bdemo (?:class|session)\b|\bcourse fees?\b/i, label: 'course advert' },
-  { re: /\bjoin\s+(?:our|us|the|this)\s+(?:\w+\s+)?(?:course|batch|program(?:me)?|workshop|masterclass|webinar|bootcamp)\b/i, label: 'join our course' },
-  { re: /\bbook\s+(?:a|your)\s+(?:free\s+)?(?:slot|seat|call|demo)\b/i, label: 'book a slot' },
-  // A pitch borrows the buyer's words: "if you require corporate training,
-  // contact us" contains "require" and is an advert.
-  { re: /\bif\s+(?:you|your\s+(?:team|company|organi[sz]ation))\s+(?:require|need|are looking for|is looking for)\b/i, label: 'if you need' },
-  // "Looking for new opportunities" is a job seeker, not a buyer.
-  { re: /\blooking for\s+(?:a\s+)?(?:new\s+)?(?:opportunit(?:y|ies)|jobs?|roles?|positions?|assignments|openings)\b/i, label: 'job seeker' },
+  { re: /#opentowork|\bopen\s+to\s+(?:work|opportunities|new\s+opportunities|freelance)\b/i, label: 'open to work', w: 3 },
+  {
+    re: new RegExp(
+      `\\bI(?:'m|\\s+am)${NOT_ASKING}\\s+(?:an?\\s+|the\\s+)?(?:[\\w-]+\\s+){0,4}(?:trainer|consultant|coach|facilitator|freelancer|speaker|mentor|instructor)\\b`,
+      'i'
+    ),
+    label: 'introduces self',
+    w: 2,
+  },
+  { re: /\bI(?:'m|\s+am)\s+(?:currently\s+|now\s+)?available\b|\bmy\s+availability\b/i, label: 'available', w: 2 },
+  { re: /\benrol+(?:ment)?\s+(?:now|today|open)\b|\bregister\s+(?:now|here|today)\b|\blimited\s+seats\b/i, label: 'enrol now', w: 2 },
+  { re: /\bnew\s+batch\b|\bbatch\s+(?:starts?|starting)\b|\bdemo\s+(?:class|session)\b|\bcourse\s+fees?\b|\bfree\s+(?:webinar|masterclass|demo)\b/i, label: 'course advert', w: 2 },
+  { re: /\bjoin\s+(?:our|us|the|this)\s+(?:\w+\s+)?(?:course|batch|program(?:me)?|workshop|masterclass|webinar|bootcamp)\b/i, label: 'join our course', w: 2 },
+  { re: /\bbook\s+(?:a|your)\s+(?:free\s+)?(?:slot|seat|call|demo|session)\b/i, label: 'book a slot', w: 2 },
+  { re: /\b(?:my|our)\s+(?:training\s+)?(?:services|offerings)\b|\bI\s+(?:offer|provide|deliver)\b/i, label: 'own services', w: 1 },
+  { re: /\bcommission\b|\bintroduce\s+(?:us\s+|me\s+)?(?:to\s+)?(?:organi[sz]ations|companies|clients|corporates)\b/i, label: 'selling training', w: 5 },
+  { re: /\b(?:their|your)\s+own\s+(?:offline\s+|online\s+)?(?:batches|classes|sessions|workshops|programs?|courses?)\b|\bspace\s+to\s+(?:launch|conduct|run)\b/i, label: 'renting a space', w: 5 },
+  { re: /\bwe\s+have\s+(?:a\s+)?(?:large\s+|strong\s+)?(?:pool|network|panel|bench|team)\s+of\b[^.!?\n]{0,40}\b(?:trainers|consultants|experts|facilitators)\b/i, label: 'trainer pool', w: 2 },
 ];
 
-const RECAP = [
-  { re: /\b(?:successfully\s+)?(?:conducted|delivered|completed|concluded|wrapped up|facilitated)\b.{0,60}\b(?:session|training|workshop|program(?:me)?|bootcamp)s?\b/i, label: 'session done' },
-  { re: /\bthank(?:s| you)\b.{0,80}\bopportunit(?:y|ies)\b/i, label: 'thanks for the opportunity' },
-  { re: /\b(?:grateful|honou?red|privileged|humbled)\b/i, label: 'grateful' },
-  { re: /\b(?:happy|excited|thrilled|glad|delighted)\s+to\s+(?:share|announce)\b/i, label: 'happy to share' },
-  { re: /\bhad\s+(?:a|an)\s+(?:great|amazing|wonderful|fantastic|insightful)\b/i, label: 'had a great' },
+/* Pass 1 found these; they count against the post. */
+const PITCH_CUES = [
+  { re: PITCH[0], label: 'if you need', w: 3 },
+  { re: PITCH[1], label: 'job seeker', w: 3 },
+  { re: PITCH[2], label: 'job seeker', w: 3 },
+  { re: PITCH[3], label: 'selling training', w: 3 },
+  { re: PITCH[4], label: 'asks the reader', w: 2 },
+  { re: PITCH[5], label: 'asks the reader', w: 2 },
 ];
+
+/*
+ * Thanking. Only someone saying *they* ran it — "should have delivered
+ * corporate training" is a requirement, "I delivered a corporate training" is
+ * a recap.
+ */
+const RECAP = [
+  {
+    re: /\b(?:I|we)\s+(?:have\s+|just\s+|recently\s+|had\s+)?(?:successfully\s+)?(?:conducted|delivered|completed|concluded|wrapped\s+up|facilitated|organi[sz]ed)\b[^.!?\n]{0,60}\b(?:sessions?|training|trainings|workshops?|program(?:me)?s?|bootcamps?)\b/i,
+    label: 'session done',
+    w: 2,
+  },
+  { re: /(?:^|[.!?]\s*|\n)\s*(?:successfully\s+)(?:conducted|delivered|completed|concluded)\b/i, label: 'session done', w: 2 },
+  { re: /\bthank(?:s| you)\b[^.!?\n]{0,80}\bopportunit(?:y|ies)\b/i, label: 'thanks for the opportunity', w: 2 },
+  { re: /\b(?:grateful|honou?red|privileged|humbled)\b/i, label: 'grateful', w: 1 },
+  { re: /\b(?:happy|excited|thrilled|glad|delighted)\s+to\s+(?:share|announce)\b/i, label: 'happy to share', w: 1 },
+  { re: /\bhad\s+(?:a|an)\s+(?:great|amazing|wonderful|fantastic|insightful)\b/i, label: 'had a great', w: 1 },
+];
+
+/*
+ * A requirement its author has closed: "Closed - Thank you SO much for the
+ * overwhelming response!", "Position filled", "no longer accepting".
+ */
+const CLOSED =
+  /(?:^|[\s(\[])closed\b\s*[-–—:!)\]]|\b(?:position|role|requirement|opening|vacancy)\s+(?:has\s+been\s+|is\s+(?:now\s+)?)?(?:closed|filled)\b|\bno\s+longer\s+(?:accepting|looking|required)\b|\bthanks?\s+(?:you\s+)?(?:\w+\s+){0,3}for\s+the\s+(?:overwhelming\s+)?response\b/i;
 
 const STOP = new Set(
   'and or the for with from into over near this that our your their in at on of to a an by is are be required needed looking'.split(' ')
@@ -202,6 +365,67 @@ function onTopic(text, words) {
 }
 
 /**
+ * The kind of engagement a requirement is for, when it says.
+ *
+ * Freelance and part-time requirements and full-time jobs are different
+ * leads for a training company, and both are written with "trainer
+ * required", so the post has to be read for which one it is.
+ */
+export function engagementOf(text) {
+  const flat = String(text || '');
+  const kinds = [];
+  if (/\bfreelanc(?:e|er|ers|ing)\b/i.test(flat)) kinds.push('freelance');
+  if (/\bpart[\s-]time\b/i.test(flat)) kinds.push('part-time');
+  if (/\bcontract(?:ual)?\b/i.test(flat)) kinds.push('contract');
+  if (/\bfull[\s-]time\b|\bpermanent\b/i.test(flat)) kinds.push('full-time');
+  return kinds.join(', ');
+}
+
+/*
+ * What kind of requirement a DEMAND post is.
+ *
+ * "Trainer required" covers three different leads, and a corporate training
+ * company wants one of them:
+ *
+ *   corporate  a company needs training delivered to its people, or a
+ *              training firm needs a trainer for a corporate client — "A QA
+ *              Automation corporate trainer is required in an IT company",
+ *              "1-day onsite Advanced Excel training", "soft skills trainers
+ *              for our staff"
+ *   job        a full-time trainer hire — "We're Hiring | Process Trainer |
+ *              NBFC", "Experience: 1–3 years, night shift, work from office"
+ *   college    campus and student programmes — "college training in
+ *              Gandhinagar", "AI fundamentals for students"
+ *
+ * Tuned on the same 140 real posts, labelled by hand for this question.
+ */
+const CORPORATE_EXPLICIT =
+  /\bcorporate\s+(?:[\w/&+-]+\s+){0,2}(?:trainers?|facilitators?|coach(?:es)?)\b|\bcorporate\s+training\s+(?:programs?|programmes?|sessions?|requirements?|assignments?|projects?|partners?|needs?)\b|\bfor\s+(?:corporates|corporate\s+clients?|our\s+corporate\s+clients?)\b/i;
+const CORPORATE_CUES = [
+  /\b(?:our|my|the|their|your|client'?s?)\s+(?:\w+\s+)?(?:team|teams|staff|employees|colleagues|workforce|managers|leaders|leadership\s+team|sales\s+force)\b/i,
+  /\bemployee\s+(?:development|training|engagement)\b|\bL&D\b|\blearning\s+(?:and|&)\s+development\b/i,
+  /\b(?:leadership|soft[\s-]?skills?|team[\s-]building|communication\s+skills|negotiation|presentation\s+skills|sales\s+(?:excellence|training)|first[\s-]time\s+manager|behaviou?ral)\b/i,
+  /\b\d+[\s-]?days?\s+(?:on[\s-]?site\s+|offline\s+|online\s+)?(?:training|workshop|session|program)|\bone[\s-]day\b|\btraining\s+(?:session|project|assignment)s?\b|\bon[\s-]?site\s+training\b/i,
+  /\b(?:it\s+company|mnc|corporates?|bfsi|banking|pharma|automobile|hospitality|fmcg|client)\b/i,
+  /\bcommercials?\b|\bper\s+(?:day|session)\b|\bfreelanc(?:e|er|ers|ing)\b|\bcustomi[sz]ed\b|\bparticipants\b|\bwebinars?\b/i,
+];
+const COLLEGE_CUES =
+  /\b(?:college|campus|universit(?:y|ies)|students?|schools?|academic|placement\s+training|engineering\s+colleges?|b\.?\s?tech|mba\s+students|summer\s+training|internship\s+training)\b/i;
+const JOB_CUES =
+  /\bfull[\s-]time\b|\bpermanent\b|\bsalary\b|\bctc\b|\blpa\b|\bper\s+annum\b|\/\s*(?:year|month)\b|\bshifts?\b|\bwork\s+from\s+office\b|\bjoin\s+(?:our|the)\s+team\b|\bfreshers?\b|\bimmediate\s+joiners?\b|\bnotice\s+period\b|\bon[\s-]?roll\b|\bwalk[\s-]?in\b|\bapply\s+now\b|\bwe(?:'re|\s+are)\s+hiring\b|\bhiring\s*[|:–-]/i;
+
+export function requirementKind(text) {
+  const flat = collapse(text);
+  const explicit = CORPORATE_EXPLICIT.test(flat);
+  const corporate = CORPORATE_CUES.filter((re) => re.test(flat)).length;
+  const freelance = /\bfreelanc|\bpart[\s-]time\b|\bcontract\b|\bcommercials?\b|\bper\s+(?:day|session)\b/i.test(flat);
+  if (COLLEGE_CUES.test(flat) && !explicit && corporate < 2) return 'college';
+  if (JOB_CUES.test(flat) && !explicit && !freelance) return 'job';
+  if (explicit || corporate >= 1) return 'corporate';
+  return '';
+}
+
+/**
  * What a post is doing: asking (DEMAND), selling (SUPPLY), reporting a
  * finished session (RECAP), or none of those (OTHER).
  *
@@ -210,29 +434,45 @@ function onTopic(text, words) {
  */
 export function classifyPost(text, { topic = '' } = {}) {
   const flat = collapse(text);
-  const fired = (list) => list.filter((cue) => cue.re.test(flat));
+  const asking = withoutPitches(flat);
+  const fired = (list, on) => list.filter((cue) => {
+    cue.re.lastIndex = 0;
+    return cue.re.test(on);
+  });
 
-  const demand = fired(DEMAND);
-  const supply = fired(SUPPLY);
-  const recap = fired(RECAP);
-  const ask = demand.reduce((n, cue) => n + cue.w, 0);
-  // Selling and thanking are each counted once per cue, at full weight: one
-  // "I am a trainer" outweighs one "looking for" in the same post, because a
-  // trainer's post saying they are "looking for opportunities" is the classic
-  // false positive.
-  const against = (supply.length + recap.length) * 2;
-  const relevant = onTopic(flat, topicWords(topic));
+  const asked = roleAsk(asking);
+  const roleNeed = Boolean(asked);
+  const demand = fired(DEMAND, asking);
+  const supply = [...fired(PITCH_CUES, flat), ...fired(SUPPLY, asking)];
+  const recap = fired(RECAP, asking);
+  const sum = (cues) => cues.reduce((n, cue) => n + cue.w, 0);
 
+  const ask = sum(demand) + (roleNeed ? 3 : 0);
+  const sells = sum(supply);
+  const thanks = sum(recap);
+  const against = sells + thanks;
+  const words = topicWords(topic);
+  const relevant = onTopic(flat, words);
+
+  /*
+   * A requirement has to ask for a trainer — a phrase, not a pile of cues:
+   * "hiring" plus "looking for" plus "seeking" in a post about a mission-driven
+   * team is not one. It has to outweigh any selling or thanking in the same
+   * post, and it has to be about what was searched for.
+   */
   let intent = 'OTHER';
-  if (ask >= 2 && ask > against) intent = 'DEMAND';
-  else if (supply.length && supply.length >= recap.length) intent = 'SUPPLY';
-  else if (recap.length) intent = 'RECAP';
+  // A requirement already filled is not a lead, however well it asks.
+  if (roleNeed && CLOSED.test(flat)) intent = 'CLOSED';
+  else if (roleNeed && ask > against && relevant) intent = 'DEMAND';
+  else if (sells && sells >= thanks) intent = 'SUPPLY';
+  else if (thanks) intent = 'RECAP';
 
-  const score = Math.max(0, Math.min(100, ask * 15 - against * 8 + (relevant ? 10 : -20)));
+  const score = Math.max(0, Math.min(100, ask * 10 - against * 8 + (relevant ? 10 : -20)));
   const signals = [
+    ...(roleNeed ? [`asks: "${collapse(asked).slice(0, 60)}"`] : []),
     ...demand.map((cue) => cue.label),
     ...supply.map((cue) => `not: ${cue.label}`),
-    ...recap.map((cue) => `not: ${cue.label}`),
+    ...[...new Set(recap.map((cue) => cue.label))].map((label) => `not: ${label}`),
     ...(relevant ? [] : ['off topic']),
   ];
   return { intent, score, signals, relevant };
@@ -266,6 +506,8 @@ export function annotatePost(record, { now = Date.now(), topic = '' } = {}) {
     intent,
     score,
     signals: signals.join(', '),
+    engagement: engagementOf(text),
+    kind: intent === 'DEMAND' ? requirementKind(`${record.headline || ''} ${text}`) : '',
     emails: emails.join('; '),
     phones: phones.join('; '),
   };
@@ -288,23 +530,40 @@ const fingerprint = (record) =>
  * id, so the same text by the same author can arrive twice under two ids. The
  * newer copy is the one kept — it is the one a reply will reach.
  */
-export function narrowPosts(records, { days = 10, intentOnly = true, now = Date.now() } = {}) {
+/**
+ * Why one post is set aside, or '' when it is kept — the date and intent
+ * half of narrowPosts, for a row on its own as it arrives.
+ */
+export function postVerdict(record, { days = 10, intentOnly = true, corporateOnly = false, now = Date.now() } = {}) {
+  const at = Date.parse((record && record.postedAt) || '');
+  if (!Number.isFinite(at)) return 'no post date';
+  if (at < now - days * DAY) return `older than ${days} days`;
+  if (intentOnly && record.intent !== 'DEMAND') {
+    return `not a requirement post (${String(record.intent || 'OTHER').toLowerCase()})`;
+  }
+  // A trainer wanted for a full-time job or a college is a requirement, but
+  // not the one a corporate training company is looking for.
+  if (intentOnly && corporateOnly && record.kind !== 'corporate') {
+    return `not a corporate requirement (${record.kind || 'unclear'})`;
+  }
+  return '';
+}
+
+export function narrowPosts(records, { days = 10, intentOnly = true, corporateOnly = false, now = Date.now() } = {}) {
   const kept = [];
   const dropped = [];
-  const cutoff = now - days * DAY;
   const byText = new Map();
 
-  const sorted = [...(records || [])].sort((a, b) =>
-    String(b.postedAt || '').localeCompare(String(a.postedAt || ''))
-  );
+  // A verdict from an earlier pass is recomputed, never inherited.
+  const sorted = [...(records || [])]
+    .map((record) => {
+      const copy = { ...record };
+      delete copy.setAside;
+      return copy;
+    })
+    .sort((a, b) => String(b.postedAt || '').localeCompare(String(a.postedAt || '')));
   for (const record of sorted) {
-    const at = Date.parse(record.postedAt || '');
-    let reason = '';
-    if (!Number.isFinite(at)) reason = 'no post date';
-    else if (at < cutoff) reason = `older than ${days} days`;
-    else if (intentOnly && record.intent !== 'DEMAND') {
-      reason = `not a requirement post (${String(record.intent || 'OTHER').toLowerCase()})`;
-    }
+    let reason = postVerdict(record, { days, intentOnly, corporateOnly, now });
 
     const print = fingerprint(record);
     if (!reason && print.length > 20 && byText.has(print)) reason = 'a copy of a newer post';

@@ -30,7 +30,7 @@ import { buildTaskList, expandGridTasks, insertAfter, nextPending, taskProgress 
 import { URN_KEY, withSeed, learn } from '../lib/urns.js';
 import { pageOf, pageUrl } from '../lib/linkedin-query.js';
 import { cacheKey, planFrom, absorb, markEnd, clearEnd } from '../lib/search-cache.js';
-import { annotatePost, narrowPosts } from '../lib/posts.js';
+import { annotatePost, narrowPosts, postVerdict } from '../lib/posts.js';
 
 const STORE_KEY = 'mls.job';
 
@@ -686,6 +686,28 @@ async function drainQueue(config, tabId) {
       task.status = 'done';
 
       const { added, touched } = absorbInto(records, harvested);
+      /*
+       * A post seen twice is merged into the longer text, and the verdict has
+       * to follow the text. Judged only on first sight, a post whose first
+       * copy was a one-line title kept "OTHER" after its full text arrived —
+       * and a run that was stopped before the end never got another look.
+       * Each row is also marked here, as it lands, so a run stopped halfway
+       * already hands back only the recent posts that ask.
+       */
+      if (config.source === 'posts') {
+        const now = Date.now();
+        const days = Number(config.postsDays) || 10;
+        for (const record of touched) {
+          const fresh = annotatePost(record, { now, topic: record.searchCategory || config.category || '' });
+          const reason = postVerdict(fresh, {
+            days,
+            intentOnly: config.postsIntentOnly !== false,
+            corporateOnly: config.postsCorporateOnly !== false,
+            now,
+          });
+          Object.assign(record, fresh, { setAside: reason || undefined });
+        }
+      }
       // Only the rows this task changed are written, so the cost of a progress
       // save is proportional to the task rather than to the whole run.
       await store.putRecords(job.jobId, touched);
@@ -823,6 +845,9 @@ async function verifyEmails(records, config) {
 /* ------------------------------------------------------------------ the run */
 
 async function finishRun(config) {
+  // A stopped Posts run still gets its narrowing: the rows are what the user
+  // downloads next, and a stop is not a request to see old or selling posts.
+  if (cancelRequested && config.source === 'posts') await narrowPostRecords(config);
   if (cancelRequested) {
     await save({
       status: 'cancelled',
@@ -846,21 +871,7 @@ async function finishRun(config) {
    * the post's own date and on intent — set aside with a reason, never
    * deleted, the same as the category filter below.
    */
-  if (source.id === 'posts') {
-    const now = Date.now();
-    records = records.map((r) => annotatePost(r, { now, topic: r.searchCategory || config.category || '' }));
-    const days = Number(config.postsDays) || 10;
-    const { kept, dropped } = narrowPosts(records, { days, intentOnly: config.postsIntentOnly !== false, now });
-    if (dropped.length) await store.putRecords(job.jobId, dropped);
-    records = kept;
-    await save({
-      filteredOut: dropped.length,
-      found: records.length,
-      message: kept.length
-        ? `${kept.length} recent posts kept — ${dropped.length} set aside (older than ${days} days, or not asking for anything).`
-        : `No post from the last ${days} days asked for anything. ${dropped.length} set aside — open Results to see them.`,
-    });
-  }
+  if (source.id === 'posts') await narrowPostRecords(config);
 
   const filterText = String(config.categoryFilter || '').trim();
   if (filterText) {
@@ -929,6 +940,36 @@ async function finishRun(config) {
       (failedTasks.length ? `, ${failedTasks.length} of them failed` : '') +
       '.',
     finishedAt: Date.now(),
+  });
+}
+
+/*
+ * Posts: keep the recent ones that ask for something.
+ *
+ * Re-annotated first, because two sightings of one post merged into the
+ * longer text, and the longer text is the better judge. Then narrowed on the
+ * post's own date and on intent — set aside with a reason, never deleted,
+ * the same as the category filter.
+ */
+async function narrowPostRecords(config) {
+  const now = Date.now();
+  const days = Number(config.postsDays) || 10;
+  const all = records.map((r) => annotatePost(r, { now, topic: r.searchCategory || config.category || '' }));
+  const { kept, dropped } = narrowPosts(all, {
+    days,
+    intentOnly: config.postsIntentOnly !== false,
+    corporateOnly: config.postsCorporateOnly !== false,
+    now,
+  });
+  if (dropped.length) await store.putRecords(job.jobId, dropped);
+  await store.putRecords(job.jobId, kept);
+  records = kept;
+  await save({
+    filteredOut: dropped.length,
+    found: records.length,
+    message: kept.length
+      ? `${kept.length} recent posts kept — ${dropped.length} set aside (older than ${days} days, or not asking for anything).`
+      : `No post from the last ${days} days asked for anything. ${dropped.length} set aside — open Results to see them.`,
   });
 }
 

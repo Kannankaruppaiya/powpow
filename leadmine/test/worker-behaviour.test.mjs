@@ -291,3 +291,15 @@ test('a search that ended is recorded, so repeating it costs nothing', () => {
   const cached = WORKER.slice(WORKER.indexOf('async function servedFromCache'), WORKER.indexOf('async function pageThrough'));
   assert.match(cached, /!plan\.complete/, 'a complete answer is served even when shorter than asked for');
 });
+
+test('a Posts run is judged as it goes, and a stopped one is still narrowed', () => {
+  const loop = WORKER.slice(WORKER.indexOf('async function drainQueue'), WORKER.indexOf('/* --------------------------------------------------------- email enrichment'));
+  // Re-judged after the merge, on the merged text, and marked as it lands.
+  assert.ok(loop.indexOf('absorbInto(records, harvested)') < loop.indexOf('postVerdict('), 'verdict after the merge');
+  assert.match(loop, /annotatePost\(record/);
+  const finish = WORKER.slice(WORKER.indexOf('async function finishRun'), WORKER.indexOf('async function narrowPostRecords'));
+  assert.ok(
+    finish.indexOf('narrowPostRecords') < finish.indexOf("status: 'cancelled'"),
+    'a stop must not skip the narrowing'
+  );
+});

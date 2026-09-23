@@ -140,6 +140,7 @@ export const SOURCES = {
     // that page's adapter would hand back people into a posts run.
     matchesTab: (url) =>
       /^https:\/\/([\w-]+\.)?linkedin\.com\/search\/results\/content/.test(url) ||
+      /^https:\/\/([\w-]+\.)?linkedin\.com\/(?:in|company)\/[^/?#]+/.test(url) ||
       /^https?:\/\/(?:[\w-]+\.)?google\.[a-z.]+\/search\b/.test(url) ||
       /^https?:\/\/(?:[\w-]+\.)?duckduckgo\.com\//.test(url),
     // One URL per intent group is built in tasks.js, where the window in
