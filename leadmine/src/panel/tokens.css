@@ -1,0 +1,140 @@
+/**
+ * Design tokens.
+ *
+ * One place, named by role rather than by value.
+ *
+ * The system changed shape once already. The first version painted the accent
+ * on everything with a job — the primary button, the progress bar, the
+ * selected card, the count badge — and an accent used everywhere stops being
+ * an accent. Raycast's primary button is white; Linear's colour appears on the
+ * mark, the focus ring and almost nothing else. So:
+ *
+ *   - the primary action is neutral: near-black on light, white on dark;
+ *   - the accent marks *selection and identity*, never mere prominence;
+ *   - status has its own soft, tinted chips, and only status uses them.
+ *
+ * Surfaces are layered rather than flat, and hairlines are alpha rather than
+ * a fixed grey, so both themes stay coherent as the stack deepens.
+ */
+
+:root {
+  /* --- surfaces, deepest to nearest ------------------------------------ */
+  --canvas: #ffffff;
+  --surface: #fafafb;
+  --surface-2: #f2f3f5;
+  --elevated: #ffffff;
+
+  /* Alpha, not a fixed grey: a hairline should sit on whatever is beneath. */
+  --hairline: rgba(12, 14, 20, 0.09);
+  --hairline-strong: rgba(12, 14, 20, 0.16);
+
+  /* --- ink -------------------------------------------------------------- */
+  --ink: #0d0e11;
+  --ink-2: #45495a;
+  --ink-3: #767b8c;
+
+  /* --- the neutral primary action -------------------------------------- */
+  --action: #14161c;
+  --action-hover: #262932;
+  --action-ink: #ffffff;
+
+  /* --- brand accent: identity and selection only ----------------------- */
+  --accent: #5460d8;
+  --accent-ink: #3a45b8;
+  --accent-soft: rgba(84, 96, 216, 0.10);
+  --accent-line: rgba(84, 96, 216, 0.42);
+
+  /* --- status: soft tints, used for nothing else ----------------------- */
+  --ok: #10783f;
+  --ok-soft: rgba(16, 120, 63, 0.11);
+  --warn: #8a5200;
+  --warn-soft: rgba(138, 82, 0, 0.11);
+  --danger: #b8332a;
+  --danger-soft: rgba(184, 51, 42, 0.10);
+
+  /* --- type -------------------------------------------------------------
+     Five sizes. The mono stack is not decoration: phone numbers, emails and
+     counts are machine values, and setting them in a proportional face makes
+     columns of them impossible to scan. */
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+
+  --t-figure: 25px;
+  --t-title: 15px;
+  --t-body: 14px;
+  --t-label: 13px;
+  --t-small: 12px;
+
+  --w-regular: 400;
+  --w-medium: 500;
+  --w-semi: 600;
+
+  /* --- space ----------------------------------------------------------- */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+
+  /* --- shape ----------------------------------------------------------- */
+  --r-sm: 5px;
+  --r-md: 7px;
+  --r-lg: 10px;
+  --r-pill: 999px;
+
+  /* A lead card: three readable lines. The virtual window multiplies by
+     this, so it is one number in one place. */
+  --row-h: 72px;
+
+  /* --- motion ----------------------------------------------------------- */
+  --t-fast: 120ms;
+  --t-normal: 200ms;
+  --t-slow: 320ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --ease-linear: linear;
+
+  --ring: 0 0 0 3px var(--accent-soft);
+  /* Two-part shadow: a tight contact edge plus a soft drop. One blurred
+     shadow always looks like a sticker. */
+  --lift: 0 1px 1px rgba(12, 14, 20, 0.04), 0 2px 6px rgba(12, 14, 20, 0.06);
+
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --canvas: #0b0c0e;
+    --surface: #121316;
+    --surface-2: #191b1f;
+    --elevated: #16181c;
+
+    --hairline: rgba(255, 255, 255, 0.08);
+    --hairline-strong: rgba(255, 255, 255, 0.16);
+
+    --ink: #f1f2f5;
+    --ink-2: #a9aeba;
+    --ink-3: #767c8a;
+
+    /* Inverted, as the reference systems do: on a near-black canvas the most
+       prominent thing available is plain white. */
+    --action: #f4f5f7;
+    --action-hover: #ffffff;
+    --action-ink: #0b0c0e;
+
+    --accent: #8b95ff;
+    --accent-ink: #a8b0ff;
+    --accent-soft: rgba(139, 149, 255, 0.14);
+    --accent-line: rgba(139, 149, 255, 0.45);
+
+    --ok: #56c98a;
+    --ok-soft: rgba(86, 201, 138, 0.14);
+    --warn: #dda54f;
+    --warn-soft: rgba(221, 165, 79, 0.14);
+    --danger: #ff8a7e;
+    --danger-soft: rgba(255, 138, 126, 0.13);
+
+    --lift: 0 1px 1px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.4);
+  }
+}

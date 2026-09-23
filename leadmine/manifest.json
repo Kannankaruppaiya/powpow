@@ -1,0 +1,69 @@
+{
+  "manifest_version": 3,
+  "name": "LeadMine \u2014 Google Maps & LinkedIn Lead Scraper",
+  "short_name": "LeadMine",
+  "version": "5.15.0",
+  "description": "Scrape business leads from Google Maps, people from LinkedIn search, and recent LinkedIn posts that ask for something \u2014 into one downloadable Excel, CSV or JSON file.",
+  "minimum_chrome_version": "116",
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "tabs",
+    "scripting",
+    "downloads",
+    "sidePanel"
+  ],
+  "host_permissions": [
+    "https://www.google.com/maps/*",
+    "https://www.google.co.in/maps/*",
+    "https://www.linkedin.com/search/*",
+    "https://generativelanguage.googleapis.com/*",
+    "https://api.groq.com/*",
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "src/background/service-worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.google.com/maps/*",
+        "https://www.google.co.in/maps/*",
+        "https://www.linkedin.com/search/*",
+        "https://duckduckgo.com/*",
+        "https://html.duckduckgo.com/*",
+        "https://www.google.com/search*",
+        "https://www.google.co.in/search*"
+      ],
+      "js": [
+        "src/lib/parse.js",
+        "src/content/engine.js",
+        "src/content/adapters/maps.js",
+        "src/content/adapters/linkedin.js",
+        "src/content/adapters/web.js",
+        "src/content/adapters/linkedin-posts.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "side_panel": {
+    "default_path": "src/panel/panel.html"
+  },
+  "action": {
+    "default_title": "LeadMine",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
