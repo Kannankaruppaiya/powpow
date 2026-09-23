@@ -72,6 +72,7 @@ export const POSTS_COLUMNS = [
   { key: 'postedAt', label: 'Posted On' },
   { key: 'ageDays', label: 'Age (Days)' },
   { key: 'intent', label: 'Intent' },
+  { key: 'kind', label: 'Kind' },
   { key: 'score', label: 'Score' },
   { key: 'signals', label: 'Why' },
   { key: 'engagement', label: 'Engagement' },

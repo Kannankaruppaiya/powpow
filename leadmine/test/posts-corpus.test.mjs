@@ -208,3 +208,50 @@ test('an engine snippet loses its furniture and gives up its author', async () =
   assert.equal(chrome.author, 'Asif Ebrahim');
   assert.equal(chrome.text, 'Looking for a Team Building Trainer.');
 });
+
+/*
+ * Corporate, job or college: what kind of requirement a DEMAND post is.
+ * The first is the screenshot post this option exists for.
+ */
+test('the screenshot’s first post is a corporate requirement', async () => {
+  const { requirementKind } = await import('../src/lib/posts.js');
+  assert.equal(requirementKind(DEMAND['QA automation trainer (screenshot, 1w)']), 'corporate');
+});
+
+const KINDS = {
+  corporate: [
+    "Looking for corporate trainers — online, Saturdays We're looking to bring in trainers to run short sessions for our staff.",
+    'Trainer Requirement | Advanced Excel We are looking for an experienced Corporate Trainer / Freelance Trainer to conduct a 1-Day On-Site Advanced Excel training.',
+    'Dear All! Looking for a corporate trainer for Advanced Polarion training (Siemens tool) - to be conducted for Development team.',
+    'Looking for a Leadership Trainer who is from Hyderabad and can provide Leadership training programs. Every batch will have 21-25 mid and senior level managers.',
+    "We're Hiring | Corporate Trainer - Talking to Your Teams (Virtual) We're looking for an experienced facilitator.",
+  ],
+  job: [
+    "We're Hiring | Communication Trainer – Learning & Development Location: Trichy Experience: Fresher / 1–3 Years Shift: Night Shift | Work from office",
+    "We're hiring! We are looking for a Process Trainer with a strong background in the NBFC sector to drive our learning initiatives.",
+    'We are Hiring: Java & AI/ML Trainer (On-Site – Gajuwaka, Visakhapatnam). Full-time role, salary as per industry standards.',
+  ],
+  college: [
+    'TRAINER REQUIREMENT – GANDHINAGAR, GUJARAT - College Training We are looking for experienced local trainers for upcoming campus programmes.',
+    'Dear all, looking for AI Agentic trainers with 2-3 years experience for college classroom training in Coimbatore.',
+  ],
+};
+
+for (const [kind, posts] of Object.entries(KINDS)) {
+  for (const text of posts) {
+    test(`kind ${kind}: ${text.slice(0, 60)}`, async () => {
+      const { requirementKind, classifyPost: classify } = await import('../src/lib/posts.js');
+      assert.equal(classify(text, { topic: 'corporate trainer' }).intent, 'DEMAND', 'every one of these asks for a trainer');
+      assert.equal(requirementKind(text), kind);
+    });
+  }
+}
+
+test('corporate-only sets aside a job or college requirement, and says which', async () => {
+  const { postVerdict } = await import('../src/lib/posts.js');
+  const row = (kind) => ({ postedAt: new Date().toISOString(), intent: 'DEMAND', kind });
+  assert.equal(postVerdict(row('corporate'), { corporateOnly: true }), '');
+  assert.equal(postVerdict(row('job'), { corporateOnly: true }), 'not a corporate requirement (job)');
+  assert.equal(postVerdict(row(''), { corporateOnly: true }), 'not a corporate requirement (unclear)');
+  assert.equal(postVerdict(row('college'), { corporateOnly: false }), '', 'off unless asked for');
+});

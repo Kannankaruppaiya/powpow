@@ -732,6 +732,28 @@ What made the difference, besides the rules above:
 - **Judge a post as it lands, and again whenever a second sighting brings
   more text.** A run you stop halfway is already narrowed.
 
+### Corporate requirements only (on by default)
+
+"Trainer required" is three different leads, and every DEMAND post gets a
+**Kind** for which one it is:
+
+- **corporate** — a company needs training delivered to its people, or a
+  training firm needs a trainer for a corporate client. For example: "A QA
+  Automation corporate trainer is required in an IT company", "1-Day
+  On-Site Advanced Excel training", "soft skills trainers for our staff".
+- **job** — a full-time trainer hire. For example: "We're Hiring | Process
+  Trainer | NBFC", "Experience 1–3 years, night shift, work from office".
+- **college** — campus and student programmes.
+
+With *Only corporate training requirements* ticked, the other kinds are set
+aside with their reason: "not a corporate requirement (job)", "…(college)",
+"…(unclear)".
+
+On the same 140 real posts, labelled for this question: 41 of the 42
+corporate requirements are found, with 2 false leads. One false lead's
+snippet carried a recruiter's headline. The other snippet cut off before
+the word "students".
+
 `test/posts-corpus.test.mjs` holds the real posts this was checked against,
 in both directions. A change that breaks one of them is a regression.
 

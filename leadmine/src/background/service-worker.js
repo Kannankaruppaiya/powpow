@@ -699,7 +699,12 @@ async function drainQueue(config, tabId) {
         const days = Number(config.postsDays) || 10;
         for (const record of touched) {
           const fresh = annotatePost(record, { now, topic: record.searchCategory || config.category || '' });
-          const reason = postVerdict(fresh, { days, intentOnly: config.postsIntentOnly !== false, now });
+          const reason = postVerdict(fresh, {
+            days,
+            intentOnly: config.postsIntentOnly !== false,
+            corporateOnly: config.postsCorporateOnly !== false,
+            now,
+          });
           Object.assign(record, fresh, { setAside: reason || undefined });
         }
       }
@@ -950,7 +955,12 @@ async function narrowPostRecords(config) {
   const now = Date.now();
   const days = Number(config.postsDays) || 10;
   const all = records.map((r) => annotatePost(r, { now, topic: r.searchCategory || config.category || '' }));
-  const { kept, dropped } = narrowPosts(all, { days, intentOnly: config.postsIntentOnly !== false, now });
+  const { kept, dropped } = narrowPosts(all, {
+    days,
+    intentOnly: config.postsIntentOnly !== false,
+    corporateOnly: config.postsCorporateOnly !== false,
+    now,
+  });
   if (dropped.length) await store.putRecords(job.jobId, dropped);
   await store.putRecords(job.jobId, kept);
   records = kept;

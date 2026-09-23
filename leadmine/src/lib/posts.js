@@ -381,6 +381,50 @@ export function engagementOf(text) {
   return kinds.join(', ');
 }
 
+/*
+ * What kind of requirement a DEMAND post is.
+ *
+ * "Trainer required" covers three different leads, and a corporate training
+ * company wants one of them:
+ *
+ *   corporate  a company needs training delivered to its people, or a
+ *              training firm needs a trainer for a corporate client — "A QA
+ *              Automation corporate trainer is required in an IT company",
+ *              "1-day onsite Advanced Excel training", "soft skills trainers
+ *              for our staff"
+ *   job        a full-time trainer hire — "We're Hiring | Process Trainer |
+ *              NBFC", "Experience: 1–3 years, night shift, work from office"
+ *   college    campus and student programmes — "college training in
+ *              Gandhinagar", "AI fundamentals for students"
+ *
+ * Tuned on the same 140 real posts, labelled by hand for this question.
+ */
+const CORPORATE_EXPLICIT =
+  /\bcorporate\s+(?:[\w/&+-]+\s+){0,2}(?:trainers?|facilitators?|coach(?:es)?)\b|\bcorporate\s+training\s+(?:programs?|programmes?|sessions?|requirements?|assignments?|projects?|partners?|needs?)\b|\bfor\s+(?:corporates|corporate\s+clients?|our\s+corporate\s+clients?)\b/i;
+const CORPORATE_CUES = [
+  /\b(?:our|my|the|their|your|client'?s?)\s+(?:\w+\s+)?(?:team|teams|staff|employees|colleagues|workforce|managers|leaders|leadership\s+team|sales\s+force)\b/i,
+  /\bemployee\s+(?:development|training|engagement)\b|\bL&D\b|\blearning\s+(?:and|&)\s+development\b/i,
+  /\b(?:leadership|soft[\s-]?skills?|team[\s-]building|communication\s+skills|negotiation|presentation\s+skills|sales\s+(?:excellence|training)|first[\s-]time\s+manager|behaviou?ral)\b/i,
+  /\b\d+[\s-]?days?\s+(?:on[\s-]?site\s+|offline\s+|online\s+)?(?:training|workshop|session|program)|\bone[\s-]day\b|\btraining\s+(?:session|project|assignment)s?\b|\bon[\s-]?site\s+training\b/i,
+  /\b(?:it\s+company|mnc|corporates?|bfsi|banking|pharma|automobile|hospitality|fmcg|client)\b/i,
+  /\bcommercials?\b|\bper\s+(?:day|session)\b|\bfreelanc(?:e|er|ers|ing)\b|\bcustomi[sz]ed\b|\bparticipants\b|\bwebinars?\b/i,
+];
+const COLLEGE_CUES =
+  /\b(?:college|campus|universit(?:y|ies)|students?|schools?|academic|placement\s+training|engineering\s+colleges?|b\.?\s?tech|mba\s+students|summer\s+training|internship\s+training)\b/i;
+const JOB_CUES =
+  /\bfull[\s-]time\b|\bpermanent\b|\bsalary\b|\bctc\b|\blpa\b|\bper\s+annum\b|\/\s*(?:year|month)\b|\bshifts?\b|\bwork\s+from\s+office\b|\bjoin\s+(?:our|the)\s+team\b|\bfreshers?\b|\bimmediate\s+joiners?\b|\bnotice\s+period\b|\bon[\s-]?roll\b|\bwalk[\s-]?in\b|\bapply\s+now\b|\bwe(?:'re|\s+are)\s+hiring\b|\bhiring\s*[|:–-]/i;
+
+export function requirementKind(text) {
+  const flat = collapse(text);
+  const explicit = CORPORATE_EXPLICIT.test(flat);
+  const corporate = CORPORATE_CUES.filter((re) => re.test(flat)).length;
+  const freelance = /\bfreelanc|\bpart[\s-]time\b|\bcontract\b|\bcommercials?\b|\bper\s+(?:day|session)\b/i.test(flat);
+  if (COLLEGE_CUES.test(flat) && !explicit && corporate < 2) return 'college';
+  if (JOB_CUES.test(flat) && !explicit && !freelance) return 'job';
+  if (explicit || corporate >= 1) return 'corporate';
+  return '';
+}
+
 /**
  * What a post is doing: asking (DEMAND), selling (SUPPLY), reporting a
  * finished session (RECAP), or none of those (OTHER).
@@ -463,6 +507,7 @@ export function annotatePost(record, { now = Date.now(), topic = '' } = {}) {
     score,
     signals: signals.join(', '),
     engagement: engagementOf(text),
+    kind: intent === 'DEMAND' ? requirementKind(`${record.headline || ''} ${text}`) : '',
     emails: emails.join('; '),
     phones: phones.join('; '),
   };
@@ -489,17 +534,22 @@ const fingerprint = (record) =>
  * Why one post is set aside, or '' when it is kept — the date and intent
  * half of narrowPosts, for a row on its own as it arrives.
  */
-export function postVerdict(record, { days = 10, intentOnly = true, now = Date.now() } = {}) {
+export function postVerdict(record, { days = 10, intentOnly = true, corporateOnly = false, now = Date.now() } = {}) {
   const at = Date.parse((record && record.postedAt) || '');
   if (!Number.isFinite(at)) return 'no post date';
   if (at < now - days * DAY) return `older than ${days} days`;
   if (intentOnly && record.intent !== 'DEMAND') {
     return `not a requirement post (${String(record.intent || 'OTHER').toLowerCase()})`;
   }
+  // A trainer wanted for a full-time job or a college is a requirement, but
+  // not the one a corporate training company is looking for.
+  if (intentOnly && corporateOnly && record.kind !== 'corporate') {
+    return `not a corporate requirement (${record.kind || 'unclear'})`;
+  }
   return '';
 }
 
-export function narrowPosts(records, { days = 10, intentOnly = true, now = Date.now() } = {}) {
+export function narrowPosts(records, { days = 10, intentOnly = true, corporateOnly = false, now = Date.now() } = {}) {
   const kept = [];
   const dropped = [];
   const byText = new Map();
@@ -513,7 +563,7 @@ export function narrowPosts(records, { days = 10, intentOnly = true, now = Date.
     })
     .sort((a, b) => String(b.postedAt || '').localeCompare(String(a.postedAt || '')));
   for (const record of sorted) {
-    let reason = postVerdict(record, { days, intentOnly, now });
+    let reason = postVerdict(record, { days, intentOnly, corporateOnly, now });
 
     const print = fingerprint(record);
     if (!reason && print.length > 20 && byText.has(print)) reason = 'a copy of a newer post';

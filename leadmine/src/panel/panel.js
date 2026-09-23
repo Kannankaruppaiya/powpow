@@ -47,7 +47,7 @@ const ui = Object.fromEntries(
     'categoryLabel', 'cityLabel', 'limitLabel', 'limitHint', 'limitRow', 'limitSlot', 'advancedBody',
     'optEmails', 'optContact', 'optVerify', 'optDeep',
     'optCurrentTab', 'useCurrentTab', 'currentTabHint',
-    'category', 'city', 'batch', 'grid', 'maxResults', 'postsRow', 'postsDays', 'postsIntentOnly',
+    'category', 'city', 'batch', 'grid', 'maxResults', 'postsRow', 'postsDays', 'postsIntentOnly', 'postsCorporateOnly',
     'country', 'region', 'cityOptions', 'placeRow', 'placeHint', 'cityIgnored', 'useTypedCity',
     'liFilters', 'optSplit', 'splitLocations',
     'geoInput', 'geoAdd', 'geoOptions', 'geoChips', 'geoHelp',
@@ -690,6 +690,7 @@ async function restoreSettings() {
   ui.categoryFilter.value = s.categoryFilter ?? '';
   ui.postsDays.value = ['3', '7', '10', '14', '30'].includes(String(s.postsDays)) ? String(s.postsDays) : '10';
   ui.postsIntentOnly.checked = s.postsIntentOnly !== false;
+  ui.postsCorporateOnly.checked = s.postsCorporateOnly !== false;
   // Someone who knows their own searches closes the planner once and should
   // never have to close it again.
   assistChosen = typeof s.assistOpen === 'boolean';
@@ -734,6 +735,7 @@ function readConfig() {
     maxResults: Math.max(0, Number(ui.maxResults.value) || 0),
     postsDays: Number(ui.postsDays.value) || 10,
     postsIntentOnly: ui.postsIntentOnly.checked,
+    postsCorporateOnly: ui.postsCorporateOnly.checked,
     deep: ui.deep.checked,
     fetchEmails: ui.fetchEmails.checked,
     followContactPage: ui.followContactPage.checked,
@@ -1240,7 +1242,9 @@ function postLines(record) {
         text(
           'lead-tag',
           record.setAside ||
-            (record.intent && record.intent !== 'DEMAND' ? record.intent.toLowerCase() : record.engagement || '')
+            (record.intent && record.intent !== 'DEMAND'
+              ? record.intent.toLowerCase()
+              : [record.kind, record.engagement].filter(Boolean).join(' · '))
         ),
       ],
     ],

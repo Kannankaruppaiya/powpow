@@ -2066,6 +2066,7 @@ test('the Posts source asks how recent, and sends it with the run', async (t) =>
     assert.equal(sent.source, 'posts');
     assert.equal(sent.postsDays, 7);
     assert.equal(sent.postsIntentOnly, true, 'only asking posts, unless told otherwise');
+    assert.equal(sent.postsCorporateOnly, true, 'only corporate requirements, unless told otherwise');
   } finally {
     await ctx.close();
   }
