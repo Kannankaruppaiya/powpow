@@ -2,8 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseUrl, buildUrl, partition, dropFromKeywords } from '../src/lib/linkedin-query.js';
 
-// The one real URL. Everything below is measured against it, not against a
-// remembered idea of what LinkedIn accepts.
+// The one real URL.
 const REAL =
   'https://www.linkedin.com/search/results/people/?keywords=finance%20head%20theni' +
   '&origin=FACETED_SEARCH&geoUrn=%5B%22101138777%22%5D';
@@ -33,8 +32,7 @@ test('two locations in one facet, from the real page', () => {
 });
 
 test('a two-location search splits into two single-location searches', () => {
-  // Which is the point: one search stops after a fixed number of pages, so
-  // two places in one search share that ceiling instead of getting one each.
+  // Which is the point: one search stops after a fixed number of pages.
   const q = parseUrl(REAL_TWO);
   const urls = partition(q, 'geoUrn', q.facets.geoUrn).map((one) => buildUrl(one));
   assert.equal(urls.length, 2);
@@ -49,9 +47,7 @@ const REAL_SERVICE =
   '&origin=FACETED_SEARCH&geoUrn=%5B%22102713980%22%5D&serviceCategory=%5B%2220016%22%5D';
 
 test('a facet this code has never been told about needs no code', () => {
-  // Only geoUrn was known when this was written. serviceCategory arrived
-  // later and cost nothing, because what is modelled here is the encoding,
-  // not a list of facet names.
+  // Only geoUrn was known when this was written.
   const q = parseUrl(REAL_SERVICE);
   assert.deepEqual(q.facets.geoUrn, ['102713980']);
   assert.deepEqual(q.facets.serviceCategory, ['20016']);
@@ -79,8 +75,7 @@ test('several values in one facet, and several facets at once', () => {
 });
 
 test('a rebuilt URL keeps the page’s own parameter order', () => {
-  // Not cosmetic: this codec reads a search, changes one thing and runs it
-  // again, so everything it did not touch has to come back untouched.
+  // Not cosmetic: this codec reads a search.
   const shuffled =
     'https://www.linkedin.com/search/results/people/?geoUrn=%5B%22101138777%22%5D' +
     '&sid=abc&keywords=finance%20head';
@@ -88,8 +83,7 @@ test('a rebuilt URL keeps the page’s own parameter order', () => {
 });
 
 test('a parameter this code has never seen still survives the trip', () => {
-  // Only geoUrn was ever observed. Everything else must pass through rather
-  // than be dropped by a guess about which names are real.
+  // Only geoUrn was ever observed.
   const odd = `${REAL}&somethingNew=%5B%22abc%22%5D&sid=xyz`;
   assert.equal(buildUrl(parseUrl(odd)), odd);
   assert.deepEqual(parseUrl(odd).facets.somethingNew, ['abc']);
@@ -109,8 +103,7 @@ test('one search becomes one search per city', () => {
 test('the place comes out of the keywords once a facet carries it', () => {
   const q = dropFromKeywords(parseUrl(REAL), ['theni', 'Tamil Nadu']);
   assert.equal(q.scalars.keywords, 'finance head');
-  // And the facet is untouched — the filter is still there, only the
-  // accidental second filter is gone.
+  // And the facet is untouched — the filter is still there, only the accidental second filter is gone.
   assert.deepEqual(q.facets.geoUrn, ['101138777']);
 });
 
@@ -119,10 +112,7 @@ test('dropping a word that is not there changes nothing', () => {
   assert.equal(q.scalars.keywords, 'finance head theni');
 });
 
-/*
- * Paging, against the URLs LinkedIn actually produced during a live session —
- * not invented ones. Each was read off the address bar while paging by hand.
- */
+// Paging, against the URLs LinkedIn actually produced during a live session — not invented ones.
 const REAL_PAGED = [
   'https://www.linkedin.com/search/results/people/?keywords=kotlin',
   'https://www.linkedin.com/search/results/people/?keywords=kotlin%20chennai&page=2&spellCorrectionEnabled=true&prioritizeMessage=false',
@@ -152,8 +142,7 @@ test('paging keeps every filter and parameter the search had', async () => {
   for (const url of REAL_PAGED) {
     const before = parseUrl(url);
     const after = parseUrl(pageUrl(url, 7));
-    // A location filter dropped by paging would hand back the right number of
-    // the wrong people, and nothing would error.
+    // A location filter dropped by paging would hand back the right number of the wrong people.
     assert.deepEqual(after.facets, before.facets, url);
     for (const [key, value] of Object.entries(before.scalars)) {
       if (key !== 'page') assert.equal(after.scalars[key], value, `${key} lost from ${url}`);

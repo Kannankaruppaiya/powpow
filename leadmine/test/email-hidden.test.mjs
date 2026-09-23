@@ -1,11 +1,4 @@
-/**
- * Addresses a business publishes and a plain regex cannot see.
- *
- * Every case here is a way real small-business sites hide an email from
- * scrapers while still showing it to a visitor: Cloudflare's obfuscation,
- * HTML entities, "[at]" spellings, and JSON-LD. Plus the second look — a real
- * tab — for sites that answer a bare request with a 403 or an empty shell.
- */
+/** Addresses a business publishes and a plain regex cannot see. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 

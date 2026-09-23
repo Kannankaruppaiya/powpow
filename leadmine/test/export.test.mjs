@@ -121,9 +121,7 @@ test('buildFile defaults to CSV for an unknown format', async () => {
 test('columnsFor picks the column set the records actually need', () => {
   assert.equal(columnsFor([{ source: 'maps' }]), MAPS_COLUMNS);
   assert.equal(columnsFor([{ source: 'linkedin' }]), LINKEDIN_COLUMNS);
-  // The public web describes the same people with the same fields. Falling
-  // through to the Maps columns wrote a file of business names and empty
-  // phone numbers, losing the headline and the profile link entirely.
+  // The public web describes the same people with the same fields.
   assert.equal(columnsFor([{ source: 'web' }]), LINKEDIN_COLUMNS);
   // An untagged set is a Maps run from before sources existed.
   assert.equal(columnsFor([{ name: 'x' }]), MAPS_COLUMNS);
@@ -174,8 +172,7 @@ test('a file holding both doors says which one each row came through', () => {
   const rows = toRows(mixed);
   assert.ok(rows.headers.includes('Found Via'));
   const at = rows.headers.indexOf('Found Via');
-  // Without this column an empty Connection cell reads as a failed scrape
-  // rather than as a fact about where the row came from.
+  // Without this column an empty Connection cell reads as a failed scrape rather than as a fact about where the.
   assert.deepEqual(rows.rows.map((r) => r[at]), ['linkedin', 'web']);
 });
 

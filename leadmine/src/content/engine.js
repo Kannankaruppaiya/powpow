@@ -1,36 +1,8 @@
-/**
- * Content-script engine — the part that is the same for every source.
- *
- * Adapters own the DOM; this owns the process. Concretely it runs the harvest
- * loop (collect what is on screen, ask for more, stop when the page stops
- * giving), the optional detail pass, deduplication within a page, progress
- * reporting and cancellation.
- *
- * The split matters because Google Maps and LinkedIn differ in every DOM
- * detail and in almost none of the process: both render a virtualised list
- * that grows as you scroll, and both need the same care about when to stop.
- *
- * An adapter registers itself on `globalThis.MLSAdapters` and implements:
- *
- *   id                          a short source name
- *   matchesUrl(url)             does this adapter handle the current page
- *   blockedReason()             consent wall, login wall, captcha — or ''
- *   getSearchContext()          { query, filters } read off the page
- *   waitForResults()            resolve with the list container, or null
- *   getResultIds()              ids of the results currently in the DOM
- *   extractResult(id)           a record for one id, or null
- *   loadMore(container)         scroll or paginate; false when exhausted
- *   reachedEnd(container)       an explicit "no more results" marker
- *   needsDetail(record)         should the detail pass open this one
- *   openDetail(record, config)  open it and return the extra fields
- *   closeDetail()               return to the list
- *   finalise(records, config)   derive per-record fields once collecting ends
- */
+/** Content-script engine — the part that is the same for every source. */
 (() => {
   'use strict';
 
-  // The content script is re-injected on SPA navigations in some Chrome
-  // versions; keep exactly one listener alive.
+  // The content script is re-injected on SPA navigations in some Chrome versions; keep exactly one listener alive.
   if (window.__mlsEngineLoaded) return;
   window.__mlsEngineLoaded = true;
 
@@ -90,13 +62,7 @@
 
   /* ------------------------------------------------------- the harvest loop */
 
-  /**
-   * Collect every result the page will give up.
-   *
-   * Stops on an explicit end marker, on the requested maximum, or after
-   * several rounds that added nothing — a lazy list often pauses a beat before
-   * appending the next page, so one empty round is not the end.
-   */
+  /** Collect every result the page will give up. */
   async function harvest(adapter, config) {
     let container = await adapter.waitForResults();
     if (!container) return null;
@@ -105,8 +71,7 @@
     const maxResults = config.maxResults || 0;
     const scrollDelay = config.scrollDelay || 900;
     let stagnantRounds = 0;
-    // "It stopped at 20" is not something anyone can act on without knowing
-    // which of the four exits it took.
+    // "It stopped at 20" is not something anyone can act on without knowing which of the four exits it took.
     let stopped = 'round limit';
 
     report({ phase: 'listing' });
@@ -115,8 +80,6 @@
       if (state.cancelled) break;
 
       // A single-page app replaces its list on pagination or a filter change.
-      // The old node is then detached and yields nothing — which is
-      // indistinguishable from having reached the end unless it is re-found.
       if (container.isConnected === false) {
         let fresh = null;
         try {
@@ -147,9 +110,7 @@
         break;
       }
       if (adapter.reachedEnd(container)) {
-        // An adapter that stopped for a reason of its own says so. Reporting
-        // "the source said there are no more" for a decision this code made
-        // sends everyone to look at the wrong place.
+        // An adapter that stopped for a reason of its own says so.
         stopped = adapter.endReason || 'the source said there are no more';
         break;
       }
@@ -160,15 +121,7 @@
         break;
       }
 
-      /*
-       * Some sources page by URL, driven from outside this loop.
-       *
-       * LinkedIn's Next is a full document navigation — proved in its own
-       * Network panel: turning a page fires one `document` request for
-       * `…&page=N` and no XHR at all. A navigation destroys this content
-       * script, so the loop cannot own paging; the worker does, and this
-       * scrape covers one page.
-       */
+      // Some sources page by URL, driven from outside this loop.
       if (config.singlePage) {
         stopped = 'this page is done — the run pages by URL';
         break;
@@ -176,9 +129,7 @@
 
       const more = await adapter.loadMore(container);
       if (more === false) {
-        // The adapter knows which of several things happened — no control on
-        // the page, or one that did not turn the page over. "There was no next
-        // page" for all of them sends everyone to look at the wrong thing.
+        // The adapter knows which of several things happened.
         stopped = adapter.endReason || 'there was no next page';
         break;
       }
@@ -257,15 +208,12 @@
     }
 
     if (typeof adapter.finalise === 'function') adapter.finalise(records, config, context);
-    // Which selectors had to be found again from memory (heal.js). A run
-    // that healed is a run whose selectors need looking at, even though it
-    // worked — so the worker is told, and the panel says so.
+    // Which selectors had to be found again from memory (heal.js).
     if (globalThis.MLSHeal && context) {
       const healed = globalThis.MLSHeal.healedList();
       if (healed.length) context.healed = healed;
     }
-    // An adapter that reads two kinds of result says which one each record
-    // is; otherwise the adapter is the source.
+    // An adapter that reads two kinds of result says which one each record is; otherwise the adapter is the source.
     for (const record of records) record.source = record.source || adapter.id;
 
     report({ phase: 'done' });
@@ -286,13 +234,7 @@
       return undefined;
     }
 
-    /*
-     * Ask the page for LinkedIn's own id for a name.
-     *
-     * Not part of a run: this drives the filter panel's typeahead, reads the
-     * id off the option and puts the panel back. It is the only way to turn
-     * "Chennai" into 102784390 without a table nobody publishes.
-     */
+    // Ask the page for LinkedIn's own id for a name.
     if (msg.type === 'RESOLVE_FACET') {
       const adapter = pickAdapter(location.href);
       if (!adapter || typeof adapter.resolveFacet !== 'function') {
@@ -306,13 +248,7 @@
       return true;
     }
 
-    /*
-     * Apply the run's filters using LinkedIn's own controls.
-     *
-     * This is what lets a run filter by a place whose id nobody knows: rather
-     * than building a URL out of LinkedIn's internal numbers, the page is
-     * driven the way a person drives it and LinkedIn writes the URL itself.
-     */
+    // Apply the run's filters using LinkedIn's own controls.
     if (msg.type === 'APPLY_FILTERS') {
       const adapter = pickAdapter(location.href);
       if (!adapter || typeof adapter.applyFilters !== 'function') {

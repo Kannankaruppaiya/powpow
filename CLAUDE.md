@@ -19,3 +19,7 @@ across multiple messaging channels (Telegram, Discord, Slack, WhatsApp, etc.)
 - **Skills**: Predefined AI behaviors in the `skills/` folder
 - **Plugins**: Extensions in the `extensions/` folder
 - **Channels**: Messaging platform integrations in `src/channels/`
+
+## Code Style
+
+- Comments are one line. No multi-line comment blocks or paragraph docstrings.

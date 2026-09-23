@@ -1,21 +1,4 @@
-/**
- * Generates the country / state / city lists the "Where?" picker offers.
- *
- * The source is the Countries States Cities Database, a public dataset of
- * 250 countries, ~5,000 states and ~150,000 cities:
- *
- *   https://github.com/dr5hn/countries-states-cities-database
- *
- * It is not vendored, because the file is 46 MB and almost all of that is
- * things a dropdown has no use for — ids, coordinates, timezones, currency,
- * translations, wikiData links. This strips it to names and writes one small
- * file per country, so the panel loads India and nothing else when you pick
- * India.
- *
- * The output is committed; this only needs re-running to refresh the data.
- *
- *   node scripts/build-geo.mjs
- */
+/** Generates the country / state / city lists the "Where?" picker offers. */
 import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -64,8 +47,7 @@ let cities = 0;
 for (const country of data) {
   const code = String(country.iso2 || '').trim();
   const name = String(country.name || '').trim();
-  // Without a code there is no filename, and without a name there is nothing
-  // to show — either way it cannot be offered.
+  // Without a code there is no filename, and without a name there is nothing to show.
   if (!code || !name) continue;
 
   const regions = [];

@@ -1,11 +1,4 @@
-/**
- * Browser test for the side panel's virtualised results table.
- *
- * The point of the table is that a 20,000-row result set stays responsive, and
- * the only way to know that holds is to count the rows actually in the DOM.
- *
- * Run with: npm run test:dom
- */
+/** Browser test for the side panel's virtualised results table. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -104,9 +97,7 @@ const SETUP = (total) => {
       message: 'Interrupted — press Resume to carry on where it stopped.',
     });
   }
-  // The poll reads this same object every two seconds, so a test can move the
-  // run on by writing to it — which is the only way to exercise an edge like
-  // running-to-done from outside the worker.
+  // The poll reads this same object every two seconds, so a test can move the run on by writing to it.
   window.__job = job;
 
   const AREAS = ['Anna Nagar', 'Adyar', 'T Nagar', 'Velachery'];
@@ -119,8 +110,7 @@ const SETUP = (total) => {
     area: AREAS[i % AREAS.length],
     category: 'Dental clinic',
     rating: '4.5',
-    // A people search fills different fields, and the card reads them
-    // differently — that path had no coverage at all while it was a table.
+    // A people search fills different fields, and the card reads them differently.
     ...(window.__linkedin
       ? {
           source: 'linkedin',
@@ -132,8 +122,7 @@ const SETUP = (total) => {
           profileUrl: `https://www.linkedin.com/in/priya-sharma-${i}`,
         }
       : {}),
-    // A recent post asking for a trainer: dated from its id, judged, with the
-    // contacts that were written in it. Every fifth one was set aside.
+    // A recent post asking for a trainer: dated from its id, judged, with the contacts that were written in it.
     ...(window.__posts
       ? {
           key: `post:75025889167437${String(i).padStart(5, '0')}`,
@@ -155,8 +144,7 @@ const SETUP = (total) => {
           category: '',
         }
       : {}),
-    // The same person, found through a search engine instead. No degree, no
-    // open-to-work badge, and no phone — the card must still read as a person.
+    // The same person, found through a search engine instead.
     ...(window.__web
       ? {
           source: 'web',
@@ -172,8 +160,7 @@ const SETUP = (total) => {
       : {}),
   }));
 
-  // A real in-memory store, not a stub that forgets: the planner's key is
-  // read back out of it on load, and that path has to be exercised.
+  // A real in-memory store, not a stub that forgets.
   window.__storage = window.__storage || {};
   window.chrome = {
     storage: {
@@ -186,9 +173,7 @@ const SETUP = (total) => {
       getManifest: () => ({ version: '9.9.9' }),
       // The packaged geo data is served by the test server like any other file.
       getURL: (path) => `/${path}`,
-      // Cloned, because a real message is: the panel gets a fresh object every
-      // poll and compares it against the last one. Handing back the same
-      // reference made "what changed since last time" always answer nothing.
+      // Cloned, because a real message is.
       sendMessage: async (m) => {
         if (m.type === 'GET_JOB') {
           return {
@@ -205,9 +190,7 @@ const SETUP = (total) => {
     downloads: { download: async () => {} },
   };
 
-  // Stand in for Gemini/Groq. The test sets window.__aiNext before clicking.
-  // The model listing is a GET and answered separately, so a planner test does
-  // not have to care that the picker also talks to the provider.
+  // Stand in for Gemini/Groq.
   window.__aiCalls = [];
   window.__aiModelCalls = [];
   window.__aiNext = { status: 200, body: {} };
@@ -254,9 +237,7 @@ const SETUP = (total) => {
       const tx = req.result.transaction('records', 'readwrite');
       const os = tx.objectStore('records');
       for (const r of RECORDS) os.put({ ...r, jobId: 'job-1' });
-      // Seeded at version 1 — an existing user's data from before notes and
-      // the do-not-contact list existed — and closed, as a reloaded extension
-      // would be, so the panel's own upgrade to the current version runs.
+      // Seeded at version 1 — an existing user's data from before notes and the do-not-contact list existed.
       tx.oncomplete = () => {
         req.result.close();
         resolve();
@@ -298,9 +279,7 @@ async function openPanel(
   if (posts) await page.addInitScript(() => { window.__posts = true; });
   if (withheld) await page.addInitScript(() => { window.__withheld = true; });
   if (budget) await page.addInitScript((b) => { window.__budget = b; }, budget);
-  // Filter ids the extension has already learned, as a run would have left
-  // them. The harness's storage lives in the page, so this has to be seeded
-  // before the panel loads rather than written afterwards.
+  // Filter ids the extension has already learned, as a run would have left them.
   if (urns) {
     await page.addInitScript((table) => {
       window.__storage = { ...(window.__storage || {}), 'mls.urns': table };
@@ -308,8 +287,7 @@ async function openPanel(
   }
   if (stale) await page.addInitScript(() => { window.__stale = true; });
   if (aiKey) {
-    // Deliberately the shape an older build wrote — one key, no provider — so
-    // the migration path is exercised on every planner test.
+    // Deliberately the shape an older build wrote.
     await page.addInitScript((key) => {
       window.__storage = { 'mls.ai': { provider: 'gemini', key, model: '' } };
     }, aiKey);
@@ -366,9 +344,7 @@ test('only a window of rows is in the DOM, not all 2,400', async (t) => {
     assert.ok(rendered > 5, `expected some rows, got ${rendered}`);
     assert.ok(rendered < 60, `expected a small window, got ${rendered} of ${TOTAL} in the DOM`);
 
-    // The scroll height must still reflect the whole set. The row height is
-    // read from the stylesheet rather than repeated here — the last time it
-    // was a literal in two places, the two drifted apart.
+    // The scroll height must still reflect the whole set.
     const { spacer, rowHeight } = await ctx.page.evaluate(() => ({
       spacer: document.getElementById('spacer').offsetHeight,
       rowHeight: parseInt(
@@ -487,7 +463,6 @@ test('switching source shows only the controls that apply', async (t) => {
     await ctx.page.waitForTimeout(200);
 
     // LinkedIn: no viewport to grid over, no website to read an email from.
-    // These are display:flex containers, where [hidden] is easily overridden.
     assert.equal(await ctx.page.isVisible('#coverageRow'), false, 'no grid for a people search');
     assert.equal(await ctx.page.isVisible('#optEmails'), false, 'people have no site to scan');
     assert.equal(await ctx.page.isVisible('#optDeep'), false, 'there is no detail pass');
@@ -519,13 +494,11 @@ test('the public-web source shows the controls that apply to it', async (t) => {
     await ctx.page.click('label.seg:has(input[value="web"])');
     await ctx.page.waitForTimeout(200);
 
-    // A search engine has no map to grid over, no site to read an email from,
-    // and no profile to open — the whole point is that it never signs in.
+    // A search engine has no map to grid over, no site to read an email from, and no profile to open.
     assert.equal(await ctx.page.isVisible('#coverageRow'), false);
     assert.equal(await ctx.page.isVisible('#optEmails'), false);
     assert.equal(await ctx.page.isVisible('#optDeep'), false);
-    // "Use the tab I'm on" belongs to LinkedIn, where the user sets up their
-    // own filters. There is nothing to inherit from a results page.
+    // "Use the tab I'm on" belongs to LinkedIn, where the user sets up their own filters.
     assert.equal(await ctx.page.isVisible('#optCurrentTab'), false);
 
     assert.equal(await ctx.page.isVisible('#maxResults'), true);
@@ -539,17 +512,12 @@ test('the four source labels fit the panel at its narrowest', async (t) => {
   const ctx = await openPanel(t, { idle: true });
   if (!ctx) return;
   try {
-    // A third segment was added to a control designed for two. At 400px the
-    // failure is silent to every other test: a flex item will not shrink
-    // below its own text, so a label that no longer fits does not clip — it
-    // pushes the whole control past the edge of the panel.
+    // A third segment was added to a control designed for two.
     const fits = await ctx.page.evaluate(() => {
       const seg = document.querySelector('.segmented');
       const room = seg.parentElement.getBoundingClientRect().width;
       const spans = [...seg.querySelectorAll('.seg span')].map((el) => {
-        // A range over the text lays out exactly as the text does, so its
-        // rect count is the line count. Dividing the box height by the line
-        // height counts the padding as a second line.
+        // A range over the text lays out exactly as the text does, so its rect count is the line count.
         const range = document.createRange();
         range.selectNodeContents(el);
         return { text: el.textContent.trim(), lines: range.getClientRects().length };
@@ -576,10 +544,7 @@ test('a run cut short by LinkedIn withholding names says so', async (t) => {
   const ctx = await openPanel(t, { withheld: true });
   if (!ctx) return;
   try {
-    // "3 people from 1 search" next to a page showing twelve results reads as
-    // a broken scraper, and the user reruns it — repeatedly — getting three
-    // every time. The count of people LinkedIn refused to identify is the
-    // whole answer, so it is a line of its own, not a clause on the end.
+    // "3 people from 1 search" next to a page showing twelve results reads as a broken scraper.
     assert.equal(await ctx.page.isVisible('#withheldNote'), true);
     const note = await ctx.page.textContent('#withheldNote');
     assert.match(note, /9 people/);
@@ -613,10 +578,7 @@ test('a location filter broader than the typed town says so', async (t) => {
     await ctx.page.click('#geoAdd');
     await ctx.page.waitForTimeout(150);
 
-    // The run puts no town in the keywords once a facet exists, so "Chennai"
-    // is dropped and the whole of India is searched. Saying "the LinkedIn
-    // location filter is doing this job" made that invisible, and the run
-    // that followed brought back a handful of people from a country.
+    // The run puts no town in the keywords once a facet exists.
     const note = await ctx.page.textContent('#cityIgnored');
     assert.match(note, /India/);
     assert.match(note, /Chennai/, `the dropped town is not named: ${note}`);
@@ -629,8 +591,7 @@ test('a location filter broader than the typed town says so', async (t) => {
     const chips = await ctx.page.$$eval('#geoChips button', (n) => n.map((e) => e.textContent.trim()));
     assert.equal(chips.length, 1, chips.join(' | '));
     assert.match(chips[0], /Chennai/);
-    // Replaced, not added: LinkedIn ORs its locations, so India plus Chennai
-    // would still be India.
+    // Replaced, not added: LinkedIn ORs its locations, so India plus Chennai would still be India.
     assert.ok(!chips.some((c) => /India/.test(c)), chips.join(' | '));
   } finally {
     await ctx.close();
@@ -684,8 +645,7 @@ test('the panel says how much of LinkedIn’s monthly allowance is spent', async
   const ctx = await openPanel(t, { idle: true, budget: { inMonth: 142, inDay: 12 } });
   if (!ctx) return;
   try {
-    // A month's allowance went in eight days with nothing counting it, and
-    // the run looked broken rather than out of budget.
+    // A month's allowance went in eight days with nothing counting it.
     assert.equal(await ctx.page.isVisible('#budgetNote'), true);
     const note = await ctx.page.textContent('#budgetNote');
     assert.match(note, /142/);
@@ -701,8 +661,7 @@ test('nearing the allowance reads differently from being well inside it', async 
   if (!ctx) return;
   try {
     const note = await ctx.page.textContent('#budgetNote');
-    // Past this point LinkedIn serves three results per search and anonymises
-    // the rest, so the sentence has to say what is about to happen.
+    // Past this point LinkedIn serves three results per search and anonymises the rest.
     assert.match(note, /three results/i, note);
     assert.equal(
       await ctx.page.$eval('#budgetNote', (el) => el.classList.contains('warn')),
@@ -765,15 +724,13 @@ test('the three coverage levels drive the underlying setting', async (t) => {
   const ctx = await openPanel(t, { idle: true });
   if (!ctx) return;
   try {
-    // Five grid presets were three too many to choose between, so the panel
-    // offers three named outcomes and maps them onto the real values.
+    // Five grid presets were three too many to choose between.
     assert.equal(await ctx.page.inputValue('#grid'), 'balanced');
 
     await ctx.page.click('#coverage label.seg:has(input[value="off"])');
     await ctx.page.waitForTimeout(150);
     assert.equal(await ctx.page.inputValue('#grid'), 'off');
-    // Naming a level is not telling anyone what it costs, so the consequence
-    // of the chosen one is spelled out beside it.
+    // Naming a level is not telling anyone what it costs.
     assert.match(await ctx.page.textContent('#coverageHint'), /few minutes/i);
 
     await ctx.page.click('#coverage label.seg:has(input[value="exhaustive"])');
@@ -789,8 +746,7 @@ test('advanced options stay out of the way until asked for', async (t) => {
   const ctx = await openPanel(t, { idle: true });
   if (!ctx) return;
   try {
-    // The whole point of the disclosure: five checkboxes are not five
-    // decisions the user has to make before starting.
+    // The whole point of the disclosure.
     assert.equal(await ctx.page.isVisible('#verifyEmails'), false);
     assert.equal(await ctx.page.isVisible('#skipSeen'), false);
     // What is on screen is the search and one button.
@@ -810,8 +766,7 @@ test('the category field is optional and offers what the run found', async (t) =
   const ctx = await openPanel(t);
   if (!ctx) return;
   try {
-    // Load the results so the suggestions can learn from them, then return to
-    // the form — "New search" is how a user gets back to it after a run.
+    // Load the results so the suggestions can learn from them, then return to the form.
     await ctx.page.click('#viewResults');
     await ctx.page.waitForTimeout(400);
     await ctx.page.click('#viewSetup');
@@ -823,8 +778,7 @@ test('the category field is optional and offers what the run found', async (t) =
     assert.equal(await ctx.page.inputValue('#categoryFilter'), '');
     assert.match(await ctx.page.textContent('#categoryFilterRow'), /optional/i);
 
-    // Choose-or-type: a text input backed by a datalist, so a value outside
-    // the list is still accepted.
+    // Choose-or-type: a text input backed by a datalist, so a value outside the list is still accepted.
     assert.equal(await ctx.page.getAttribute('#categoryFilter', 'list'), 'categoryOptions');
 
     // The suggestions are the categories this run produced, not a fixed guess.
@@ -852,8 +806,7 @@ test('the category field relabels itself for LinkedIn', async (t) => {
     assert.equal(await ctx.page.textContent('#filterLabel'), 'Headline contains');
     assert.equal(await ctx.page.isVisible('#categoryFilter'), true);
 
-    // "per search" made a limit of 100 look ignored: one LinkedIn search is
-    // the whole run, not one page of it.
+    // "per search" made a limit of 100 look ignored: one LinkedIn search is the whole run, not one page of it.
     assert.equal(await ctx.page.textContent('#limitLabel'), 'How many profiles?');
     assert.match(await ctx.page.textContent('#limitHint'), /every profile LinkedIn will show/i);
   } finally {
@@ -862,8 +815,7 @@ test('the category field relabels itself for LinkedIn', async (t) => {
 });
 
 test('an interrupted run can actually be resumed', async (t) => {
-  // Resume used to live on the form, and a paused run hides the form — so the
-  // one button that mattered was unreachable exactly when it was needed.
+  // Resume used to live on the form, and a paused run hides the form.
   const ctx = await openPanel(t, { paused: true });
   if (!ctx) return;
   try {
@@ -971,8 +923,7 @@ test('the planner is offered but locked until a key is added', async (t) => {
   const ctx = await openPanel(t, { idle: true });
   if (!ctx) return;
   try {
-    // Without a key nothing in here can run, so it starts folded — the offer
-    // is the summary, not three hundred pixels of dead form.
+    // Without a key nothing in here can run, so it starts folded.
     assert.equal(await ctx.page.isVisible('#assist'), true, 'the offer has to be visible to be used');
     assert.equal(await ctx.page.isVisible('#aiBrief'), false, 'folded until it can do something');
 
@@ -1223,10 +1174,7 @@ const SCROLLERS = () => {
 };
 
 test('the panel has one scrollbar, not two', async (t) => {
-  // Two appeared because the visually-hidden radio inputs are absolutely
-  // positioned: with no positioned ancestor they resolved against the initial
-  // containing block, sat outside the pane's scroller at their static position,
-  // and stretched the page behind it to the height of the whole form.
+  // Two appeared because the visually-hidden radio inputs are absolutely positioned.
   const ctx = await openPanel(t, { idle: true });
   if (!ctx) return;
   try {
@@ -1339,8 +1287,7 @@ async function openSetAside(t, kept) {
 }
 
 test('a filter that keeps nothing shows the rows, not an empty table', async (t) => {
-  // The live run: 235 found, every one set aside, and the panel said
-  // "0 businesses" — which reads as the scraper having failed.
+  // The live run: 235 found, every one set aside, and the panel said "0 businesses".
   const ctx = await openSetAside(t, 0);
   if (!ctx) return;
   try {
@@ -1413,10 +1360,7 @@ test('the download writes exactly what the table is showing', async (t) => {
 });
 
 test('the button the panel exists for is on screen the moment it opens', async (t) => {
-  // This is the defect the layout was rebuilt around. The form was 1,050px of
-  // controls in a 760px panel, so opening LeadMine showed no way to start
-  // anything: Start was three hundred pixels below the fold, and nothing in
-  // the suite would have noticed.
+  // This is the defect the layout was rebuilt around.
   const ctx = await openPanel(t, { idle: true });
   if (!ctx) return;
   try {
@@ -1457,8 +1401,7 @@ test('the bar carries the action of whichever view is above it', async (t) => {
 });
 
 test('a finished run hands the user over to its results', async (t) => {
-  // A run exists for the rows it produces, and reaching them used to mean
-  // noticing a tab and clicking it.
+  // A run exists for the rows it produces, and reaching them used to mean noticing a tab and clicking it.
   const ctx = await openPanel(t, { running: true });
   if (!ctx) return;
   try {
@@ -1479,16 +1422,14 @@ test('a finished run hands the user over to its results', async (t) => {
 });
 
 test('a phone number is one click away from the clipboard', async (t) => {
-  // Reading a number off the screen and typing it back in somewhere else was
-  // the slowest thing this tool asked of anyone.
+  // Reading a number off the screen and typing it back in somewhere else was the slowest thing this tool asked of.
   const ctx = await openPanel(t);
   if (!ctx) return;
   try {
     await ctx.page.click('#viewResults');
     await ctx.page.waitForTimeout(400);
 
-    // Headless Chromium has no clipboard permission; the button's job is to
-    // hand the right value over, which is what this checks.
+    // Headless Chromium has no clipboard permission.
     await ctx.page.evaluate(() => {
       window.__copied = null;
       Object.defineProperty(navigator, 'clipboard', {
@@ -1518,13 +1459,11 @@ test('a person found on the public web reads as a person, not a business', async
 
     const first = ctx.page.locator('#rowBody .lead:first-child');
     assert.equal(await first.locator('.lead-name').textContent(), 'Raghu Vaidyanathan 0');
-    // Rendered as a business, this row was a name, an empty phone line and
-    // nothing else — every field it does have lives in the person layout.
+    // Rendered as a business, this row was a name, an empty phone line and nothing else.
     assert.match(await first.locator('.lead-headline').textContent(), /Corporate Trainer/);
     assert.match(await first.locator('.lead-area').textContent(), /Trioangle Technologies · Madurai/);
     assert.equal(await first.locator('.lead-phone').count(), 0, 'a person has no phone column');
-    // No connection degree exists off LinkedIn, so the mark says where the
-    // row came from instead of sitting empty.
+    // No connection degree exists off LinkedIn, so the mark says where the row came from instead of sitting empty.
     assert.equal(await first.locator('.lead-mark').textContent(), 'public');
   } finally {
     await ctx.close();
@@ -1562,9 +1501,7 @@ test('a person reads as a person, and the name copies their profile link', async
 });
 
 test('a people search asks how many profiles, where you can see it', async (t) => {
-  // A people search has no grid, so this number is the only thing that decides
-  // how much it collects — and it was under "More options", which is where you
-  // put a setting nobody needs to touch.
+  // A people search has no grid, so this number is the only thing that decides how much it collects.
   const ctx = await openPanel(t, { idle: true });
   if (!ctx) return;
   try {
@@ -1598,8 +1535,7 @@ test('a people search asks how many profiles, where you can see it', async (t) =
 });
 
 test('the town list narrows from a country to a state', async (t) => {
-  // "Where?" was a text field. You cannot browse a text field, and a town you
-  // half remember the spelling of is a run that finds nothing.
+  // "Where?" was a text field.
   const ctx = await openPanel(t, { idle: true });
   if (!ctx) return;
   try {
@@ -1648,14 +1584,12 @@ test('a town is offered as the exact text that will be searched', async (t) => {
         [...document.getElementById('cityOptions').options].map((o) => o.value)
       );
 
-    // Maps: "dentists in Chennai, Tamil Nadu" is one place. "Springfield" is
-    // twenty.
+    // Maps: "dentists in Chennai, Tamil Nadu" is one place.
     assert.ok((await towns()).includes('Chennai, Tamil Nadu'));
 
     await ctx.page.click('#sourceGroup label.seg:has(input[value="linkedin"])');
     await ctx.page.waitForTimeout(400);
-    // LinkedIn matches keywords literally: no profile contains "Tamil Nadu"
-    // just because the person is in Chennai.
+    // LinkedIn matches keywords literally: no profile contains "Tamil Nadu" just because the person is in Chennai.
     const people = await towns();
     assert.ok(people.includes('Chennai'));
     assert.ok(!people.some((name) => name.includes(',')));
@@ -1665,8 +1599,7 @@ test('a town is offered as the exact text that will be searched', async (t) => {
 });
 
 test('the picker only fills the box — typing a town still runs it', async (t) => {
-  // The whole design rests on this: nothing downstream knows a picker exists,
-  // so a place you type and a place you browse to are the same run.
+  // The whole design rests on this.
   const ctx = await openPanel(t, { idle: true });
   if (!ctx) return;
   try {
@@ -1693,10 +1626,7 @@ test('the picker only fills the box — typing a town still runs it', async (t) 
 });
 
 test('LinkedIn’s own filters are offered — and only the ones ever observed', async (t) => {
-  // A place in `keywords` is not a location filter: it is a word LinkedIn
-  // hunts for anywhere in a profile, which is why searching Theni returned
-  // people in Coimbatore. These are the real ones, and they take LinkedIn's
-  // internal ids — so the list holds only what has actually been seen.
+  // A place in `keywords` is not a location filter.
   const ctx = await openPanel(t, { idle: true });
   if (!ctx) return;
   try {
@@ -1712,10 +1642,7 @@ test('LinkedIn’s own filters are offered — and only the ones ever observed',
     await ctx.page.waitForTimeout(150);
     assert.equal(await ctx.page.textContent('#geoChips'), 'India✕');
 
-    // And the important half: a place nobody has ever looked up is addable
-    // straight away. Its id is undocumented and cannot be guessed, so the run
-    // types the name into LinkedIn's own filter instead — which means nothing
-    // here has to know it in advance.
+    // And the important half: a place nobody has ever looked up is addable straight away.
     await ctx.page.fill('#geoInput', 'Munnar');
     await ctx.page.click('#geoAdd');
     await ctx.page.waitForTimeout(200);
@@ -1727,10 +1654,7 @@ test('LinkedIn’s own filters are offered — and only the ones ever observed',
 });
 
 test('a name with no id yet reaches the run for LinkedIn to look up', async (t) => {
-  // The previous version made the user go and apply the filter on LinkedIn by
-  // hand before LeadMine would accept it. Now the run does that itself, so an
-  // unknown name goes straight through — with no id, which is the signal to
-  // drive LinkedIn's panel rather than build a URL.
+  // The previous version made the user go and apply the filter on LinkedIn by hand before LeadMine would accept.
   const ctx = await openPanel(t, { idle: true });
   if (!ctx) return;
   try {
@@ -1746,8 +1670,7 @@ test('a name with no id yet reaches the run for LinkedIn to look up', async (t) 
     await ctx.page.click('#sourceGroup label.seg:has(input[value="linkedin"])');
     await ctx.page.waitForTimeout(250);
     await ctx.page.fill('#category', 'kotlin');
-    // Typed and never added — Start has to take it up, or the run goes out
-    // unfiltered, which is exactly what a live run did.
+    // Typed and never added.
     await ctx.page.fill('#geoInput', 'chennai');
     await ctx.page.click('#start');
     await ctx.page.waitForTimeout(400);
@@ -1782,8 +1705,7 @@ test('a chosen filter reaches the run as an id, not as a word', async (t) => {
     await ctx.page.click('#svcAdd');
     await ctx.page.waitForTimeout(200);
 
-    // A real location filter makes the free-text place meaningless, and a box
-    // that is silently ignored is a box people fill in and then distrust.
+    // A real location filter makes the free-text place meaningless.
     assert.equal(await ctx.page.isDisabled('#city'), true);
     assert.equal(await ctx.page.isVisible('#cityIgnored'), true);
 
@@ -1823,12 +1745,7 @@ test('splitting is offered only when there is something to split', async (t) => 
 });
 
 test('an active narrowing filter rides beside the button that acts on it', async (t) => {
-  // The filter is saved between runs. A term typed weeks ago silently set
-  // aside all 235 results of a search planned today, and the form gave no
-  // sign it was there — an input holding a value just looks like an input.
-  //
-  // The first fix was a warning inside the form, which scrolled away with the
-  // form. This one is a chip in the action bar, which does not.
+  // The filter is saved between runs.
   const ctx = await openPanel(t, { idle: true });
   if (!ctx) return;
   try {
@@ -1850,8 +1767,7 @@ test('an active narrowing filter rides beside the button that acts on it', async
 });
 
 test('New search leaves the finished run behind instead of repainting it', async (t) => {
-  // The panel polls the worker every two seconds, so a finished job's error
-  // and its zeroes were painted straight back over the form.
+  // The panel polls the worker every two seconds.
   const ctx = await openPanel(t);
   if (!ctx) return;
   try {
@@ -1884,8 +1800,7 @@ test('New search leaves the finished run behind instead of repainting it', async
 });
 
 test('the panel shows which version is loaded', async (t) => {
-  // Reloading an unpacked extension gives no feedback inside the panel, so
-  // "did my reload land?" meant opening chrome://extensions to find out.
+  // Reloading an unpacked extension gives no feedback inside the panel.
   const ctx = await openPanel(t, { idle: true });
   if (!ctx) return;
   try {
@@ -1910,16 +1825,14 @@ test('a panel with no manifest to read still loads', async (t) => {
 });
 
 test('a finished run does not reclaim the screen after a restart', async (t) => {
-  // The live symptom: pull, reload, reopen — and the same dead run's error is
-  // still there, so the reload looks like it did nothing.
+  // The live symptom: pull, reload, reopen.
   const ctx = await openPanel(t, { stale: true });
   if (!ctx) return;
   try {
     assert.equal(await ctx.page.isVisible('#form'), true, 'the form is what you need on a reload');
     assert.equal(await ctx.page.isVisible('#runView'), false);
     assert.equal(await ctx.page.isVisible('#error'), false, 'a dead run’s error is not news');
-    // The chip reports the run on screen. With the form on screen it reported
-    // "Done" over a search nobody had run, which reads as this one finishing.
+    // The chip reports the run on screen.
     assert.equal(await ctx.page.isVisible('#statusPill'), false, 'no status for a run you left');
     assert.equal(await ctx.page.isVisible('#start'), true, 'Start is the action again');
 
@@ -1948,22 +1861,16 @@ test('the panel does not repeat the name Chrome is already showing', async (t) =
   const ctx = await openPanel(t, { idle: true });
   if (!ctx) return;
   try {
-    // Chrome draws the side panel's own header directly above this document,
-    // with the extension's icon and name in it. Drawing both again spent
-    // forty pixels of a 400px panel restating what was already on screen —
-    // in the one dimension this panel has none of.
+    // Chrome draws the side panel's own header directly above this document.
     const brand = await ctx.page.evaluate(() => {
       const bar = document.querySelector('.topbar');
       const seen = (el) => el.getBoundingClientRect().height > 0;
-      // What a sighted user reads: the bar with anything screen-reader-only
-      // taken out. innerText keeps sr-only text, since clipping to a pixel is
-      // not the same as being display:none — which is the whole point of it.
+      // What a sighted user reads: the bar with anything screen-reader-only taken out.
       const shown = bar.cloneNode(true);
       for (const el of shown.querySelectorAll('.sr-only')) el.remove();
       const h1 = document.querySelector('h1');
       return {
-        // Scoped to the bar above the panes: the empty-results state has a
-        // mark of its own and that one is doing a job Chrome's header is not.
+        // Scoped to the bar above the panes.
         marks: [...bar.querySelectorAll('img, svg')].filter(seen).length,
         name: /leadmine/i.test(shown.textContent || ''),
         heading: h1 ? h1.textContent.trim() : '',
@@ -1972,8 +1879,7 @@ test('the panel does not repeat the name Chrome is already showing', async (t) =
     });
     assert.equal(brand.marks, 0, 'the mark is drawn a second time');
     assert.equal(brand.name, false, 'the name is drawn a second time');
-    // Screen readers have no side-panel chrome to read, so the heading stays —
-    // clipped to a pixel, taking no room from the panel.
+    // Screen readers have no side-panel chrome to read, so the heading stays.
     assert.equal(brand.heading, 'LeadMine');
     assert.ok(brand.headingHeight <= 1, `the heading takes ${brand.headingHeight}px of the panel`);
   } finally {
@@ -1985,9 +1891,7 @@ test('the version and the run status survive the row they lost', async (t) => {
   const ctx = await openPanel(t, { idle: true });
   if (!ctx) return;
   try {
-    // These are the two things Chrome's header does not show, and the version
-    // is what answers "did my reload actually land?" — which this session
-    // leaned on repeatedly.
+    // These are the two things Chrome's header does not show.
     assert.equal(await ctx.page.isVisible('#version'), true);
     assert.match(await ctx.page.textContent('#version'), /^v\d+\.\d+\.\d+$/);
     assert.equal(await ctx.page.isVisible('#viewSetup'), true);
@@ -2038,8 +1942,7 @@ test('the results filter searches what a post and a person say, not only busines
   try {
     await ctx.page.click('#viewResults');
     await ctx.page.waitForTimeout(400);
-    // Typing a word from the post used to match nothing: only name, area,
-    // category, city, email and phone were searched.
+    // Typing a word from the post used to match nothing.
     await ctx.page.fill('#filter', 'pune');
     await ctx.page.waitForTimeout(300);
     assert.match(await ctx.page.textContent('#rowNote'), /^[\d,]+ of [\d,]+ rows$/);

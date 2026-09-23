@@ -1,15 +1,4 @@
-/**
- * Renders icons/logo.svg to the PNG sizes Chrome needs.
- *
- * Chrome only accepts raster icons. The SVG is the source of truth and the
- * PNGs are committed alongside it; this regenerates them.
- *
- * Rendering goes through Chromium rather than a hand-rolled rasteriser so the
- * mark gets real anti-aliasing, gradients and masking — the previous script
- * drew pixels by hand and could not do any of those.
- *
- * Run with: npm run icons   (needs: npm i -D playwright-core)
- */
+/** Renders icons/logo.svg to the PNG sizes Chrome needs. */
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -38,9 +27,7 @@ const browser = await chromium.launch({ headless: true, executablePath: findChro
 mkdirSync(OUT, { recursive: true });
 
 for (const size of SIZES) {
-  // deviceScaleFactor would multiply the output size, not the sampling — every
-  // icon came out 128px. Chromium anti-aliases SVG well at any CSS size, so
-  // render at the exact size wanted.
+  // deviceScaleFactor would multiply the output size, not the sampling — every icon came out 128px.
   const page = await browser.newPage({ viewport: { width: size, height: size } });
   await page.setContent(
     `<style>html,body{margin:0;padding:0;background:transparent}svg{display:block;width:${size}px;height:${size}px}</style>${svg}`

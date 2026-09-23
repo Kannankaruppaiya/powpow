@@ -1,9 +1,4 @@
-/**
- * Joining people to the businesses they work at.
- *
- * A wrong join puts a stranger's phone number on someone's row, so the tests
- * that refuse a join matter as much as the ones that make one.
- */
+/** Joining people to the businesses they work at. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 

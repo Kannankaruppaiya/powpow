@@ -1,18 +1,4 @@
-/**
- * After the download: who has been contacted, who is due a follow-up, and
- * who must never be written to.
- *
- * A lead list is the start of the work, and this extension used to stop
- * there. What comes next is small and always the same — mark who you wrote
- * to, come back to them in a few days, and never email someone who said no —
- * and doing it in a spreadsheet beside the tool is how the "no" gets lost.
- *
- * The sequence rule is OpenOutSend's: a cold lead gets the first message and
- * two follow-ups, three working days then five, and then the pursuit ends.
- * The do-not-contact rule is the law's (GDPR, DPDP, CAN-SPAM): an opt-out is
- * permanent, it follows the address rather than the row, and no re-scrape,
- * import or new run may bring that person back.
- */
+/** After the download: who has been contacted, who is due a follow-up, and who must never be written to. */
 
 export const STATUSES = [
   { id: 'new', label: 'New' },
@@ -52,14 +38,7 @@ export const isoDay = (d) => {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 };
 
-/**
- * What a status change does to the rest of the note.
- *
- * Contacting someone starts the follow-up clock; each follow-up moves it to
- * the next gap; the last one clears it, because a third unanswered email is
- * where the pursuit stops. A reply or a close clears it too — nobody chases
- * a person who answered. Returns a patch for `putNotes`.
- */
+/** What a status change does to the rest of the note. */
 export function statusPatch(note, status, now = new Date()) {
   const current = note || {};
   const touches = current.touches || 0;
@@ -113,13 +92,7 @@ const SHARED_DOMAINS = new Set([
   'live.com', 'icloud.com', 'aol.com', 'rediffmail.com', 'proton.me', 'protonmail.com', 'zoho.com',
 ]);
 
-/**
- * Read one line the user typed into the do-not-contact box.
- *
- * An address, a bare domain (the whole company opted out), a LinkedIn
- * profile, or a phone number. Anything else is not understood and is
- * reported back rather than silently kept.
- */
+/** Read one line the user typed into the do-not-contact box. */
 export function parseSuppressionLine(line) {
   const raw = String(line || '').trim();
   if (!raw || raw.startsWith('#')) return null;
@@ -213,15 +186,7 @@ export function splitName(full) {
   return { first: parts[0], last: parts.slice(1).join(' ') };
 }
 
-/**
- * The columns cold-email tools import without mapping.
- *
- * Instantly and Smartlead both require email / first_name / last_name and
- * recognise company, title, website and linkedin_url as standard fields
- * (OpenOutFind's export found this the hard way); anything else arrives as
- * a custom variable you can merge into a template — `reason` included, which
- * is the best opening line a cold email can have.
- */
+/** The columns cold-email tools import without mapping. */
 export const SEQUENCER_COLUMNS = [
   { key: 'email', label: 'email' },
   { key: 'first_name', label: 'first_name' },
@@ -238,13 +203,7 @@ export const SEQUENCER_COLUMNS = [
   { key: 'lead_id', label: 'lead_id' },
 ];
 
-/**
- * Rows for a cold-email tool: only leads with an address, never a
- * suppressed one, never one judged or marked not worth writing to.
- *
- * A sequencer sends to every row it is given, so this is the last place a
- * "no" can be honoured.
- */
+/** Rows for a cold-email tool. */
 export function sequencerRows(records, notes = new Map(), { isSuppressed = () => false, linked = new Map() } = {}) {
   const out = [];
   const seen = new Set();

@@ -1,10 +1,4 @@
-/**
- * The paid email finder.
- *
- * Every test here is about money or about a wrong address: what is sent,
- * what counts as found, who is looked up at all, and stopping on the first
- * refusal that would repeat for every later lookup.
- */
+/** The paid email finder. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 

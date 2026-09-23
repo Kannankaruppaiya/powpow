@@ -1,20 +1,4 @@
-/**
- * Browser test for the public-web adapter.
- *
- * Runs the real content scripts in Chromium against a synthetic search-engine
- * results page — NOT against a live engine. The fixture is deliberately a
- * blend of the two engines this adapter has to survive, because that is the
- * whole design constraint: there is no one layout to write against.
- *
- *   - Google wraps the site line AND the title heading in one anchor
- *   - DuckDuckGo wraps every result in /l/?uddg=<encoded>
- *   - both carry the same profile two or three times per result
- *   - both change their class names whenever they feel like it
- *   - and Next is a full navigation on both, which is why paging fetches the
- *     next page instead of clicking it
- *
- * Run with: npm run test:dom
- */
+/** Browser test for the public-web adapter. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
@@ -45,10 +29,7 @@ function findChromium() {
 
 const ddg = (url) => `/l/?uddg=${encodeURIComponent(url)}&rut=b91f0c`;
 
-/**
- * One result, DuckDuckGo-shaped: the anchor sits inside the heading, and the
- * breadcrumb URL is a second link to the same person above it.
- */
+/** One result, DuckDuckGo-shaped. */
 const ddgBlock = ({ href, crumb, title, snippet, thumb = false }) => `
   <li class="b_algo">
     ${thumb ? `<a class="k7" href="${href}"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" alt=""></a>` : ''}
@@ -57,11 +38,7 @@ const ddgBlock = ({ href, crumb, title, snippet, thumb = false }) => `
     <div class="b_caption"><p>${snippet}</p></div>
   </li>`;
 
-/**
- * One result, Google-shaped: ONE anchor wrapping the site line and the title
- * heading together. Reading the anchor's text puts "LinkedIn · Name 4.8K+
- * followers" in front of every name.
- */
+/** One result, Google-shaped: ONE anchor wrapping the site line and the title heading together. */
 const googleBlock = ({ href, site, title, snippet }) => `
   <li class="MjjYud">
     <div class="yuRUbf">
@@ -75,8 +52,7 @@ const googleBlock = ({ href, site, title, snippet }) => `
 
 const PAGE_ONE = [
   googleBlock({
-    // Copied from the live SERP: the title truncates with an ellipsis, and the
-    // followers count sits inside the same link as the name.
+    // Copied from the live SERP.
     href: 'https://in.linkedin.com/in/priya-sharma',
     site: 'Priya Sharma<br>500+ followers',
     title: 'Priya Sharma - Corporate Trainer at Acme Corp | LinkedIn',
@@ -84,35 +60,30 @@ const PAGE_ONE = [
       'Chennai, Tamil Nadu, India &middot; 500+ connections &middot; Kotlin and Java programmes for enterprise teams.',
   }),
   ddgBlock({
-    // DuckDuckGo's redirect wrapper, and a thumbnail link with no text at all
-    // — which must not become the result, and must not become a row of its own.
+    // DuckDuckGo's redirect wrapper, and a thumbnail link with no text at all.
     href: ddg('https://in.linkedin.com/in/raj-kumar'),
     crumb: 'in.linkedin.com &rsaquo; in &rsaquo; raj-kumar',
     title: 'Raj Kumar &ndash; Kotlin Trainer at Globex | LinkedIn',
-    // A snippet with no bullets anywhere: the place has to be picked out of
-    // the middle of a sentence.
+    // A snippet with no bullets anywhere: the place has to be picked out of the middle of a sentence.
     snippet:
       'Raj Kumar. Kotlin Trainer at Globex. Coimbatore, Tamil Nadu, India. 300 connections on LinkedIn.',
     thumb: true,
   }),
   googleBlock({
-    // No company in the headline and no place in the snippet. Both columns
-    // must come back empty rather than borrowing from the neighbours.
+    // No company in the headline and no place in the snippet.
     href: 'https://uk.linkedin.com/in/anita-r',
     site: 'Anita R',
     title: 'Anita R - Independent Consultant | LinkedIn',
     snippet: 'Consultant. Ask me about training programmes and syllabus design.',
   }),
   googleBlock({
-    // A hyphen inside the name. Splitting on any dash puts half a name in the
-    // Name column; only a spaced dash separates name from headline.
+    // A hyphen inside the name.
     href: 'https://fr.linkedin.com/in/jean-pierre-duval',
     site: 'Jean-Pierre Duval',
     title: 'Jean-Pierre Duval - Formateur at Orange | LinkedIn',
     snippet: 'Paris, &Icirc;le-de-France, France &middot; 900 connections',
   }),
-  // Chrome that is not a result: a company page, a bare /in/, LinkedIn's own
-  // marketing slugs, and an ad with no profile link in it at all.
+  // Chrome that is not a result.
   `<li class="ads"><h3><a href="https://www.linkedin.com/company/acme">Acme Corp | LinkedIn</a></h3>
      <p>Hire trainers faster.</p></li>`,
   `<li class="MjjYud"><h3><a href="https://www.linkedin.com/in/">LinkedIn</a></h3><p>Sign in.</p></li>`,
@@ -136,14 +107,7 @@ const PAGE_TWO = [
   }),
 ].join('');
 
-/**
- * A results page whose Next is a real link to the next page.
- *
- * Class names are hashed the way a real engine's are, and the header carries
- * its own LinkedIn link. Nothing here responds to a click: on both engines
- * Next is a full navigation, so the adapter fetches that URL instead — which
- * is what this fixture serves.
- */
+/** A results page whose Next is a real link to the next page. */
 const NEXT = '/search?q=site%3Alinkedin.com%2Fin+corporate+trainer&start=10';
 
 function fixture(results, { next = NEXT } = {}) {
@@ -156,9 +120,7 @@ function fixture(results, { next = NEXT } = {}) {
   </body></html>`;
 }
 
-// Bing's challenge, which the first version of the CAPTCHA check missed
-// entirely: it looked for Google's words, so a live run read this page as an
-// empty result set and blamed the query.
+// Bing's challenge, which the first version of the CAPTCHA check missed entirely.
 const CAPTCHA = `<!doctype html><html><head><meta charset="utf-8"></head><body>
   <h1>One last step</h1>
   <p>Please solve the challenge below to continue</p>
@@ -188,9 +150,7 @@ async function run(t, { url, body, nextBody, config = {}, instead } = {}) {
   const browser = await chromium.launch({ headless: true, ...(bin ? { executablePath: bin } : {}) });
   const page = await browser.newPage();
 
-  // Page two is served over the network, not by a click, because that is how
-  // the adapter asks for it — Next is a full navigation on a real engine and
-  // a navigation would destroy the content script mid-run.
+  // Page two is served over the network, not by a click, because that is how the adapter asks for it.
   const served = [];
   await page.route('https://www.google.com/**', (route) => {
     const asked = route.request().url();
@@ -233,8 +193,7 @@ test('the web adapter is chosen for a search-engine results page', async (t) => 
           googleIn: web.matchesUrl('https://www.google.co.in/search?q=x'),
           ddg: web.matchesUrl('https://html.duckduckgo.com/html/?q=x'),
           ddgRoot: web.matchesUrl('https://duckduckgo.com/?q=x&t=h_'),
-          // The content script is registered for the whole of duckduckgo.com,
-          // so the adapter is what keeps it off the site's other pages.
+          // The content script is registered for the whole of duckduckgo.com.
           ddgHome: web.matchesUrl('https://duckduckgo.com/'),
           maps: web.matchesUrl('https://www.google.com/maps/search/cafes'),
           linkedin: web.matchesUrl('https://www.linkedin.com/search/results/people/?keywords=x'),
@@ -264,9 +223,7 @@ test('a profile behind a redirect wrapper is still found', async (t) => {
 test('a title heading inside the link beats the link’s own text', async (t) => {
   const result = await run(t, { config: { maxResults: 4 } });
   if (!result) return;
-  // Google wraps the site line and the heading in ONE anchor, so the link's
-  // text is "LinkedIn · Priya Sharma 500+ followers Priya Sharma - Corporate
-  // Trainer…". Reading it put all of that in the Name column.
+  // Google wraps the site line and the heading in ONE anchor.
   const priya = by(result.records, 'Priya Sharma');
   assert.ok(priya, `the name came back as: ${result.records.map((r) => r.name).join(' | ')}`);
   assert.ok(!/followers|LinkedIn ·/.test(priya.name), priya.name);
@@ -324,8 +281,7 @@ test('one person listed twice on a page is one row, named by the title', async (
   if (!result) return;
   const priyas = result.records.filter((r) => /priya-sharma/.test(r.profileUrl));
   assert.equal(priyas.length, 1);
-  // The breadcrumb link comes first in the DOM; taking it would name the row
-  // "in.linkedin.com › in › priya-sharma".
+  // The breadcrumb link comes first in the DOM.
   assert.equal(priyas[0].name, 'Priya Sharma');
 });
 
@@ -347,9 +303,7 @@ test('paging stops with a reason once the engine offers no next page', async (t)
 test('the next page is fetched, never clicked', async (t) => {
   const result = await run(t, { config: { maxResults: 20 } });
   if (!result) return;
-  // Clicking Next on a real engine is a full navigation, and a navigation
-  // destroys the content script mid-run: the scrape would be abandoned with
-  // page one and no error anywhere. The run must ask for page two by URL.
+  // Clicking Next on a real engine is a full navigation, and a navigation destroys the content script mid-run.
   assert.ok(
     result.served.some((u) => u.includes('start=10')),
     `page two was never requested: ${result.served.join(' | ')}`
@@ -372,8 +326,7 @@ test('an engine that answered nothing does not get blamed on pagination', async 
   });
   if (!result) return;
   assert.equal(result.records.length, 0);
-  // It said "the search engine offered no next page" before, which sends
-  // everyone to look at pagination when the query is what came back empty.
+  // It said "the search engine offered no next page" before.
   assert.match(result.stoppedBecause, /no results/i);
 });
 
@@ -400,18 +353,12 @@ test('a CAPTCHA is recognised in each engine’s own words', async (t) => {
   assert.equal(wordings.challenge, true, 'the wording a live run actually hit');
   assert.equal(wordings.unusual, true);
   assert.equal(wordings.robot, true);
-  // An empty result set is not a challenge, and calling it one hides a real
-  // "your query matched nothing".
+  // An empty result set is not a challenge, and calling it one hides a real "your query matched nothing".
   assert.equal(wordings.results, false);
 });
 
 test('the next page must be on the search engine itself', async (t) => {
-  // findNext searches every link on the page, and on a search engine the
-  // links are results — content an attacker can rank and title. A result
-  // titled "Show more results for kotlin trainers" matches the label as well
-  // as the engine's own control and sits above it in document order.
-  // Followed, that URL was fetched with credentials and its markup imported
-  // into the live page.
+  // findNext searches every link on the page, and on a search engine the links are results.
   const result = await run(t, {
     // The Next control points at another origin. Nothing should be fetched.
     body: fixture(PAGE_ONE, { next: 'https://attacker.example/next' }),

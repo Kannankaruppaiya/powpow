@@ -1,15 +1,4 @@
-/**
- * Google Maps adapter.
- *
- * Google ships obfuscated, rotating class names, so every selector here is
- * tried in order: stable attribute hooks (data-item-id, role, aria-label)
- * first, hashed class names only as a last resort. Forcing hl=en on the search
- * URL keeps the aria-label prefixes ("Phone:", "Address:") predictable.
- *
- * The results feed is virtualised — cards are added as you scroll — so the
- * engine's harvest loop reads what is on screen each round rather than
- * expecting one complete list.
- */
+/** Google Maps adapter. */
 (() => {
   'use strict';
 
@@ -34,12 +23,7 @@
     consent: 'form[action*="consent"], div[aria-label*="Before you continue"]',
   };
 
-  /*
-   * Self-healing for the four elements every Maps search has (heal.js). A
-   * working selector teaches it what the element looks like; a broken one
-   * falls back to finding the element that still looks like that. Optional
-   * fields are never healed — see heal.js for why.
-   */
+  // Self-healing for the four elements every Maps search has (heal.js).
   const heal = globalThis.MLSHeal || null;
   const LIST_ITEM = { ignore: ['href', 'text', 'aria-label'] };
 
@@ -77,16 +61,11 @@
     return out;
   }
 
-  /**
-   * Read the card's secondary info rows. Maps packs "Category · Address" on
-   * one line and "Open now · Closing time" plus an optional phone on the next.
-   */
+  /** Read the card's secondary info rows. */
   function extractCardInfo(card, name = '') {
     if (!card) return { category: '', address: '', phone: '' };
 
-    // These containers nest — the outer one holds the business name and the
-    // rating as well, so its text would glue "Bright Smile Dental" onto
-    // "Dental clinic". Keep only leaf rows.
+    // These containers nest.
     const candidates = [...card.querySelectorAll('div.W4Efsd, div.fontBodyMedium')];
     const rows = candidates
       .filter((el) => !candidates.some((other) => other !== el && el.contains(other)))
@@ -173,12 +152,10 @@
     if (cat) rec.category = norm(cat.textContent);
 
     // Opening hours live in an aria-label holding the whole week, e.g.
-    // "Monday, 9 AM to 9 PM; Tuesday, 9 AM to 9 PM; ...".
     const hours = main.querySelector(SEL.detailHours);
     if (hours) {
       const label = norm(hours.getAttribute('aria-label'));
-      // Reject the collapsed summary ("Open ⋅ Closes 9 pm") in favour of the
-      // full week, which is the only version worth putting in a spreadsheet.
+      // Reject the collapsed summary.
       if (label && label.includes(';')) rec.hours = label.replace(/^hours:\s*/i, '');
     }
 
@@ -191,8 +168,7 @@
       if (m) rec.priceLevel = norm(m[1]);
     }
 
-    // An unclaimed listing advertises "Claim this business" — a strong signal
-    // that nobody is managing the page.
+    // An unclaimed listing advertises "Claim this business" — a strong signal that nobody is managing the page.
     const claim = [...main.querySelectorAll(SEL.detailClaim)].some((el) =>
       /claim this business|own this business/i.test(
         `${el.getAttribute('aria-label') || ''} ${el.textContent || ''}`
@@ -237,8 +213,7 @@
         if (heal) heal.remember('feed', feed);
         return feed;
       }
-      // The selector found nothing for fifteen seconds. Before calling that
-      // a missing list, look for the element that still looks like the feed.
+      // The selector found nothing for fifteen seconds.
       return heal ? heal.relocate('feed', document, { threshold: 65 }) : null;
     },
 
@@ -266,12 +241,7 @@
     },
 
     needsDetail(record) {
-      // Only a sighting that has already been through the detail panel can be
-      // skipped. Judging by which card fields look filled was wrong: a card's
-      // address is a snippet at best, and when the card parser mistook a
-      // category for one, every listing that also showed a phone and a website
-      // was skipped — so the run quietly returned card data for most rows and
-      // full data for the few without both.
+      // Only a sighting that has already been through the detail panel can be skipped.
       return !record.detailScraped;
     },
 

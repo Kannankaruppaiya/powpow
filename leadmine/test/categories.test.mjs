@@ -98,9 +98,7 @@ test('suggestions still work before any run has happened', () => {
 });
 
 test('a person is filtered on everything their card says, not just the headline', () => {
-  // The live case: LinkedIn's best result for "kotlin trainer" carried the
-  // word Trainer only in its "Current:" line. Filtering the headline alone
-  // set the single most relevant person aside.
+  // The live case: LinkedIn's best result for "kotlin trainer" carried the word Trainer only in its "Current:".
   const people = [
     {
       name: 'Shishupalsingh Bhati',

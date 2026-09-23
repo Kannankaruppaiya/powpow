@@ -6,32 +6,9 @@
     <link rel="stylesheet" href="tokens.css" />
     <link rel="stylesheet" href="panel.css" />
   </head>
-  <!--
-    The panel is ~400px wide and as tall as the browser. That one fact decides
-    the layout, and the first version ignored it:
-
-      - the button the whole app exists for sat 300px below the fold, so
-        opening the panel showed no way to start anything. It now lives in a
-        bar pinned to the bottom, in the same place in every view;
-      - the results were a six-column table in 400px, which ellipsised every
-        single value — a table you have to download before you can read is not
-        a table. Leads are cards now: name, phone, email, each one readable and
-        each one copyable with a click;
-      - the AI planner, an optional aside, was the loudest and tallest thing on
-        the screen and sat above the two fields that actually run a search. It
-        is now below them, quiet, and collapsible.
-  -->
+  <!-- The panel is ~400px wide and as tall as the browser. -->
   <body>
-    <!-- Chrome draws the side panel's own header above this one, with the
-         extension's icon and its name in it. Repeating both here spent forty
-         pixels of a 400px panel saying what was already on screen twice — in
-         the one dimension this panel has none of, and which put Start below
-         the fold once already.
-
-         What Chrome does not show is the version and what the run is doing,
-         so those are all that is left, and they ride on the tab row rather
-         than on a row of their own. The heading stays for screen readers,
-         which have no side-panel chrome to read. -->
+    <!-- Chrome draws the side panel's own header above this one, with the extension's icon and its name in it. -->
     <div class="topbar">
       <h1 class="sr-only">LeadMine</h1>
       <nav class="tabbar" role="tablist">
@@ -40,16 +17,14 @@
           Results <span id="tabCount" class="tab-count" hidden>0</span>
         </button>
       </nav>
-      <!-- Read from the manifest, so it is proof the reload landed rather
-           than a number someone remembered to bump in two places. -->
+      <!-- Read from the manifest, so it is proof the reload landed rather than a number someone remembered to bump in. -->
       <span id="version" class="version" title="Loaded version"></span>
       <span id="statusPill" class="pill" hidden>Idle</span>
     </div>
 
     <!-- ==================================================== search ===== -->
     <section id="paneSetup" class="pane">
-      <!-- The form asks for what it cannot guess, in the order you think of
-           it, and nothing else. -->
+      <!-- The form asks for what it cannot guess, in the order you think of it, and nothing else. -->
       <form id="form" class="stack">
         <fieldset class="segmented" id="sourceGroup">
           <legend class="sr-only">Where to search</legend>
@@ -97,14 +72,7 @@
             <input id="category" class="input" placeholder="dentists" autocomplete="off" />
           </label>
 
-          <!--
-            Browse down to the town, or just type it.
-
-            The box is the search — the two selects above it only decide what
-            the list under it offers, so nothing downstream has to know a
-            picker exists. Picking India → Tamil Nadu → Chennai and typing
-            "Chennai, Tamil Nadu" are the same run.
-          -->
+          <!-- Browse down to the town, or just type it. -->
           <div class="field" id="whereField">
             <label class="label" id="cityLabel" for="city">Where?</label>
             <div class="row" id="placeRow">
@@ -115,25 +83,13 @@
                    placeholder="Chennai" autocomplete="off" />
             <datalist id="cityOptions"></datalist>
             <span class="help" id="placeHint" hidden></span>
-            <!-- Said only when a real location filter is doing the work, so
-                 the box above is not silently ignored. -->
+            <!-- Said only when a real location filter is doing the work, so the box above is not silently ignored. -->
             <span class="help" id="cityIgnored" hidden></span>
-            <!-- A country in the filter and a town in the box is not a
-                 disagreement the user can see until it is named, and the run
-                 that follows searches the country. One click settles it. -->
+            <!-- A country in the filter and a town in the box is not a disagreement the user can see until it is named. -->
             <button type="button" id="useTypedCity" class="linkish" hidden></button>
           </div>
 
-          <!--
-            LinkedIn's own filters.
-
-            A place in `keywords` is not a location filter: it is a word
-            LinkedIn looks for anywhere in a profile, which is why searching
-            Theni returned people in Coimbatore and Chennai. These are the real
-            ones — but they take LinkedIn's internal ids, not names, so the
-            list offers only what has actually been seen on a live page. See
-            src/lib/urns.js for why nothing here is ever guessed.
-          -->
+          <!-- LinkedIn's own filters. -->
           <div class="field" id="liFilters" hidden>
             <div class="field">
               <span class="label">
@@ -188,11 +144,7 @@
 
         <button type="button" id="toggleBatch" class="linkish">+ Search several at once</button>
 
-        <!-- --- the planner: an aside, and it now looks like one ---------
-             Below the fields it helps you fill in, not above them; a plain
-             card rather than a tinted block; collapsible, and it remembers
-             being collapsed. Someone who knows their search never sees it
-             again after the first time they close it. -->
+        <!-- --- the planner: an aside, and it now looks like one --------- Below the fields it helps you fill in. -->
         <details class="assist" id="assist" open>
           <summary class="assist-summary">
             <span class="assist-title">Not sure what to search for?</span>
@@ -219,8 +171,7 @@
               <button type="button" id="aiOpenSettings" class="linkish">More options</button>.
             </p>
 
-            <!-- The plan is a proposal, not a decision: every line can be
-                 unticked before it becomes the run. -->
+            <!-- The plan is a proposal, not a decision: every line can be unticked before it becomes the run. -->
             <div id="aiResult" class="assist-result" hidden>
               <p id="aiUnderstood" class="assist-understood"></p>
               <ul id="aiList" class="assist-list"></ul>
@@ -232,9 +183,7 @@
           </div>
         </details>
 
-        <!-- Three named outcomes on one row. The consequence of the chosen
-             one is spelled out underneath, because "Deep" on its own does not
-             tell anyone it means an hour. -->
+        <!-- Three named outcomes on one row. -->
         <div class="field" id="coverageRow">
           <span class="label">How thorough?</span>
           <fieldset class="segmented" id="coverage">
@@ -255,27 +204,16 @@
           <span class="help" id="coverageHint"></span>
         </div>
 
-        <!--
-          "How many?" is a question a Maps run answers with a geographic grid
-          and a LinkedIn run answers with a number, so the two share a slot and
-          only one of them is ever on screen.
-
-          The limit lived under More options, where a people search — which has
-          no grid, so nothing else decides how much it collects — could not
-          find it. For LinkedIn it moves up here; for Maps it goes back.
-        -->
+        <!-- "How many?" is a question a Maps run answers with a geographic grid and a LinkedIn run answers with a number. -->
         <div id="limitSlot"></div>
         <label class="field" id="limitRow">
           <span class="label" id="limitLabel">Stop after this many per search</span>
-          <!-- Blank, not 0. A box reading "0" looks like a limit of nothing;
-               empty reads as "no limit", which is what it means. -->
+          <!-- Blank, not 0. -->
           <input id="maxResults" class="input" type="number" min="0" max="5000" step="10"
                  placeholder="All of them" />
           <span class="help" id="limitHint">0 means no limit</span>
         </label>
-        <!-- Posts only. A post is a lead because it is recent and because it
-             asks for something, so both are questions the run cannot guess.
-             The date comes from the post's own id, not the engine's filter. -->
+        <!-- Posts only. -->
         <div class="field" id="postsRow" hidden>
           <label class="label" for="postsDays">How recent?</label>
           <select id="postsDays" class="input">
@@ -298,10 +236,7 @@
           <option value="exhaustive">exhaustive</option>
         </select>
 
-        <!-- Optional throughout: blank keeps everything, exactly as before.
-             Compact, because it is a narrowing tweak rather than a question
-             the run cannot start without — and when it is set, the action bar
-             carries a chip so it can never be forgotten again. -->
+        <!-- Optional throughout: blank keeps everything, exactly as before. -->
         <label class="field" id="categoryFilterRow">
           <span class="label">
             <span id="filterLabel">Category</span>
@@ -331,9 +266,7 @@
               <input type="checkbox" id="followContactPage" checked />
               <span>Also check each site's contact page</span>
             </label>
-            <!-- Sites that answer a plain request with a 403, a challenge or an
-                 empty JavaScript shell still show a visitor their email. A
-                 background tab is the second look; see email.js. -->
+            <!-- Sites that answer a plain request with a 403. -->
             <label class="check" id="optRender">
               <input type="checkbox" id="renderBlockedSites" checked />
               <span>
@@ -374,21 +307,17 @@
                 <a id="aiKeyLink" href="#" target="_blank" rel="noreferrer">Get a free key</a>.
               </span>
 
-              <!-- Behind a toggle: an unlabelled box under the key box is a box
-                   people type their key into. Nobody needs this by default. -->
+              <!-- Behind a toggle: an unlabelled box under the key box is a box people type their key into. -->
               <button type="button" id="aiModelToggle" class="linkish">Use a different model</button>
               <label class="field" id="aiModelRow" hidden>
                 <span class="label">Model</span>
-                <!-- A list the provider itself returns, never a name to type:
-                     every model failure so far was a remembered name. -->
+                <!-- A list the provider itself returns, never a name to type: every model failure so far was a remembered name. -->
                 <select id="aiModel" class="input"></select>
                 <span class="help" id="aiModelHelp"></span>
               </label>
             </div>
 
-            <!-- A search worth asking every morning should not need a person
-                 to press Start. The search is saved as it stands when this is
-                 switched on; each run brings only what is new. -->
+            <!-- A search worth asking every morning should not need a person to press Start. -->
             <div class="field" id="scheduleSettings">
               <span class="label">Run it on its own</span>
               <label class="check">
@@ -408,9 +337,7 @@
               <button type="button" id="scheduleUpdate" class="linkish" hidden>Schedule the search that is in the form now</button>
             </div>
 
-            <!-- PowPow is the gateway to Telegram, WhatsApp and Slack. A run
-                 handed to its /hooks/agent endpoint arrives on the phone as a
-                 summary its agent wrote. See src/lib/powpow.js. -->
+            <!-- PowPow is the gateway to Telegram, WhatsApp and Slack. -->
             <div class="field" id="powpowSettings">
               <span class="label">Send results to PowPow</span>
               <label class="check">
@@ -456,10 +383,7 @@
         <p id="sourceNote" class="callout callout--warn" hidden></p>
       </form>
 
-      <!-- --- the run: replaces the form, because nothing else matters ----
-           This is the screen you look at for twenty-five minutes, so it has
-           to keep proving it is alive: which search is running, and the leads
-           arriving as they arrive. -->
+      <!-- --- the run: replaces the form. -->
       <div id="runView" class="stack" hidden>
         <div class="runhead">
           <div id="spinner" class="spinner" hidden></div>
@@ -471,19 +395,14 @@
 
         <div class="bar"><div id="barFill" class="bar-fill"></div></div>
         <p id="taskLine" class="muted small"></p>
-        <!-- What the run did beyond collecting: selectors it had to find
-             again, sites it had to open in a tab, the do-not-contact list,
-             the hand-off to PowPow. One line each, only when it happened. -->
+        <!-- What the run did beyond collecting. -->
         <ul id="runNotes" class="runnotes" hidden></ul>
 
-        <!-- "Why only three?" gets its own line, not a clause at the end of
-             the task line. It is the first question a short run raises and
-             the answer is not a fault the user can fix by rerunning. -->
+        <!-- "Why only three?" gets its own line, not a clause at the end of the task line. -->
         <p id="withheldNote" class="callout" hidden></p>
 
 
-        <!-- One row, four numbers. Four bordered boxes stacked two-by-two ate
-             a third of the screen to say the same thing. -->
+        <!-- One row, four numbers. -->
         <ul class="figures">
           <li><strong id="statFound">0</strong><span id="statFoundLabel">businesses</span></li>
           <li><strong id="statPhones">0</strong><span>phones</span></li>
@@ -491,9 +410,7 @@
           <li><strong id="statSendable">0</strong><span>usable</span></li>
         </ul>
 
-        <!-- The empty space under the stats used to be the whole rest of the
-             panel. Names landing here are the difference between "it is
-             working" and "it has hung". -->
+        <!-- The empty space under the stats used to be the whole rest of the panel. -->
         <div id="recentBox" class="recent" hidden>
           <p class="recent-head">Latest</p>
           <ul id="recentList" class="recent-list"></ul>
@@ -512,8 +429,7 @@
     <section id="paneResults" class="pane" hidden>
       <div class="row">
         <input id="filter" class="input grow" type="search" placeholder="Filter these results…" />
-        <!-- Which leads, by what was decided about them rather than by what
-             they say: the judge's verdict and where the conversation is. -->
+        <!-- Which leads, by what was decided about them rather than by what they say. -->
         <select id="show" class="input" aria-label="Which leads">
           <option value="all">All</option>
           <option value="fit">Fit</option>
@@ -524,15 +440,13 @@
         </select>
       </div>
 
-      <!-- The one thing Results should say before anything else, when it is
-           true: somebody is waiting on a reply from you today. -->
+      <!-- The one thing Results should say before anything else, when it is true. -->
       <p id="dueNote" class="callout callout--warn" hidden>
         <span id="dueText"></span>
         <button type="button" id="dueShow" class="linkish">Show them</button>
       </p>
 
-      <!-- After the scrape: judging, email finding and the do-not-contact
-           list. Folded, because Download is still this view's one action. -->
+      <!-- After the scrape: judging, email finding and the do-not-contact list. -->
       <details class="advanced" id="toolsBox">
         <summary>Judge, find emails, do not contact</summary>
         <div class="stack advanced-body">
@@ -594,8 +508,7 @@
         </div>
       </details>
 
-      <!-- Rows the category filter set aside are kept, not deleted, so this is
-           a view switch rather than a re-run. -->
+      <!-- Rows the category filter set aside are kept, not deleted, so this is a view switch rather than a re-run. -->
       <p id="asideNote" class="callout callout--warn" hidden>
         <span id="asideText"></span>
         <button type="button" id="asideToggle" class="linkish"></button>
@@ -608,13 +521,11 @@
         <button type="button" id="emptyGoSearch" class="btn">Go to search</button>
       </div>
 
-      <!-- A card per lead, not a row per lead. Six columns in 400px truncated
-           every value on screen; three lines each shows all of them. -->
+      <!-- A card per lead, not a row per lead. -->
       <div id="scroller" class="scroller">
         <div id="viewport" class="viewport">
           <div id="spacer" class="spacer"></div>
-          <!-- Virtualised: a spacer sized to the whole set, with only the
-               visible window of cards actually in the DOM. -->
+          <!-- Virtualised: a spacer sized to the whole set, with only the visible window of cards actually in the DOM. -->
           <div id="rowBody" class="rows"></div>
         </div>
       </div>
@@ -628,25 +539,15 @@
     </section>
 
     <!-- ================================================ action bar ===== -->
-    <!--
-      One bar, pinned to the bottom, carrying whatever this view's single
-      action is. Before this, Start was at the end of a 1,050px form in a
-      760px panel: the app opened with no visible way to start anything.
-    -->
+    <!-- One bar, pinned to the bottom, carrying whatever this view's single action is. -->
     <div class="actionbar" id="actionbar">
-      <!-- The narrowing filter is the one setting that can turn a good run
-           into zero rows, and it persists between runs. It rides next to the
-           button that acts on it, where it cannot be missed. -->
+      <!-- The narrowing filter is the one setting that can turn a good run into zero rows, and it persists between runs. -->
       <button type="button" id="filterChip" class="chip" hidden>
         <span id="filterChipText"></span>
         <span class="chip-x" aria-hidden="true">✕</span>
       </button>
 
-      <!-- LinkedIn's allowance is a number on their server that nothing here
-           can read. This counts what LeadMine itself asked for, which is the
-           whole of what is knowable — and it rides beside Start, because that
-           is where the spending decision is made. Inside the run view it
-           would only ever be read after the money was gone. -->
+      <!-- LinkedIn's allowance is a number on their server that nothing here can read. -->
       <p id="budgetNote" class="muted small" hidden></p>
 
       <div class="actionbar-row" id="barSearch">

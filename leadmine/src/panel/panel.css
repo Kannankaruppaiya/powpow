@@ -1,22 +1,8 @@
-/**
- * Side panel styles.
- *
- * Every value comes from tokens.css. Four rules, and the first one is the one
- * the earlier version broke:
- *
- *   - the primary action is always visible and always in the same place. A
- *     400px-wide panel scrolls; a pinned bar does not;
- *   - the panel is narrow, so density comes from shorter rows, not from
- *     smaller type — nothing here is below 12px;
- *   - one thing is loud per view, and it is the thing the view exists for.
- *     An optional aside gets a hairline, not a tint;
- *   - anything with a sensible default is disclosed, not displayed.
- */
+/* Side panel styles. */
 
 * { box-sizing: border-box; }
 
-/* Several layout rules set display on a class, which outranks the UA rule for
-   [hidden] and would leave "hidden" elements on screen. Settle it once. */
+/* Several layout rules set display on a class. */
 [hidden] { display: none !important; }
 
 html, body { height: 100%; }
@@ -24,8 +10,7 @@ html, body { height: 100%; }
 body {
   min-width: 320px;
   margin: 0;
-  /* The pane is the only thing that scrolls. Without this the page behind it
-     can scroll too, and the panel shows two scrollbars side by side. */
+  /* The pane is the only thing that scrolls. */
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -47,9 +32,7 @@ body {
 
 /* --- chrome ------------------------------------------------------------ */
 
-/* One row where there were two: the tabs, and — pushed to the far end — the
-   loaded version and what the run is doing. The brand is not here, because
-   Chrome's own side-panel header is already showing it directly above. */
+/* One row where there were two. */
 .topbar {
   display: flex;
   align-items: center;
@@ -60,8 +43,7 @@ body {
 }
 .topbar .version { margin-left: auto; }
 
-/* Small, muted, always visible: it answers "did my reload take?" without
-   competing with anything. */
+/* Small, muted, always visible: it answers "did my reload take?" without competing with anything. */
 .version {
   flex: none;
   font-size: 11px;
@@ -77,8 +59,7 @@ body {
   background: var(--surface-2);
   border-radius: var(--r-pill);
 }
-/* Status is the one job colour keeps, and every state gets the same
-   treatment — a tinted chip, never a filled block. */
+/* Status is the one job colour keeps, and every state gets the same treatment. */
 .pill[data-state="running"] { color: var(--accent-ink); background: var(--accent-soft); }
 .pill[data-state="done"] { color: var(--ok); background: var(--ok-soft); }
 .pill[data-state="paused"] { color: var(--warn); background: var(--warn-soft); }
@@ -119,14 +100,7 @@ body {
   gap: var(--s-3);
   padding: var(--s-4) var(--s-4) var(--s-3);
   overflow: auto;
-  /*
-   * A containing block for the visually-hidden inputs inside.
-   *
-   * `position: absolute` with no positioned ancestor resolves against the
-   * initial containing block, so those inputs sat at their static position
-   * *outside* this scroller — stretching the page behind it to the height of
-   * the whole form and giving the panel a second scrollbar.
-   */
+  /* A containing block for the visually-hidden inputs inside. */
   position: relative;
 }
 #paneResults { overflow: hidden; gap: var(--s-2); }
@@ -139,9 +113,7 @@ body {
   border-top: 1px solid var(--hairline);
 }
 
-/* --- the action bar ----------------------------------------------------
-   Pinned below the scrolling pane. The one action a view exists for is
-   reachable the moment the panel opens, whatever the form is doing. */
+/* --- the action bar ---------------------------------------------------- Pinned below the scrolling pane. */
 
 .actionbar {
   flex: none;
@@ -157,8 +129,7 @@ body {
 .actionbar-row { display: flex; align-items: center; gap: var(--s-2); }
 .actionbar-row > select.input { flex: none; width: 42%; }
 
-/* The filter that quietly zeroed a run, riding beside the button that acts on
-   it. Set means visible; blank means gone. */
+/* The filter that quietly zeroed a run, riding beside the button that acts on it. */
 .chip {
   align-self: flex-start;
   display: inline-flex;
@@ -177,9 +148,7 @@ body {
 .chip:hover { border-color: currentColor; }
 .chip-x { flex: none; opacity: 0.7; font-size: 10px; }
 
-/* A chosen filter value, and the way to drop it. Same shape as the narrowing
-   chip in the action bar, in the accent rather than the warning colour: these
-   are choices, not warnings. */
+/* A chosen filter value, and the way to drop it. */
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chips:empty { display: none; }
 .chips button {
@@ -204,8 +173,7 @@ body {
 .pane p { margin: 0; }
 
 .stack { display: flex; flex-direction: column; gap: var(--s-4); }
-/* A box-less slot: empty it takes no space and adds no gap, and what is moved
-   into it lays out as if it were a direct child of the form. */
+/* A box-less slot: empty it takes no space and adds no gap. */
 #limitSlot { display: contents; }
 .stack.tight { gap: var(--s-3); }
 .row { display: flex; align-items: center; gap: var(--s-2); }
@@ -271,11 +239,7 @@ select.input { appearance: auto; }
 .seg span {
   display: block;
   padding: 6px var(--s-2);
-  /* Three sources at 400px leave about 100px a cell. A segment is a label,
-     not a paragraph: on one line the cells give width to whichever name needs
-     it, and a name too long for the panel pushes the control past the edge
-     where a test sees it. Wrapped, it would instead grow the row and quietly
-     push Start further down the panel. */
+  /* Three sources at 400px leave about 100px a cell. */
   white-space: nowrap;
   font-size: var(--t-label);
   font-weight: var(--w-medium);
@@ -292,8 +256,7 @@ select.input { appearance: auto; }
 }
 .seg input:focus-visible + span { box-shadow: var(--ring); }
 
-/* The allowance line, once it is close enough to matter. Colour is the only
-   thing that changes: the sentence is doing the work. */
+/* The allowance line, once it is close enough to matter. */
 #budgetNote.warn { color: var(--warn); font-weight: var(--w-medium); }
 
 /* --- checkboxes -------------------------------------------------------- */
@@ -330,21 +293,13 @@ select.input { appearance: auto; }
 
 /* --- set-aside notice --------------------------------------------------- */
 
-/* The toggle sits inside the callout, so it inherits the warning colour and
-   reads as part of the sentence rather than as a competing action. */
+/* The toggle sits inside the callout. */
 #asideNote { display: block; }
 #asideNote .linkish { color: inherit; text-decoration: underline; }
 
 /* --- the search planner ------------------------------------------------ */
 
-/*
- * An aside, styled like one.
- *
- * The first version painted it in the accent tint and put it above the two
- * fields that actually run a search, which made the optional helper the
- * loudest and tallest thing in the panel. It is now a plain card below those
- * fields, and it folds away for good once you close it.
- */
+/* An aside, styled like one. */
 .assist {
   border: 1px solid var(--hairline);
   border-radius: var(--r-md);
@@ -393,8 +348,7 @@ select.input { appearance: auto; }
 }
 .assist-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 
-/* Each proposal reads as one line with its reason underneath, so a glance
-   down the column compares searches rather than sentences. */
+/* Each proposal reads as one line with its reason underneath. */
 .assist-item {
   display: flex;
   gap: var(--s-2);
@@ -415,8 +369,7 @@ select.input { appearance: auto; }
 /* An unticked line stays readable — it is a choice, not an error. */
 .assist-item input:not(:checked) ~ span { opacity: 0.5; }
 
-/* A planner failure is a message about a key or a quota, not a run failure —
-   it belongs beside the button, not in the form's error callout. */
+/* A planner failure is a message about a key or a quota, not a run failure. */
 .assist-error { color: var(--danger); }
 
 .assist-tier {
@@ -472,8 +425,7 @@ select.input { appearance: auto; }
 .btn:focus-visible { outline: none; box-shadow: var(--ring); }
 .btn:disabled { opacity: 0.55; cursor: default; }
 
-/* Neutral, not accent. The one action a view exists for should be the most
-   prominent thing on it — prominence comes from contrast, not from hue. */
+/* Neutral, not accent. */
 .btn--primary {
   color: var(--action-ink);
   background: var(--action);
@@ -540,8 +492,7 @@ select.input { appearance: auto; }
 .bar-fill.indeterminate { width: 35%; animation: slide 1.4s var(--ease) infinite; }
 @keyframes slide { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
 
-/* One row of four. As two-by-two bordered boxes these took a third of the
-   panel to carry four numbers. */
+/* One row of four. */
 .figures {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -571,8 +522,7 @@ select.input { appearance: auto; }
 
 /* --- what just arrived -------------------------------------------------- */
 
-/* A quarter-hour of a spinner and four still numbers is indistinguishable
-   from a hang. Names landing here are the proof. */
+/* A quarter-hour of a spinner and four still numbers is indistinguishable from a hang. */
 .recent { display: flex; flex-direction: column; gap: 6px; }
 .recent-head {
   margin: 0;
@@ -592,8 +542,7 @@ select.input { appearance: auto; }
 }
 .recent-list li:first-child { color: var(--ink); }
 .recent-list li:last-child { border-bottom: 0; }
-/* Each new arrival fades in, so the list reads as movement rather than as a
-   block that silently changed. */
+/* Each new arrival fades in, so the list reads as movement rather than as a block that silently changed. */
 .recent-list li.is-new { animation: arrive var(--t-slow) var(--ease-out); }
 @keyframes arrive { from { opacity: 0; transform: translateY(-4px); } }
 
@@ -622,18 +571,11 @@ select.input { appearance: auto; }
   overflow: hidden;
 }
 .viewport { flex: 1; min-height: 0; overflow: auto; position: relative; }
-/* Sized to the full row count so the scrollbar reflects the whole set, while
-   only the visible window is actually in the DOM. */
+/* Sized to the full row count so the scrollbar reflects the whole set. */
 .spacer { width: 100%; }
 .rows { position: absolute; top: 0; left: 0; right: 0; will-change: transform; }
 
-/*
- * Three lines, all of them readable.
- *
- * The table this replaces gave each of six columns about 55px in a 400px
- * panel, so every name, phone, email and area on screen ended in an ellipsis.
- * Height is fixed because the virtual window multiplies by it.
- */
+/* Three lines, all of them readable. */
 .lead {
   height: var(--row-h);
   padding: 9px var(--s-3);
@@ -650,9 +592,7 @@ select.input { appearance: auto; }
 }
 .lead-1 { height: 18px; }
 .lead-2, .lead-3 { height: 17px; }
-/* The fourth line is what was decided about the lead: the judge's verdict and
-   its reason, where the conversation stands, and the user's own mark. Always
-   present, so every card is the same height — the virtual list multiplies. */
+/* The fourth line is what was decided about the lead. */
 .lead-4 { height: 20px; margin-top: 2px; align-items: center; }
 
 .lead-name {
@@ -664,8 +604,7 @@ select.input { appearance: auto; }
   font-weight: var(--w-medium);
   color: var(--ink);
 }
-/* A name that copies a profile link is still a name to read: it keeps the UI
-   face and the ink, and only the hover says what the click does. */
+/* A name that copies a profile link is still a name to read. */
 .copy.lead-name {
   font-family: var(--font);
   font-size: var(--t-label);
@@ -687,8 +626,7 @@ select.input { appearance: auto; }
   font-size: var(--t-small);
   color: var(--ink-2);
 }
-/* The email takes the room the category tag does not, and truncates rather
-   than pushing the tag off the card. */
+/* The email takes the room the category tag does not, and truncates rather than pushing the tag off the card. */
 .lead-email { flex: 1 1 auto; }
 .lead-tag {
   flex: none;
@@ -770,11 +708,7 @@ select.input { appearance: auto; }
   color: var(--ink-3);
 }
 
-/*
- * A phone number and an email exist to be used somewhere else, so both are
- * one click from the clipboard. Machine values in the mono face: a column of
- * them is scanned, not read.
- */
+/* A phone number and an email exist to be used somewhere else, so both are one click from the clipboard. */
 .copy {
   min-width: 0;
   padding: 0;
@@ -790,8 +724,7 @@ select.input { appearance: auto; }
 }
 .copy:hover { color: var(--ink); text-decoration: underline; }
 .copy:focus-visible { outline: none; box-shadow: var(--ring); border-radius: 3px; }
-/* Verification says this one will bounce — struck through, not hidden, since
-   a wrong address is still a lead you may want to fix by hand. */
+/* Verification says this one will bounce. */
 .copy.bad { color: var(--danger); text-decoration: line-through; }
 
 .toast {

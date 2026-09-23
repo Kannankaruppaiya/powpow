@@ -109,8 +109,7 @@ test('taskProgress counts failures as settled so a run can finish', () => {
 });
 
 test('a LinkedIn search is never gridded, whatever the coverage setting', async () => {
-  // A people search has no viewport to divide; laying a grid over it would
-  // just repeat the same query with coordinates the site ignores.
+  // A people search has no viewport to divide.
   const [task] = buildTaskList({ category: 'java', city: 'London', grid: 'exhaustive', source: 'linkedin' });
   assert.equal(task.expandsToGrid, false);
   assert.deepEqual(
@@ -134,8 +133,7 @@ test('the batch box phrases each line for its source', async () => {
 });
 
 test('current-tab mode is one task with nothing to navigate to', () => {
-  // Navigating is exactly what would discard the filters the user set by hand,
-  // so the task must carry no URL and no grid.
+  // Navigating is exactly what would discard the filters the user set by hand.
   const tasks = buildTaskList({ source: 'linkedin', useCurrentTab: true, grid: 'exhaustive' });
   assert.equal(tasks.length, 1);
   assert.equal(tasks[0].useCurrentTab, true);
@@ -160,9 +158,7 @@ test('a normal run is unaffected by the current-tab branch', () => {
 });
 
 test('LinkedIn facets never reach a Maps run', () => {
-  // The panel keeps a chosen location between runs, so a people search left a
-  // geoUrn behind and the next Maps search would have been sent to a LinkedIn
-  // URL with a Maps search term in it.
+  // The panel keeps a chosen location between runs.
   const leftover = {
     source: 'maps',
     category: 'dentists',
@@ -209,9 +205,7 @@ test('two places become two searches only when asked', () => {
 });
 
 test('a name with no id yet is applied through LinkedIn’s own filter panel', () => {
-  // The point of the whole design: a place nobody has ever looked up is
-  // usable immediately. Its id is undocumented, so it cannot go in a URL —
-  // but it can be typed into LinkedIn's filter, and LinkedIn writes the URL.
+  // The point of the whole design: a place nobody has ever looked up is usable immediately.
   const [task] = buildTaskList({
     source: 'linkedin',
     category: 'kotlin',
@@ -241,10 +235,7 @@ test('splitting still works when the ids are not known', () => {
 });
 
 test('a town typed in Where becomes a real location filter, not nothing', () => {
-  // Service category chosen, no location chosen, "Chennai" in the form. The
-  // town stops going into the keywords once a facet exists — correctly, since
-  // keywords are not a location filter — so before this it was dropped and
-  // the run searched the whole world from a form that said Chennai.
+  // Service category chosen, no location chosen, "Chennai" in the form.
   const searches = facetSearches({
     source: 'linkedin',
     category: 'playwright typescript',
@@ -260,15 +251,12 @@ test('a town typed in Where becomes a real location filter, not nothing', () => 
   );
   // And the town is what lands on the records and in the filename.
   assert.equal(searches[0].city, 'Chennai');
-  // Never in the keywords: that is the model error this whole path exists to
-  // correct.
+  // Never in the keywords: that is the model error this whole path exists to correct.
   assert.ok(!/chennai/i.test(searches[0].term), searches[0].term);
 });
 
 test('a location the user chose is not overridden by the Where box', () => {
-  // LinkedIn ORs its locations, so adding the town to a country would not
-  // narrow anything. The chosen filter stands; the panel is what tells the
-  // user their town is not being used.
+  // LinkedIn ORs its locations, so adding the town to a country would not narrow anything.
   const searches = facetSearches({
     source: 'linkedin',
     category: 'playwright typescript',

@@ -1,9 +1,4 @@
-/**
- * Handing a run to PowPow's /hooks/agent endpoint.
- *
- * The contract is the gateway's own (docs/automation/webhook.md): a bearer
- * token in a header, never in the URL, and a JSON body with a message.
- */
+/** Handing a run to PowPow's /hooks/agent endpoint. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 

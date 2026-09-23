@@ -1,35 +1,4 @@
-/**
- * A LinkedIn people search, as an object rather than a string.
- *
- * The search was a string — `"java developer" + " " + "London"` — and that is
- * the whole reason a LinkedIn run came back with the wrong people. A place in
- * `keywords` is not a location filter; it is a word LinkedIn hunts for
- * anywhere in a profile, which is why searching Theni returned Coimbatore and
- * Chennai. A people search is a structured query, so this models one.
- *
- * Built against three real URLs, not from memory:
- *
- *   ?keywords=finance%20head%20theni&origin=FACETED_SEARCH
- *     &geoUrn=%5B%22101138777%22%5D
- *   …&geoUrn=%5B%22101138777%22%2C%22106888327%22%5D
- *   ?keywords=kotlin%20&origin=FACETED_SEARCH&geoUrn=%5B%22102713980%22%5D
- *     &serviceCategory=%5B%2220016%22%5D
- *
- * Three facts those URLs settle, and that the code below encodes rather than
- * assumes:
- *
- *   1. A facet value is a JSON array of strings, URL-encoded — geoUrn is
- *      ["101138777"], not 101138777 and not urn:li:geo:101138777.
- *   2. `keywords` is a plain scalar and stays out of it.
- *   3. Spaces are %20, not +. URLSearchParams writes +, which is why the
- *      query string is assembled by hand here.
- *
- * No facet is enumerated. Anything whose value parses as a JSON array of
- * strings is treated as a facet; everything else is a scalar; anything not
- * recognised survives untouched. That way currentCompany, industry, network
- * and whatever LinkedIn adds next need no code — only geoUrn was ever
- * observed, and guessing the rest is what got this wrong the first time.
- */
+/** A LinkedIn people search, as an object rather than a string. */
 
 const BASE = 'https://www.linkedin.com/search/results/people/';
 
@@ -44,14 +13,7 @@ function asFacet(value) {
   }
 }
 
-/**
- * A URL the user is looking at → the query it represents.
- *
- * `order` records the parameter order the page used. Order does not change
- * what a URL means, but this codec's job is to read a search, change one
- * thing and run it again — and a rebuild that shuffles the other parameters
- * looks like a change when nothing changed. Lossless is the right bar.
- */
+/** A URL the user is looking at → the query it represents. */
 export function parseUrl(href) {
   const url = new URL(href);
   const query = { facets: {}, scalars: {}, order: [] };
@@ -68,8 +30,7 @@ export function parseUrl(href) {
 export function buildUrl(query, base = BASE) {
   const scalars = query.scalars || {};
   const facets = query.facets || {};
-  // Whatever order the page used, then anything added since, in the order it
-  // was added.
+  // Whatever order the page used, then anything added since, in the order it was added.
   const keys = [...(query.order || []), ...Object.keys(scalars), ...Object.keys(facets)];
 
   const parts = [];
@@ -86,38 +47,13 @@ export function buildUrl(query, base = BASE) {
   return parts.length ? `${base}?${parts.join('&')}` : base;
 }
 
-/**
- * The same search, once per value of one facet.
- *
- * This is the LinkedIn answer to the geographic grid: one people search stops
- * after a fixed number of pages however good the filter is, so coverage comes
- * from splitting the query, not from scrolling harder. The queue already runs
- * a list of tasks and dedupes on profileUrl.
- */
-/**
- * Which page of results a URL asks for. Page one carries no `page` at all,
- * which is how LinkedIn itself writes it.
- */
+/** The same search, once per value of one facet. */
+/** Which page of results a URL asks for. */
 export function pageOf(href) {
   return Math.max(1, Number(parseUrl(href).scalars.page) || 1);
 }
 
-/**
- * The same search, at another page.
- *
- * Paging used to mean finding a Next button: scroll to the foot of whatever
- * is scrolling, wait, scroll again, wait, then hunt for a control by its
- * label for four seconds. All of that to add one to a number in the URL —
- * and when the hunt failed, the run stopped and reported "the next page did
- * not load" as though LinkedIn had refused.
- *
- * LinkedIn's own URL says what paging really is:
- *
- *   …/people/?keywords=kotlin%20chennai&page=2&spellCorrectionEnabled=true
- *
- * So it is arithmetic. Nothing is clicked, nothing is waited for, and page
- * seven is reachable without walking through six.
- */
+/** The same search, at another page. */
 export function pageUrl(href, n) {
   const query = parseUrl(href);
   if (n <= 1) {
@@ -137,13 +73,7 @@ export function partition(query, facet, values) {
   }));
 }
 
-/**
- * Take the place back out of the keywords once a facet carries it.
- *
- * With geoUrn applied, the word "theni" in keywords stops meaning "in Theni"
- * and starts meaning "profiles containing the word theni" — a second, much
- * harsher filter nobody asked for, on top of the real one.
- */
+/** Take the place back out of the keywords once a facet carries it. */
 export function dropFromKeywords(query, words) {
   const keywords = String((query.scalars || {}).keywords || '');
   if (!keywords) return query;

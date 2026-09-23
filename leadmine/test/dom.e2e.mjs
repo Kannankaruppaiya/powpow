@@ -1,16 +1,4 @@
-/**
- * Browser-level check of the content script's DOM wiring.
- *
- * The unit tests cover the text parsing; this one covers what they cannot —
- * that the selectors, the scroll loop, the detail-panel click/back cycle and
- * the final record shape all hold together in a real Chromium.
- *
- * It runs against a synthetic page that mimics the structure of Google Maps
- * search results (an obfuscated-class feed of cards, plus a detail panel that
- * swaps in on click), not against Google itself.
- *
- * Run with: npm run test:dom
- */
+/** Browser-level check of the content script's DOM wiring. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
@@ -18,8 +6,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-// The content script is now three files: shared parsing, the generic engine,
-// and the source adapter. Load them in the same order the manifest does.
+// The content script is now three files: shared parsing, the generic engine, and the source adapter.
 const CONTENT_SCRIPTS = [
   'src/lib/parse.js',
   'src/content/heal.js',
@@ -57,8 +44,7 @@ const BUSINESSES = [
     claimed: true,
   },
   {
-    // No phone or website on the card, and none in the panel either: the
-    // record must still come through with the fields it does have.
+    // No phone or website on the card, and none in the panel either.
     name: 'Smile Studio',
     category: 'Dental clinic',
     cardAddress: 'Shop 3, T Nagar',
@@ -152,10 +138,7 @@ const CHROME_STUB = `
   };
 `;
 
-/**
- * Prefer a Chromium already on the machine (CI images often pre-seed one under
- * PLAYWRIGHT_BROWSERS_PATH) over asking Playwright to download its own.
- */
+/** Prefer a Chromium already on the machine. */
 function findChromium() {
   const roots = [process.env.PLAYWRIGHT_BROWSERS_PATH, '/opt/pw-browsers'].filter(Boolean);
   for (const root of roots) {
@@ -174,8 +157,7 @@ const CHROMIUM = findChromium();
 /** Loads the fixture, injects the real content script, and runs one scrape. */
 async function scrape(browser, config, before = null) {
   const page = await browser.newPage();
-  // Serve the fixture from a real Maps URL: the adapter is chosen by
-  // matchesUrl, and the search term is read out of the path.
+  // Serve the fixture from a real Maps URL.
   await page.route('https://www.google.com/maps/**', (route) =>
     route.fulfill({ status: 200, contentType: 'text/html', body: fixture() })
   );
@@ -262,9 +244,7 @@ test('list-only mode reads category, address and phone off the cards', async (t)
   if (!browser) return;
 
   try {
-    // With deep mode off nothing overwrites the card-level fields, so this is
-    // what catches a card parser that swallows the business name or the
-    // opening hours into the category.
+    // With deep mode off nothing overwrites the card-level fields.
     const { result } = await scrape(browser, { deep: false });
     assert.equal(result.ok, true, result.error);
 
@@ -289,9 +269,7 @@ test('a feed that lost its selector is found again by how it looks', async (t) =
   if (!browser) return;
 
   try {
-    // Teach heal.js the feed and a result link the way a working run does,
-    // then do what a Maps redesign does: the attribute the selector keys on
-    // changes, and nothing else about the element does.
+    // Teach heal.js the feed and a result link the way a working run does, then do what a Maps redesign does.
     const { result } = await scrape(browser, { deep: false }, () => {
       const feed = document.querySelector('div[role="feed"]');
       window.MLSHeal.remember('feed', feed);

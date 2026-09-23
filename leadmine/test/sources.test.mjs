@@ -65,17 +65,14 @@ test('each source phrases a search the way that site expects', async () => {
 
 test('the public-web source restricts the engine to public profiles', async () => {
   const { buildTerm } = await import('../src/lib/sources.js');
-  // Without site:, the query returns articles about corporate trainers rather
-  // than corporate trainers.
+  // Without site:, the query returns articles about corporate trainers rather than corporate trainers.
   assert.equal(
     buildTerm('web', 'corporate trainer', 'Chennai'),
     'site:linkedin.com/in corporate trainer Chennai'
   );
   assert.equal(buildTerm('web', '', 'Chennai'), 'site:linkedin.com/in Chennai');
   assert.equal(buildTerm('web', 'kotlin trainer', ''), 'site:linkedin.com/in kotlin trainer');
-  // Nothing is quoted. Google answered the quoted form with "No results
-  // found" and then re-ran it without the quotes — a query that only works
-  // because the engine ignored it is not a query.
+  // Nothing is quoted.
   assert.ok(!buildTerm('web', 'kotlin corporate trainer', 'Chennai').includes('"'));
 });
 

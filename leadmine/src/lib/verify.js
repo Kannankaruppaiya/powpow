@@ -1,28 +1,6 @@
-/**
- * Email verification, as far as a browser extension honestly can.
- *
- * What this does NOT do: connect to a mail server and ask whether a mailbox
- * exists. That needs raw SMTP on port 25, which no browser can open. Any
- * extension claiming true mailbox verification is guessing.
- *
- * What it does do is rule out the addresses that are certain to bounce, using
- * signals reachable over HTTPS:
- *
- *   - syntax        — malformed addresses
- *   - MX records    — the domain publishes no mail server, so it cannot
- *                     receive mail at all (looked up over DNS-over-HTTPS)
- *   - disposable    — throwaway inbox providers
- *   - role account  — info@ / sales@ reach a desk, not a person: deliverable
- *                     but worth flagging for outreach
- *
- * In practice that removes most of the dead weight from a scraped list.
- */
+/** Email verification, as far as a browser extension honestly can. */
 
-/**
- * DNS-over-HTTPS resolvers, tried in order. Both speak the same JSON shape,
- * so one parser covers them; the second is there for the case where a
- * network, a firewall or a corporate proxy blocks the first.
- */
+/** DNS-over-HTTPS resolvers, tried in order. */
 const DOH_ENDPOINTS = [
   'https://cloudflare-dns.com/dns-query',
   'https://dns.google/resolve',
@@ -99,10 +77,7 @@ export function isRoleAccount(local) {
   return ROLE_LOCALS.has(String(local || '').toLowerCase());
 }
 
-/**
- * Decide a status from the syntax, the domain lists and an MX answer.
- * Split out from the network call so the decision table is directly testable.
- */
+/** Decide a status from the syntax, the domain lists and an MX answer. */
 export function classify(email, mx) {
   const parts = splitEmail(email);
   if (!parts) return { status: STATUS.INVALID, reason: 'Malformed address' };
@@ -125,11 +100,7 @@ export function isSendable(status) {
   return status === STATUS.VALID || status === STATUS.ROLE || status === STATUS.UNKNOWN;
 }
 
-/**
- * Read the hostnames out of a DNS-over-HTTPS JSON response.
- * A domain with no MX record but a valid A record still accepts mail by the
- * DNS spec, so that case is treated as deliverable.
- */
+/** Read the hostnames out of a DNS-over-HTTPS JSON response. */
 export function parseDohAnswer(json) {
   if (!json || typeof json !== 'object') return null;
   // NXDOMAIN (3) is a definite "this domain does not exist".
@@ -168,10 +139,7 @@ async function dohQuery(name, type, timeoutMs, fetchImpl) {
   return null;
 }
 
-/**
- * Look up whether a domain can receive mail.
- * Results are cached per domain — a scraped list repeats domains constantly.
- */
+/** Look up whether a domain can receive mail. */
 const mxCache = new Map();
 
 export async function lookupMx(

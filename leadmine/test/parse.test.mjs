@@ -1,8 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-// parse.js is a classic content script that publishes itself on globalThis;
-// importing it for its side effect is how we reach the functions from Node.
+// parse.js is a classic content script that publishes itself on globalThis.
 await import('../src/lib/parse.js');
 const P = globalThis.MLSParse;
 
@@ -87,8 +86,7 @@ test('phoneFromItemId unwraps the call button attribute', () => {
 });
 
 test('a glued rating and review count never becomes the category', () => {
-  // Live Maps renders the rating and the review count as adjacent spans with
-  // no separator, so the card text arrives as "5.0(139)".
+  // Live Maps renders the rating and the review count as adjacent spans with no separator.
   assert.deepEqual(P.parseCardParts(['5.0(139)', 'Software company', 'Anna Nagar']), {
     category: 'Software company',
     address: 'Anna Nagar',

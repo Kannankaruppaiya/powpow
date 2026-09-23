@@ -1,17 +1,4 @@
-/**
- * Run a saved search on a clock.
- *
- * The question LeadMine answers best — "who posted this week that they need a
- * trainer?" — is a question worth asking every morning, and it used to need a
- * person to open Chrome, open the panel and press Start. A schedule saves the
- * search as it stood when it was set and runs it from the service worker at
- * the chosen time, with "skip ones I've already downloaded" forced on, so
- * each run brings only what is new.
- *
- * Chrome's alarms only fire while Chrome is running; a missed time fires
- * once when the browser next starts. That is Chrome's rule, stated here so
- * nobody expects a server.
- */
+/** Run a saved search on a clock. */
 
 export const SCHEDULE_KEY = 'mls.schedule';
 export const ALARM_NAME = 'leadmine-scheduled-run';
@@ -31,10 +18,7 @@ export function parseTime(value) {
   return m ? { hours: Number(m[1]), minutes: Number(m[2]) } : null;
 }
 
-/**
- * The next moment the schedule should fire, strictly after `now`.
- * Local time, because "8:30" means the user's 8:30.
- */
+/** The next moment the schedule should fire, strictly after `now`. */
 export function nextRunAt(schedule, now = Date.now()) {
   const time = parseTime(schedule && schedule.time);
   if (!time) return null;
@@ -48,14 +32,7 @@ export function nextRunAt(schedule, now = Date.now()) {
   return at.getTime();
 }
 
-/**
- * Whether a scheduled time has passed with no run for it.
- *
- * Chrome only fires alarms while it is running, and re-arming on startup
- * would otherwise replace a missed alarm with tomorrow's. So on startup the
- * worker asks this instead: counting from the last run (or from when the
- * schedule was switched on), was there a time that should have fired by now?
- */
+/** Whether a scheduled time has passed with no run for it. */
 export function missedRun(schedule, now = Date.now()) {
   if (!schedule || !schedule.enabled) return false;
   const since = schedule.lastRunAt || schedule.since;
@@ -64,13 +41,7 @@ export function missedRun(schedule, now = Date.now()) {
   return Boolean(due && due <= now);
 }
 
-/**
- * The config a scheduled run actually uses: the saved search, unattended.
- *
- * Current-tab mode cannot be scheduled — there is no tab the user set up at
- * 8:30 in the morning — so it is switched off, and a run that depended on it
- * says so instead of scraping whatever tab happens to be open.
- */
+/** The config a scheduled run actually uses: the saved search, unattended. */
 export function scheduledConfig(saved) {
   if (!saved) return null;
   return {

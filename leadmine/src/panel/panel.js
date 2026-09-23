@@ -1,15 +1,4 @@
-/**
- * Side panel — the extension's UI.
- *
- * This replaces the popup. A popup is destroyed the moment it loses focus,
- * which is exactly what happens when you click into the Maps tab a run is
- * driving; the side panel stays open beside it for the whole run.
- *
- * The run still lives in the service worker. The panel only renders it — and,
- * because both are extension pages on the same origin, it reads the results
- * straight out of IndexedDB rather than pulling tens of thousands of rows
- * through a message.
- */
+/** Side panel — the extension's UI. */
 
 import { buildFile } from '../lib/export.js';
 import { summariseRates } from '../lib/health.js';
@@ -29,27 +18,13 @@ import { HOOK_KEY, DEFAULT_HOOK, sendToPowPow } from '../lib/powpow.js';
 import { SCHEDULE_KEY, DEFAULT_SCHEDULE, cannotSchedule, describeSchedule, nextRunAt } from '../lib/schedule.js';
 
 const SETTINGS_KEY = 'mls.settings';
-/**
- * The planner's credentials, stored apart from the form's settings.
- *
- * Separate on purpose: `readConfig()` is what reaches the service worker, gets
- * written into the job and is available to the export path. An API key has no
- * business in any of those, so it never joins that object.
- */
+/** The planner's credentials, stored apart from the form's settings. */
 const AI_KEY = 'mls.ai';
-/**
- * The email finder's provider, key and spend limit. Its own slot for the same
- * reason as the AI key: a paid credential has no business in the run config.
- */
+/** The email finder's provider, key and spend limit. */
 const FINDER_KEY = 'mls.finder';
 /** What the user said a good lead is — the judge's brief, kept between runs. */
 const JUDGE_BRIEF_KEY = 'mls.judgeBrief';
-/**
- * Row height, read from the stylesheet rather than duplicated here.
- *
- * These were two separate constants and they drifted: the CSS said 32px while
- * this said 30, which silently mis-positions every row in the virtual window.
- */
+/** Row height, read from the stylesheet rather than duplicated here. */
 const ROW_HEIGHT =
   parseInt(getComputedStyle(document.documentElement).getPropertyValue('--row-h'), 10) || 32;
 const OVERSCAN = 8; // rows rendered above and below the viewport
@@ -96,11 +71,7 @@ const ui = Object.fromEntries(
   ].map((id) => [id, el(id)])
 );
 
-/**
- * The radio groups are the visible controls; the hidden <select>s behind them
- * stay authoritative so config reading, saved settings and the tests all keep
- * one source of truth.
- */
+/** The radio groups are the visible controls. */
 function bindRadios(name, target, after) {
   for (const radio of document.querySelectorAll(`input[name="${name}"]`)) {
     radio.addEventListener('change', () => {
@@ -121,15 +92,7 @@ function syncRadios(name, value) {
 /** Five grid presets were three too many to choose between. */
 const COVERAGE_CHOICES = ['off', 'balanced', 'exhaustive'];
 
-/**
- * What each level actually costs.
- *
- * These three were three stacked cards, a hundred pixels each, for one setting
- * that has a good default — a third of the panel spent on a question most
- * people never answer. The names are a segmented control now, and the
- * consequence of whichever is chosen is spelled out under it, because "Deep"
- * on its own tells nobody it means an hour.
- */
+/** What each level actually costs. */
 const COVERAGE_HINT = {
   off: 'About 120 results · a few minutes',
   balanced: 'About 600 results · around 25 minutes',
@@ -148,28 +111,11 @@ let visibleRows = [];
 /** Rows the category filter set aside. Kept, so this is a view, not a re-run. */
 let asideRows = [];
 let showAside = false;
-/**
- * A finished job the user has pressed "New search" on.
- *
- * The job stays in the worker so its rows are still downloadable, but the
- * panel polls it every two seconds — so without this, the old run's error and
- * its zeroes were painted straight back over the form.
- */
+/** A finished job the user has pressed "New search" on. */
 let dismissedJobId = null;
-/**
- * Whether the user has ever opened or closed the planner themselves.
- *
- * Until they have, its default follows the key: the planner cannot do anything
- * without one, and expanded-and-useless was the tallest thing in the panel.
- */
+/** Whether the user has ever opened or closed the planner themselves. */
 let assistChosen = false;
-/**
- * The state the code last asked the planner to be in.
- *
- * `toggle` fires asynchronously and does not say who caused it, so opening or
- * closing the fold from code looked exactly like the user doing it — which
- * counted as a choice and froze the default on the first automatic close.
- */
+/** The state the code last asked the planner to be in. */
 let assistIntended = null;
 
 function setAssistOpen(open) {
@@ -179,12 +125,7 @@ function setAssistOpen(open) {
 
 /* ----------------------------------------------------------------- source */
 
-/**
- * The two sources ask for genuinely different things, so the form follows the
- * choice: a people search has no geography to grid over and no business
- * website to read an email from, and showing those controls anyway would just
- * be a lie about what the run will do.
- */
+/** The two sources ask for genuinely different things, so the form follows the choice. */
 const SOURCE_UI = {
   maps: {
     categoryLabel: 'What are you looking for?',
@@ -212,8 +153,7 @@ const SOURCE_UI = {
     cityLabel: 'Where?',
     categoryPlaceholder: 'java developer',
     cityPlaceholder: 'London',
-    // One LinkedIn search is the whole run, so "per search" read as a
-    // per-page cap and made a limit of 100 look like it had been ignored.
+    // One LinkedIn search is the whole run.
     noun: 'people',
     limitLabel: 'How many profiles?',
     limitHint: 'Leave blank for every profile LinkedIn will show you.',
@@ -226,23 +166,14 @@ const SOURCE_UI = {
     filterHint: 'A person has no category, so this matches their headline.',
     grid: false,
     emails: false,
-    // Navigating to our own URL would throw away any filter the user applied,
-    // so reading the tab they already set up is the better default here.
+    // Navigating to our own URL would throw away any filter the user applied.
     currentTab: true,
     note:
       'This reads the results you are already signed in to see. LinkedIn restricts ' +
       'accounts for automated collection, so keep runs small and infrequent.',
   },
 
-  /*
-   * The public web.
-   *
-   * LinkedIn's own search anonymises anyone outside your network — "LinkedIn
-   * Member", no name — so a search that reaches the whole site still returns
-   * rows nobody can act on. Their public profile page names them, and search
-   * engines have indexed it. Same people, different door, no login and no
-   * connection degree.
-   */
+  // The public web.
   web: {
     categoryLabel: 'What are you looking for?',
     cityLabel: 'Where?',
@@ -267,11 +198,7 @@ const SOURCE_UI = {
       'as “LinkedIn Member”. Public, indexed profiles only.',
   },
 
-  /*
-   * Recent posts that ask for something — "SAP FI trainer required, Mumbai".
-   * The engine finds them without a login; each post's own id dates it to the
-   * minute, and the classifier keeps the ones asking rather than selling.
-   */
+  // Recent posts that ask for something — "SAP FI trainer required, Mumbai".
   posts: {
     categoryLabel: 'What do they need?',
     cityLabel: 'Where?',
@@ -288,8 +215,7 @@ const SOURCE_UI = {
     filterHint: 'Only keep posts that mention one of these. Separate several with commas.',
     grid: false,
     emails: false,
-    // A LinkedIn post search the user has open has today's posts; an engine
-    // has them a week or more later. Reading that tab is how to get both.
+    // A LinkedIn post search the user has open has today's posts; an engine has them a week or more later.
     currentTab: true,
     note:
       'Finds public LinkedIn posts through Google — no login. Engines index posts days ' +
@@ -305,9 +231,7 @@ function applySource() {
   ui.filterLabel.textContent = conf.filterLabel;
   ui.limitLabel.textContent = conf.limitLabel;
   ui.limitHint.textContent = conf.limitHint;
-  // A people search has no grid, so the slot the grid occupies asks the
-  // question that does apply to it. For Maps the limit goes back where it
-  // belongs: last in the disclosure, behind a setting that already works.
+  // A people search has no grid, so the slot the grid occupies asks the question that does apply to it.
   (conf.grid ? ui.advancedBody : ui.limitSlot).appendChild(ui.limitRow);
   ui.filterHint.textContent = conf.filterHint;
   refreshCategoryOptions();
@@ -323,14 +247,12 @@ function applySource() {
   applyCityOptions();
   ui.coverageRow.hidden = !conf.grid;
   applyCoverage();
-  // The country/state picker names places; LinkedIn's filter takes its own
-  // ids. Two location controls on one form is one too many.
+  // The country/state picker names places; LinkedIn's filter takes its own ids.
   const people = ui.source.value === 'linkedin';
   ui.liFilters.hidden = !people;
   ui.placeRow.hidden = people;
   applyFacets();
-  // The detail pass only exists for Maps; a LinkedIn card already carries
-  // everything, so offering the option would be a lie about what it does.
+  // The detail pass only exists for Maps.
   ui.optDeep.hidden = !conf.grid;
   for (const node of [ui.optEmails, ui.optContact, ui.optVerify, ui.optRender]) node.hidden = !conf.emails;
   ui.sourceNote.hidden = !conf.note;
@@ -339,33 +261,17 @@ function applySource() {
   applyFilterNote();
 }
 
-/**
- * Say when a narrowing filter is active.
- *
- * It is saved between runs, so a term typed weeks ago silently narrows a
- * search planned today — a live run found 235 businesses and set aside every
- * one of them against a filter the user had forgotten was there. The form
- * never showed it, because an input holding a value looks like an input.
- *
- * A warning inside the form was the first fix, and it scrolled away with the
- * form. This rides in the action bar instead, beside the button it changes the
- * meaning of, and clicking it is how you get rid of it.
- */
+/** Say when a narrowing filter is active. */
 function applyFilterNote() {
   const term = ui.categoryFilter.value.trim();
   const conf = SOURCE_UI[ui.source.value] || SOURCE_UI.maps;
-  // The results view has its own bar, and the filter says nothing about rows
-  // that were already collected.
+  // The results view has its own bar, and the filter says nothing about rows that were already collected.
   ui.filterChip.hidden = !term || !ui.paneResults.hidden;
   if (!term) return;
   ui.filterChipText.textContent = `Only ${conf.filterLabel.toLowerCase()} matches “${term}”`;
 }
 
-/**
- * In current-tab mode the search comes from the page, so the keyword and
- * location inputs would be ignored — hide them rather than let someone type
- * into a box that does nothing.
- */
+/** In current-tab mode the search comes from the page, so the keyword and location inputs would be ignored. */
 function applyCurrentTab() {
   const on = ui.useCurrentTab.checked && !ui.optCurrentTab.hidden;
   ui.modeSingle.hidden = on || batchMode;
@@ -391,15 +297,7 @@ ui.useCurrentTab.addEventListener('change', () => {
 
 /* ----------------------------------------------------------------- places */
 
-/*
- * Country → state → town, as an aid to filling one box.
- *
- * "Where?" was a text field, which is fine when you know the town and useless
- * when you are working a region you do not — you cannot browse a text field,
- * and a misremembered spelling is a run that finds nothing. So the two selects
- * narrow what the box offers, and the box itself is unchanged: whatever ends
- * up in it is what gets searched, and it can still be typed straight into.
- */
+// Country → state → town, as an aid to filling one box.
 
 /** The country file for whatever is selected, or null for "Any country". */
 let country = null;
@@ -409,8 +307,7 @@ async function fillCountries() {
   try {
     list = await loadCountries();
   } catch {
-    // The picker is an aid. Losing it leaves a text box, which is what this
-    // was before it existed — so say nothing and let people type.
+    // The picker is an aid.
     ui.placeRow.hidden = true;
     return;
   }
@@ -439,12 +336,7 @@ async function applyCountry({ keepRegion = false } = {}) {
   applyCityOptions();
 }
 
-/**
- * The towns the box offers.
- *
- * Offered as the exact string that will be searched, because a list showing
- * one thing and filling in another is a list nobody can trust.
- */
+/** The towns the box offers. */
 function applyCityOptions() {
   const towns = citiesFor(country, ui.region.value, { source: ui.source.value });
   ui.cityOptions.replaceChildren(...towns.map((name) => new Option(name)));
@@ -471,16 +363,7 @@ ui.region.addEventListener('change', () => {
 
 /* ------------------------------------------------------ LinkedIn filters */
 
-/*
- * LinkedIn's own filters, which take ids rather than names.
- *
- * `geoUrn` wants 102713980, not "India". Those ids are LinkedIn's internal
- * numbers — undocumented and not derivable — so the only ones offered here are
- * the ones actually seen on a live page, either seeded or learned when the
- * user applied that filter by hand. Asked for a label nobody has ever applied,
- * this says so rather than guessing: a wrong id searches somewhere else and
- * hands back a spreadsheet of the wrong people that looks entirely correct.
- */
+// LinkedIn's own filters, which take ids rather than names.
 
 let urns = {};
 /** What the user has chosen, as [{ id, label }] per facet. */
@@ -503,8 +386,7 @@ function fillFacetOptions(facet) {
   ui[ui_.options].replaceChildren(...labels.map((label) => new Option(label)));
   if (!ui_.help) return;
 
-  // Say where the list comes from. Two entries on a fresh install looks like a
-  // broken feature unless it is clear that browsing LinkedIn is what fills it.
+  // Say where the list comes from.
   ui[ui_.help].textContent = labels.length
     ? `Type any place. ${labels.length} already known, so those skip a step; ` +
       'anything else is looked up on LinkedIn when the run starts.'
@@ -521,9 +403,7 @@ function renderChips(facet) {
       chip.append(Object.assign(document.createElement('span'), { textContent: value.label }));
       chip.append(Object.assign(document.createElement('em'), { textContent: '✕' }));
       chip.addEventListener('click', () => {
-        // By label, not by id: a name LinkedIn has never been asked about has
-        // no id yet, so every unresolved chip carries the same empty one and
-        // removing either removed both.
+        // By label, not by id: a name LinkedIn has never been asked about has no id yet.
         chosen[facet] = chosen[facet].filter((v) => v !== value);
         renderChips(facet);
         applyFacets();
@@ -539,27 +419,14 @@ function setFacetHelp(facet, text) {
   if (ui_.help) ui[ui_.help].textContent = text;
 }
 
-/**
- * Add a filter value.
- *
- * Just the name. LinkedIn's facets take ids rather than names, but nothing
- * here has to know one: the run lands on the plain search and then works
- * LinkedIn's own filter panel — types the name, ticks what comes back, presses
- * Show results — and LinkedIn writes the URL. The ids are learned on the way,
- * and a name already known skips the driving and goes straight to a URL.
- *
- * So a place nobody has ever looked up is addable immediately, which is the
- * whole point: the previous version made the user go and apply it on LinkedIn
- * by hand first.
- */
+/** Add a filter value. */
 function addFacet(facet) {
   const ui_ = FACET_UI[facet];
   const label = ui[ui_.input].value.trim();
   if (!label) return;
 
   if (!chosen[facet].some((v) => v.label.toLowerCase() === label.toLowerCase())) {
-    // The id when it is known, so the run can skip the panel; blank otherwise,
-    // and the run asks LinkedIn. Never a guess either way.
+    // The id when it is known, so the run can skip the panel; blank otherwise, and the run asks LinkedIn.
     chosen[facet].push({ id: lookup(urns, facet, label), label });
   }
   ui[ui_.input].value = '';
@@ -569,41 +436,14 @@ function addFacet(facet) {
   saveSettings();
 }
 
-/**
- * Take up anything typed but not added.
- *
- * A live run went out with `chennai` sitting in this box and no filter applied
- * at all, because the value had never been turned into a chip. A box holding a
- * value reads as a value that will be used — the same mistake as the category
- * filter that silently set aside 235 rows. So pressing Add is a convenience,
- * not a requirement: the text counts either way.
- *
- * Returns false when something typed could not be resolved, so Start can stop
- * and point at it rather than running a search the user did not ask for.
- */
+/** Take up anything typed but not added. */
 function flushFacets() {
   for (const facet of Object.keys(FACET_UI)) addFacet(facet);
 }
 
-/**
- * Show the split option only when there is something to split, and say which
- * place the run will actually search.
- *
- * This box used to read "the LinkedIn location filter below is doing this
- * job", which was true only while that filter held the same town. It did not
- * hold. A run with **India** in the filter and **Chennai** typed here searched
- * the whole country: the town is not put in the keywords once a facet exists,
- * so it was dropped without a word. A nationwide search then returns people
- * who are nearly all outside your network, LinkedIn refuses to name them, and
- * a run that should have found fifty in Chennai exports three — with nothing
- * anywhere saying the town had been discarded.
- *
- * So the note names the place being searched, and when that is not the town
- * in the box it says so and offers the one click that fixes it.
- */
+/** Show the split option only when there is something to split, and say which place the run will actually search. */
 function applyFacets() {
-  // These are LinkedIn's filters. Left over from a people search, they must
-  // not reach across and disable the Maps form.
+  // These are LinkedIn's filters.
   const people = ui.source.value === 'linkedin';
   const places = people ? chosen.geoUrn.map((v) => v.label) : [];
   ui.optSplit.hidden = places.length < 2;
@@ -624,8 +464,7 @@ function applyFacets() {
   if (!ui.useTypedCity.hidden) ui.useTypedCity.textContent = `Search ${typed} instead`;
 }
 
-// Replace the location filter with the town in the box. Replace, not add:
-// LinkedIn ORs its locations, so India plus Chennai is still India.
+// Replace the location filter with the town in the box.
 ui.useTypedCity.addEventListener('click', () => {
   const label = ui.city.value.trim();
   if (!label) return;
@@ -654,8 +493,7 @@ function setView(showResults) {
   ui.paneResults.hidden = !showResults;
   ui.viewSetup.classList.toggle('is-active', !showResults);
   ui.viewResults.classList.toggle('is-active', showResults);
-  // The bar always carries the action of the view above it: Start on the
-  // search side, Download on the results side, in the same place either way.
+  // The bar always carries the action of the view above it.
   ui.barSearch.hidden = showResults;
   ui.barResults.hidden = !showResults;
   applyFilterNote();
@@ -682,8 +520,7 @@ ui.toggleBatch.addEventListener('click', () => {
 async function restoreSettings() {
   const stored = await chrome.storage.local.get(SETTINGS_KEY);
   const s = stored[SETTINGS_KEY];
-  // A first-ever open has nothing stored and still needs the source applied:
-  // the labels, the hints and the coverage line are all derived, never markup.
+  // A first-ever open has nothing stored and still needs the source applied.
   if (!s) {
     applyCoverage();
     applySource();
@@ -702,8 +539,7 @@ async function restoreSettings() {
   }
   ui.batch.value = s.batch ?? '';
   ui.grid.value = s.grid || 'balanced';
-  // Blank and zero mean the same thing to `readConfig`, and blank is the one
-  // that reads as "no limit" rather than "a limit of nothing".
+  // Blank and zero mean the same thing to `readConfig`.
   ui.maxResults.value = s.maxResults || '';
   ui.deep.checked = s.deep !== false;
   ui.fetchEmails.checked = s.fetchEmails !== false;
@@ -716,8 +552,7 @@ async function restoreSettings() {
   ui.categoryFilter.value = s.categoryFilter ?? '';
   ui.postsDays.value = ['3', '7', '10', '14', '30'].includes(String(s.postsDays)) ? String(s.postsDays) : '10';
   ui.postsIntentOnly.checked = s.postsIntentOnly !== false;
-  // Someone who knows their own searches closes the planner once and should
-  // never have to close it again.
+  // Someone who knows their own searches closes the planner once and should never have to close it again.
   assistChosen = typeof s.assistOpen === 'boolean';
   if (assistChosen) setAssistOpen(s.assistOpen);
   // An older build stored "xls"; the exporter only writes real xlsx now.
@@ -738,12 +573,10 @@ function readConfig() {
     useCurrentTab: ui.useCurrentTab.checked && !ui.optCurrentTab.hidden,
     category: ui.category.value.trim(),
     city: ui.city.value.trim(),
-    // Kept so the picker comes back where it was left. The run itself only
-    // ever reads `city`, which is the box these two helped fill in.
+    // Kept so the picker comes back where it was left.
     country: ui.country.value,
     region: ui.region.value,
-    // LinkedIn's real filters: ids for the run, labels for the records and
-    // for putting the form back the way it was.
+    // LinkedIn's real filters: ids for the run, labels for the records and for putting the form back the way it was.
     facets: Object.fromEntries(
       Object.entries(chosen).map(([facet, values]) => [facet, values.map((v) => v.id)])
     ),
@@ -751,8 +584,7 @@ function readConfig() {
       Object.entries(chosen).map(([facet, values]) => [facet, values.map((v) => v.label)])
     ),
     splitLocations: ui.splitLocations.checked,
-    // Only send the batch text when the batch tab is active, so a leftover
-    // draft cannot hijack a single search.
+    // Only send the batch text when the batch tab is active, so a leftover draft cannot hijack a single search.
     batch: batchMode ? ui.batch.value : '',
     batchMode,
     grid: ui.grid.value,
@@ -767,8 +599,7 @@ function readConfig() {
     renderBlockedSites: ui.renderBlockedSites.checked,
     skipSeen: ui.skipSeen.checked,
     format: ui.format.value,
-    // Which leads Results shows. A view setting, kept with the others so the
-    // panel reopens on the list the user was working through.
+    // Which leads Results shows.
     show: ui.show.value,
     // Pacing knobs — deliberately unhurried so Maps keeps serving results.
     scrollDelay: 900,
@@ -785,18 +616,9 @@ const saveSettings = () => chrome.storage.local.set({ [SETTINGS_KEY]: readConfig
 
 /* ------------------------------------------------------- the search planner */
 
-/*
- * A lot of people know their business perfectly well and still cannot guess
- * which Maps searches find its customers. "I make floor-cleaning chemicals" is
- * not a search; "facility management companies" is. This turns the first into
- * the second, and shows its reasoning so the user stays the one deciding.
- */
+// A lot of people know their business perfectly well and still cannot guess which Maps searches find its.
 
-/*
- * Keys and models are kept per provider. One shared slot meant switching from
- * Gemini to Groq carried Gemini's model across with it, and the request failed
- * on a model the user had never chosen for that provider.
- */
+// Keys and models are kept per provider.
 let ai = { provider: DEFAULT_PROVIDER, keys: {}, models: {} };
 let plan = null;
 
@@ -808,8 +630,7 @@ async function restoreAi() {
     keys: { ...(saved.keys || {}) },
     models: { ...(saved.models || {}) },
   };
-  // An earlier build stored one key and one model, with no provider attached;
-  // they belonged to whichever provider was selected at the time.
+  // An earlier build stored one key and one model, with no provider attached.
   if (saved.key) ai.keys[ai.provider] = ai.keys[ai.provider] || saved.key;
   if (saved.model) ai.models[ai.provider] = ai.models[ai.provider] || saved.model;
 
@@ -833,9 +654,7 @@ function applyProvider() {
   ui.aiKeyLink.href = conf.keyUrl;
   ui.aiKey.placeholder = `${conf.label} key — ${conf.keyHint}`;
 
-  // The picker starts as just the recommended model. The provider's real list
-  // is fetched only when someone opens it, so an ordinary run costs one
-  // request rather than two.
+  // The picker starts as just the recommended model.
   const chosen = ai.models[conf.id] || '';
   setModelOptions(chosen ? [{ id: chosen, label: chosen }] : [], chosen);
   const open = Boolean(chosen);
@@ -845,18 +664,11 @@ function applyProvider() {
   applyKeyState();
 }
 
-/**
- * Fill the picker.
- *
- * The first option is always the provider's recommendation with an empty
- * value, so "I have not chosen" stays distinct from "I chose the one that
- * happens to be recommended today".
- */
+/** Fill the picker. */
 function setModelOptions(models, selected) {
   const conf = providerFor(ui.aiProvider.value);
   const options = [{ id: '', label: `Recommended — ${conf.defaultModel}` }, ...models];
-  // A model chosen earlier must stay selectable even if the list has not
-  // arrived yet, or opening the picker would silently change the setting.
+  // A model chosen earlier must stay selectable even if the list has not arrived yet.
   if (selected && !models.some((m) => m.id === selected)) {
     options.push({ id: selected, label: selected });
   }
@@ -886,8 +698,7 @@ async function loadModels() {
   ui.aiModelHelp.textContent = 'Loading the list…';
   try {
     const models = await listModels({ provider: conf.id, apiKey: key });
-    // A slow answer for a provider the user has since switched away from must
-    // not overwrite the picker.
+    // A slow answer for a provider the user has since switched away from must not overwrite the picker.
     if (token !== modelsToken || providerFor(ui.aiProvider.value).id !== conf.id) return;
     setModelOptions(models, ai.models[conf.id] || '');
     ui.aiModelHelp.textContent = `${models.length} models available to this key.`;
@@ -902,8 +713,7 @@ function applyKeyState() {
   const has = Boolean(ui.aiKey.value.trim());
   ui.aiKeyHint.hidden = has;
   ui.aiPlan.disabled = !has;
-  // No key means nothing here can run, so it starts folded — until the user
-  // says otherwise, at which point their choice is the one that counts.
+  // No key means nothing here can run, so it starts folded.
   if (!assistChosen) setAssistOpen(has);
   // The judge uses the same key, so it unlocks with it.
   applyJudgeState();
@@ -965,8 +775,7 @@ ui.aiPlan.addEventListener('click', async () => {
       brief: ui.aiBrief.value,
       source: ui.source.value,
       city: ui.city.value.trim(),
-      // The plan's size follows the same dial as the run's: someone after a
-      // quick look does not want sixteen searches queued.
+      // The plan's size follows the same dial as the run's.
       depth: { off: 'quick', balanced: 'balanced', exhaustive: 'deep' }[ui.grid.value] || 'balanced',
       provider: ui.aiProvider.value,
       apiKey: ui.aiKey.value.trim(),
@@ -999,8 +808,7 @@ ui.aiApply.addEventListener('click', () => {
     return;
   }
 
-  // The batch box is the queue's own input format, so the plan lands somewhere
-  // the user can still edit by hand before pressing Start.
+  // The batch box is the queue's own input format.
   ui.batch.value = planToBatch(chosen);
   setMode(true);
   clearPlan();
@@ -1022,8 +830,7 @@ ui.aiOpenSettings.addEventListener('click', () => {
 
 bindRadios('aiProvider', ui.aiProvider);
 ui.aiProvider.addEventListener('change', () => {
-  // Save the boxes as they stand before repainting them for the new provider,
-  // or switching away would discard the key just typed.
+  // Save the boxes as they stand before repainting them for the new provider.
   ai.keys[ai.provider] = ui.aiKey.value.trim();
   ai.models[ai.provider] = ui.aiModel.value.trim();
   applyProvider();
@@ -1050,15 +857,7 @@ ui.aiModelToggle.addEventListener('click', () => {
 
 /* ---------------------------------------------------------- virtual table */
 
-/*
- * What was decided about the leads, loaded beside the leads themselves.
- *
- * `notes` are the judge's verdicts and the user's marks, statuses and found
- * emails (store.js keeps them apart from the records so a re-scrape cannot
- * wipe them). `library` is every record from every run, which is what
- * linking a person to the business they work at needs. `isSuppressed` is the
- * do-not-contact list as a check.
- */
+// What was decided about the leads, loaded beside the leads themselves.
 let notes = new Map();
 let library = [];
 let links = { personToBusiness: new Map(), businessToPeople: new Map() };
@@ -1068,8 +867,7 @@ let libraryAt = 0;
 
 async function refreshAnnotations(all) {
   notes = await store.getNotes(all.map((r) => r.key)).catch(() => new Map());
-  // Every record from every run is a read of the whole database, so it is
-  // not repeated on every two-second poll of a run in progress.
+  // Every record from every run is a read of the whole database.
   const running = current && current.status === 'running';
   if (!running || Date.now() - libraryAt > 30000) {
     library = await store.getAllRecords().catch(() => all);
@@ -1095,8 +893,7 @@ async function refreshRows() {
   const all = jobId ? await store.getRecords(jobId) : [];
   rows = all.filter((r) => !r.setAside);
   asideRows = all.filter((r) => r.setAside);
-  // Nothing kept and something set aside is the filter being wrong, not the
-  // scraper finding nothing — so show the rows rather than an empty table.
+  // Nothing kept and something set aside is the filter being wrong, not the scraper finding nothing.
   if (!rows.length && asideRows.length) showAside = true;
   await refreshAnnotations(all);
   refreshCategoryOptions();
@@ -1143,13 +940,7 @@ function passesShow(record) {
   }
 }
 
-/**
- * What the filter set aside, and what it could have matched.
- *
- * "0 businesses" reads as "the scraper found nothing", which sends people to
- * debug the wrong thing. Naming the filter and listing the categories that
- * were actually there turns it into a one-click fix.
- */
+/** What the filter set aside, and what it could have matched. */
 function renderAside() {
   ui.asideNote.hidden = !asideRows.length;
   if (!asideRows.length) return;
@@ -1157,9 +948,7 @@ function renderAside() {
   const sourceId = current && current.config && current.config.source;
   const conf = SOURCE_UI[sourceId] || SOURCE_UI.maps;
 
-  // A Posts run sets rows aside for several reasons at once — too old, not
-  // asking, a repost — and naming only the first row's made the rest look
-  // like the same thing. Count them instead.
+  // A Posts run sets rows aside for several reasons at once.
   const reasons = new Map();
   for (const row of asideRows) reasons.set(row.setAside, (reasons.get(row.setAside) || 0) + 1);
   if (sourceId === 'posts' || reasons.size > 1) {
@@ -1180,13 +969,7 @@ function renderAside() {
   ui.asideToggle.textContent = showAside ? 'Hide them' : 'Show them';
 }
 
-/**
- * Offer the categories this run actually produced, ahead of the standing list.
- *
- * A curated list can only guess; "wholesale store" comes back labelled
- * Wholesale market, Furniture wholesaler and Produce market, and those are the
- * three the user wants to choose between.
- */
+/** Offer the categories this run actually produced, ahead of the standing list. */
 function refreshCategoryOptions() {
   const field = (SOURCE_UI[ui.source.value] || SOURCE_UI.maps).filterField;
   ui.categoryOptions.replaceChildren(
@@ -1205,14 +988,11 @@ function applyFilter() {
   visibleRows = !needle
     ? source
     : source.filter((r) =>
-        // Every field a card shows, whichever kind of row it is. This used to
-        // cover business fields only, so typing "trainer" over a page of
-        // people matched nobody: a headline was never searched.
+        // Every field a card shows, whichever kind of row it is.
         [r.name, r.area, r.category, r.city, r.email, r.phone,
           r.headline, r.company, r.location, r.summary, r.text, r.emails, r.phones, r.intent,
           ...(() => {
-            // What the judge said is searchable too: "trainer" should find
-            // the business whose reason reads "hires trainers".
+            // What the judge said is searchable too: "trainer" should find the business whose reason reads "hires trainers".
             const n = notes.get(r.key) || {};
             return [n.reason, n.services, n.decisionMaker, n.personEmail];
           })()]
@@ -1236,26 +1016,8 @@ function applyFilter() {
   drawWindow();
 }
 
-/**
- * One lead, three lines.
- *
- * This was a six-column table. In a 400px panel that is about 55px a column,
- * so every name, phone, email and area on screen ended after three characters
- * and an ellipsis — a table you had to download before you could read it.
- * Reading down instead of across fits all of it.
- */
-/*
- * How much of LinkedIn's monthly allowance this extension has spent.
- *
- * LinkedIn caps a free account at roughly 300 people searches a month and
- * then serves three results per query, every result after them anonymised.
- * A month's allowance went in eight days with nothing anywhere counting it,
- * and the run looked broken rather than out of budget.
- *
- * The number is what LeadMine itself asked for — every people-search page it
- * loaded. LinkedIn's own counter cannot be read from here, so this is not it;
- * it is the part that is knowable, and it moves in step.
- */
+/** One lead, three lines. */
+// How much of LinkedIn's monthly allowance this extension has spent.
 function renderBudget(budget) {
   if (!budget || !ui.budgetNote) return;
   const month = budget.inMonth || 0;
@@ -1278,9 +1040,7 @@ function leadCard(record) {
   if (isSuppressed(record, note)) card.classList.add('is-dnc');
   const business = links.personToBusiness.get(record.key);
   const staff = links.businessToPeople.get(record.key) || [];
-  // A record about a person, whichever door it came through. Rendering a
-  // web-sourced person as a business gave a card with an empty phone row and
-  // no headline at all.
+  // A record about a person, whichever door it came through.
   const person = record.source === 'linkedin' || record.source === 'web';
   const lines = record.source === 'posts'
     ? postLines(record)
@@ -1289,13 +1049,11 @@ function leadCard(record) {
         [
           'lead-1',
           [
-            // A person's profile link is the thing you actually go and do
-            // something with, the way a phone number is for a business.
+            // A person's profile link is the thing you actually go and do something with.
             record.profileUrl
               ? copyable(record.profileUrl, 'lead-name', record.name)
               : text('lead-name', record.name),
-            // Outside LinkedIn there is no degree to show; the source is the
-            // useful mark, because it says why this row has no badge.
+            // Outside LinkedIn there is no degree to show.
             text('lead-mark', record.degree || (record.source === 'web' ? 'public' : '')),
           ],
         ],
@@ -1341,13 +1099,7 @@ function leadCard(record) {
   return card;
 }
 
-/**
- * The fourth line: what was decided about this lead.
- *
- * The verdict and its reason come first because the reason is the point — a
- * verdict alone can only be accepted, a reason can be disagreed with. Then
- * where the conversation is, and the user's own mark, which beats the judge.
- */
+/** The fourth line: what was decided about this lead. */
 function decisionLine(record, note) {
   const verdict = effectiveVerdict(note);
   const badge = document.createElement('span');
@@ -1394,13 +1146,7 @@ function decisionLine(record, note) {
   ];
 }
 
-/**
- * A post, three lines: who and how long ago, what it says, how to reach them.
- *
- * The age leads because it is the reason the row exists; a requirement from
- * three weeks ago has usually been filled. The author's name opens the post,
- * which is where a reply goes.
- */
+/** A post, three lines: who and how long ago, what it says, how to reach them. */
 function postLines(record) {
   const age = record.ageDays === '' || record.ageDays === undefined ? '' : ageLabel(Number(record.ageDays));
   return [
@@ -1445,11 +1191,7 @@ function text(cls, value) {
   return span;
 }
 
-/**
- * A value you are going to paste somewhere else, rendered as the button that
- * puts it there. Reading a phone number off the screen and typing it back in
- * is the slowest thing this tool used to ask of anyone.
- */
+/** A value you are going to paste somewhere else, rendered as the button that puts it there. */
 function copyable(value, cls, label) {
   if (!value) return text(`lead-none ${cls}`, '—');
   const button = document.createElement('button');
@@ -1463,8 +1205,7 @@ function copyable(value, cls, label) {
 
 function emailCell(record) {
   const cell = copyable(record.email, 'lead-email');
-  // Verification says this one will bounce. Struck through rather than hidden:
-  // a wrong address is still a lead someone may want to fix by hand.
+  // Verification says this one will bounce.
   if (
     record.email &&
     record.emailStatus &&
@@ -1476,13 +1217,7 @@ function emailCell(record) {
   return cell;
 }
 
-/**
- * Render only the cards on screen.
- *
- * A 20,000-lead list with every one of them in the DOM makes the panel
- * unusable; this keeps roughly a screenful alive and shifts the block as the
- * user scrolls.
- */
+/** Render only the cards on screen. */
 function drawWindow() {
   const scrollTop = ui.viewport.scrollTop;
   const height = ui.viewport.clientHeight || 400;
@@ -1552,8 +1287,7 @@ ui.rowBody.addEventListener('change', async (event) => {
   const note = notes.get(key) || {};
   await saveNote(key, statusPatch(note, select.value));
 
-  // "Do not contact" is not a label, it is a promise: the address, the
-  // profile and the phone go on the list every future run checks.
+  // "Do not contact" is not a label, it is a promise.
   if (select.value === 'do_not_contact' && record) {
     await store.addSuppression(suppressionEntriesFor(record, notes.get(key)));
     await loadSuppression();
@@ -1586,11 +1320,7 @@ function showError(text) {
   ui.error.textContent = text || '';
 }
 
-/**
- * Progress is only meaningful where a total is known: the queue during the
- * search phase, the record count during enrichment. Everything else shows the
- * indeterminate bar rather than a made-up number.
- */
+/** Progress is only meaningful where a total is known. */
 function progressFor(job) {
   if (job.phase === 'emails' && job.total) return job.emailed / job.total;
   if (job.phase === 'verify' && job.total) return job.verified / job.total;
@@ -1621,24 +1351,18 @@ function render(job) {
   const running = job.status === 'running';
   const settled = ['done', 'error', 'cancelled', 'paused'].includes(job.status);
 
-  // The form and the run never share the screen: while a scrape is going,
-  // the settings that started it are not what the user needs to look at.
-  // "Done with this run": either the user said so, or the extension restarted
-  // and the run finished before that.
+  // The form and the run never share the screen.
   const dismissed = !running && job.jobId && (job.stale || job.jobId === dismissedJobId);
   const showRun = !dismissed && (running || (settled && job.status !== 'idle' && job.tasksTotal > 0));
 
-  // The chip reports the run on screen, so a run that is no longer on screen
-  // has no status to report. A restart left "Done" in the header of a panel
-  // showing an empty form, which reads as this search having finished.
+  // The chip reports the run on screen, so a run that is no longer on screen has no status to report.
   ui.statusPill.hidden = dismissed || job.status === 'idle';
   ui.statusPill.textContent = PILL[job.status] || job.status;
   ui.statusPill.dataset.state = job.status;
   ui.form.hidden = showRun;
   ui.runView.hidden = !showRun;
 
-  // The bar answers one question — what do I do now? — so only the answers
-  // that apply are in it. Start belongs to the form; the rest belong to a run.
+  // The bar answers one question — what do I do now?
   ui.start.hidden = showRun || job.canResume;
   ui.resume.hidden = !job.canResume;
   ui.stop.hidden = !running;
@@ -1646,8 +1370,7 @@ function render(job) {
   ui.goResults.hidden = !showRun || running || !job.count;
   ui.spinner.hidden = !running;
 
-  // One primary action per view. A paused run wants resuming; a finished one
-  // wants reading. Two indigo buttons side by side answer neither question.
+  // One primary action per view.
   const primary = job.canResume ? ui.resume : ui.goResults;
   for (const btn of [ui.resume, ui.goResults]) {
     btn.classList.toggle('btn--primary', btn === primary);
@@ -1660,9 +1383,7 @@ function render(job) {
       'Finished';
   ui.message.textContent = job.message || '';
 
-  // LinkedIn shows people it will not name — "LinkedIn Member", no profile
-  // link — and a run that collected three out of twelve looks broken unless
-  // it says so. This is the one number that explains a short LinkedIn run.
+  // LinkedIn shows people it will not name.
   const withheld = job.withheld || 0;
   ui.withheldNote.hidden = !withheld || running;
   if (withheld && !running) {
@@ -1689,8 +1410,7 @@ function render(job) {
 
   renderRunNotes(job, running);
 
-  // Progress belongs to a run in progress. Once it has settled, the title and
-  // the status chip say everything, and a full-width bar is just weight.
+  // Progress belongs to a run in progress.
   ui.barFill.parentElement.hidden = !running;
 
   const ratio = progressFor(job);
@@ -1713,8 +1433,7 @@ function render(job) {
 
   renderHealth(job.health);
   if (job.count !== previousCount || job.status !== previousStatus) void refreshRecent(job);
-  // A run can finish with nothing to show; the reason is the useful part —
-  // until the user has moved on from it.
+  // A run can finish with nothing to show; the reason is the useful part — until the user has moved on from it.
   showError(
     dismissed
       ? ''
@@ -1728,8 +1447,7 @@ function render(job) {
     if (!ui.paneResults.hidden) refreshRows();
   }
 
-  // A finished run exists for the rows it produced, and reaching them meant
-  // noticing a tab and clicking it. Hand the user over once, on the edge.
+  // A finished run exists for the rows it produced, and reaching them meant noticing a tab and clicking it.
   if (job.status === 'done' && previousStatus === 'running' && job.count) setView(true);
 }
 
@@ -1756,13 +1474,7 @@ function renderRunNotes(job, running) {
   );
 }
 
-/**
- * The last few names to arrive.
- *
- * Twenty-five minutes of a spinner and four numbers is indistinguishable from
- * a hang. A name you recognise landing every few seconds is the proof, and it
- * fills the screen this run had left empty.
- */
+/** The last few names to arrive. */
 let recentNames = [];
 async function refreshRecent(job) {
   if (!job || job.status !== 'running' || !job.jobId || !job.count) {
@@ -1775,8 +1487,7 @@ async function refreshRecent(job) {
   ui.recentBox.hidden = !names.length;
   if (!names.length) return;
 
-  // Only what is actually new animates; re-fading the whole list on every
-  // poll would read as a redraw rather than as an arrival.
+  // Only what is actually new animates.
   const before = new Set(recentNames);
   ui.recentList.replaceChildren(
     ...names.map((name) => {
@@ -1823,8 +1534,7 @@ ui.form.addEventListener('submit', async (event) => {
 
   const config = readConfig();
   const conf = SOURCE_UI[config.source] || SOURCE_UI.maps;
-  // Current-tab mode takes the search off the page, so there is nothing to
-  // validate here.
+  // Current-tab mode takes the search off the page, so there is nothing to validate here.
   if (config.useCurrentTab) {
     await saveSettings();
     const started = await chrome.runtime.sendMessage({ type: 'START_JOB', config });
@@ -1898,22 +1608,7 @@ ui.assist.addEventListener('toggle', () => {
 });
 ui.format.addEventListener('change', saveSettings);
 
-/*
- * Keep whatever is in the form.
- *
- * Only the source, the filter and the format were being saved as they were
- * edited; everything else — the search, the city, how many profiles, the
- * checkboxes — was written only when Start was pressed. The panel closes
- * whenever the user clicks into the tab a run is driving, and a form that
- * forgets what you typed the moment you look away is its own bug.
- *
- * Delegated, so a field added later is covered without being wired up, and on
- * `input` rather than `change` so it does not wait for a blur that may never
- * come. Debounced, because otherwise this writes on every keystroke.
- *
- * The planner's key and brief are inside this form and are deliberately not in
- * `readConfig()`, so they cannot reach these settings.
- */
+// Keep whatever is in the form.
 let saveTimer = null;
 ui.form.addEventListener('input', () => {
   clearTimeout(saveTimer);
@@ -1927,8 +1622,6 @@ ui.download.addEventListener('click', async () => {
   ui.download.textContent = 'Building…';
   try {
     // Straight from the database: no message-size ceiling on a big export.
-    // Set-aside rows are included only when they are on screen, so the file
-    // is always what the table showed.
     const stored = current && current.jobId ? await store.getRecords(current.jobId) : [];
     const all = showAside ? stored : stored.filter((r) => !r.setAside);
     if (!all.length) {
@@ -1937,8 +1630,7 @@ ui.download.addEventListener('click', async () => {
     }
 
     const meta = (current && current.config) || readConfig();
-    // What was decided about each lead rides along: the verdict and its
-    // reason, the status, a found work email, and who works where.
+    // What was decided about each lead rides along.
     const allNotes = await store.getNotes(all.map((r) => r.key)).catch(() => notes);
     const { content, mime, filename, count } = await buildFile(all, ui.format.value, meta, {
       notes: allNotes,
@@ -1958,8 +1650,7 @@ ui.download.addEventListener('click', async () => {
     await chrome.downloads.download({ url, filename, saveAs: true });
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
 
-    // Confirm it happened; a dialog that closes with no trace reads as a
-    // failure to anyone who was not watching the download shelf.
+    // Confirm it happened; a dialog that closes with no trace reads as a failure to anyone who was not watching the.
     ui.rowNote.textContent = `Saved ${filename}`;
   } catch (err) {
     showError(String((err && err.message) || err));
@@ -1971,14 +1662,7 @@ ui.download.addEventListener('click', async () => {
 
 /* ------------------------------------------------------------ the judge */
 
-/*
- * Judge the leads against what the user says a good one is.
- *
- * Runs here, never in the worker: the AI key lives in this page only, and a
- * judgement the user did not ask for is a bill they did not choose. Verdicts
- * land batch by batch, so a long list shows progress and a failure halfway
- * keeps everything already judged.
- */
+// Judge the leads against what the user says a good one is.
 let judging = false;
 let stopJudging = false;
 
@@ -2029,8 +1713,7 @@ ui.judgeRun.addEventListener('click', async () => {
     return;
   }
 
-  // Every mark the user ever made, not only this run's: a thumbs-down from
-  // last week's search still says where the line is.
+  // Every mark the user ever made, not only this run's.
   const everyNote = await store.getAllNotes().catch(() => notes);
 
   judging = true;
@@ -2169,8 +1852,7 @@ ui.finderRun.addEventListener('click', async () => {
     });
     ui.finderStatus.textContent = `Done — ${found} verified ${found === 1 ? 'email' : 'emails'} found.`;
   } catch (err) {
-    // A bad key or an empty wallet stops every later lookup too, so the run
-    // stops at the first one rather than failing forty times.
+    // A bad key or an empty wallet stops every later lookup too.
     ui.finderStatus.textContent = `${err.message} ${found ? `${found} found before that are kept.` : ''}`;
   } finally {
     finding = false;
@@ -2192,11 +1874,7 @@ ui.dncSave.addEventListener('click', async () => {
 
 /* ----------------------------------------------------- automation */
 
-/*
- * The schedule and the hand-off to PowPow. Both are read by the service
- * worker — a scheduled run finishes with nobody looking at this panel — so
- * both live in their own storage slots, apart from the form's settings.
- */
+// The schedule and the hand-off to PowPow.
 let schedule = { ...DEFAULT_SCHEDULE };
 let hook = { ...DEFAULT_HOOK };
 
@@ -2246,10 +1924,7 @@ ui.scheduleOn.addEventListener('change', async () => {
     ui.scheduleNote.textContent = why;
     return;
   }
-  // The search as it stands now is what runs — saved, not live, so editing
-  // the form for a one-off search does not change tomorrow morning's.
-  // `since` is where a missed run is counted from, so switching the
-  // schedule on never fires one straight away.
+  // The search as it stands now is what runs.
   await saveSchedule({ enabled: true, config, since: Date.now(), lastRunAt: 0 });
 });
 for (const field of [ui.scheduleTime, ui.scheduleDays]) {
@@ -2291,7 +1966,6 @@ for (const field of [ui.powpowOn, ui.powpowUrl, ui.powpowToken, ui.powpowChannel
 }
 
 // These boxes sit inside the search form, where Enter means "start the run".
-// Pressing Enter after pasting a token must not start a scrape.
 for (const field of [ui.powpowUrl, ui.powpowToken, ui.powpowTo, ui.scheduleTime]) {
   field.addEventListener('keydown', (event) => {
     if (event.key !== 'Enter') return;
@@ -2319,13 +1993,7 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg && msg.type === 'JOB_UPDATE') render(msg.job);
 });
 
-/**
- * Stamp the running version into the top bar.
- *
- * Reloading an unpacked extension gives no feedback inside the panel, so
- * "did the reload land?" meant opening chrome://extensions to check. Reading
- * it from the manifest means it cannot drift from what is actually loaded.
- */
+/** Stamp the running version into the top bar. */
 function showVersion() {
   const manifest =
     chrome.runtime && chrome.runtime.getManifest ? chrome.runtime.getManifest() : null;
@@ -2334,8 +2002,7 @@ function showVersion() {
 
 (async function init() {
   showVersion();
-  // Before the settings, which restore a country by its code — an <option>
-  // that does not exist yet cannot be selected.
+  // Before the settings, which restore a country by its code.
   await fillCountries();
   await restoreUrns();
   await restoreSettings();
@@ -2346,8 +2013,7 @@ function showVersion() {
   await restoreAutomation();
   {
     const stored = await chrome.storage.local.get(JUDGE_BRIEF_KEY);
-    // The planner's description is the natural first draft of what a good
-    // lead is; after that the judge's own brief is kept.
+    // The planner's description is the natural first draft of what a good lead is.
     ui.judgeBrief.value = stored[JUDGE_BRIEF_KEY] || ui.aiBrief.value || '';
   }
   applyJudgeState();

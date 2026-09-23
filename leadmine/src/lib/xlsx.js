@@ -1,16 +1,4 @@
-/**
- * A real .xlsx writer — OOXML parts in a ZIP container, no dependencies.
- *
- * The previous export wrote an HTML table and named it .xls. Excel opens that,
- * but warns that the file's contents do not match its extension every single
- * time, and other tools reject it outright. This produces a genuine
- * SpreadsheetML workbook instead.
- *
- * Compression uses the platform's own CompressionStream('deflate-raw'), which
- * both Chrome and Node provide, so nothing has to be bundled. Where it is
- * missing the writer falls back to stored (uncompressed) entries, which is
- * still a valid ZIP.
- */
+/** A real .xlsx writer — OOXML parts in a ZIP container, no dependencies. */
 
 const encoder = new TextEncoder();
 
@@ -42,13 +30,7 @@ export function columnName(index) {
   return name;
 }
 
-/**
- * Every value is written as an inline string, including numeric-looking ones.
- *
- * A phone number like 04423456789 loses its leading zero the moment Excel
- * treats it as a number, and "+91 98765 43210" becomes a formula error. A
- * left-aligned column is a much smaller problem than silently corrupted data.
- */
+/** Every value is written as an inline string, including numeric-looking ones. */
 function cellXml(ref, value) {
   const text = value === null || value === undefined ? '' : String(value);
   if (text === '') return '';
@@ -218,10 +200,7 @@ export async function zip(entries, now = new Date()) {
 
 /* ------------------------------------------------------------------ public */
 
-/**
- * Build a workbook from a header row and rows of values.
- * Returns the bytes of a .xlsx file.
- */
+/** Build a workbook from a header row and rows of values. */
 export async function buildXlsx({ headers, rows, sheetName = 'Leads' }) {
   const files = [
     { name: '[Content_Types].xml', bytes: encoder.encode(CONTENT_TYPES) },

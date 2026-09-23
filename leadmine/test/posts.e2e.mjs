@@ -1,20 +1,4 @@
-/**
- * Browser tests for the Posts source's two readers.
- *
- * Both run the real content scripts in Chromium against synthetic pages, not
- * live sites:
- *
- *   - an engine's results for `site:linkedin.com/posts …`, read by the
- *     public-web adapter in posts mode — Google's one-anchor title, a
- *     DuckDuckGo redirect, a profile link sitting in the same result, the
- *     engine's own "5 days ago —" in front of the snippet, and a Next page
- *   - LinkedIn's own post search, read by the linkedin-posts adapter — URNs on
- *     attributes, a reshared post nested inside another, a card still
- *     hydrating, text clamped behind "…see more", and a button that loads the
- *     next posts
- *
- * Run with: npm run test:dom
- */
+/** Browser tests for the Posts source's two readers. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
@@ -78,8 +62,7 @@ const POSTS_ONE = [
     title: '🚨 URGENT CORPORATE TRAINER REQUIREMENT – PUNE | Sarala Geriga',
     // The engine's own date in front of the snippet, which is not the post's.
     snippet: '5 days ago — We are urgently looking for experienced Corporate Trainers. Share your profile: ta7069@sfjbs.com',
-    // The author's profile, linked from inside the same result. It is not a
-    // second result, and in posts mode it is not a result at all.
+    // The author's profile, linked from inside the same result.
     extra: '<a href="https://www.linkedin.com/in/sarala-geriga-352940243">Sarala Geriga</a>',
   }),
   googleBlock({
@@ -196,8 +179,7 @@ test('each post keeps its author, its whole text and a clean link', async (t) =>
 });
 
 test('a people search on the same engine still reads people', async (t) => {
-  // The mode comes from the query. The same page with site:linkedin.com/in
-  // must behave exactly as it did before posts existed.
+  // The mode comes from the query.
   const result = await scrapeEngine(t, { query: 'site:linkedin.com/in corporate trainer' });
   if (!result) return;
   assert.equal(result.ok, true, result.error);
@@ -242,8 +224,7 @@ const LINKEDIN_PAGE = `<!doctype html><html><head><meta charset="utf-8"></head><
         name: 'Rakhi Mann',
         profile: 'https://www.linkedin.com/in/rakhi-mann-209a33203',
         text: 'Looking for Freelance Corporate Trainers! Share your profile at pitambara.singh@myrealdata.in',
-        // A reshared post inside this one carries its own URN. It is part of
-        // Rakhi's post, not a second result.
+        // A reshared post inside this one carries its own URN.
         reshare: `<div data-urn="urn:li:activity:${LI_ID_RESHARED}"><div class="update-components-text">Original</div></div>`,
       })}
       <li class="artdeco-card"><div data-urn="urn:li:activity:7500000000000000000"></div></li>

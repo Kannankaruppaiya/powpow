@@ -1,11 +1,4 @@
-/**
- * The lead judge.
- *
- * The model is not deterministic, so everything around it is: the digest it
- * reads, the examples it is shown, the batches it is sent, and — most of all
- * — the checking of what comes back, because a model's answer is untrusted
- * input that ends up in the user's spreadsheet.
- */
+/** The lead judge. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 

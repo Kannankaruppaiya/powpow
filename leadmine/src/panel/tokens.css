@@ -1,21 +1,4 @@
-/**
- * Design tokens.
- *
- * One place, named by role rather than by value.
- *
- * The system changed shape once already. The first version painted the accent
- * on everything with a job — the primary button, the progress bar, the
- * selected card, the count badge — and an accent used everywhere stops being
- * an accent. Raycast's primary button is white; Linear's colour appears on the
- * mark, the focus ring and almost nothing else. So:
- *
- *   - the primary action is neutral: near-black on light, white on dark;
- *   - the accent marks *selection and identity*, never mere prominence;
- *   - status has its own soft, tinted chips, and only status uses them.
- *
- * Surfaces are layered rather than flat, and hairlines are alpha rather than
- * a fixed grey, so both themes stay coherent as the stack deepens.
- */
+/* Design tokens. */
 
 :root {
   /* --- surfaces, deepest to nearest ------------------------------------ */
@@ -52,10 +35,7 @@
   --danger: #b8332a;
   --danger-soft: rgba(184, 51, 42, 0.10);
 
-  /* --- type -------------------------------------------------------------
-     Five sizes. The mono stack is not decoration: phone numbers, emails and
-     counts are machine values, and setting them in a proportional face makes
-     columns of them impossible to scan. */
+  /* --- type ------------------------------------------------------------- Five sizes. */
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
 
@@ -83,8 +63,7 @@
   --r-lg: 10px;
   --r-pill: 999px;
 
-  /* A lead card: three readable lines. The virtual window multiplies by
-     this, so it is one number in one place. */
+  /* A lead card: three readable lines. */
   --row-h: 94px;
 
   /* --- motion ----------------------------------------------------------- */
@@ -96,8 +75,7 @@
   --ease-linear: linear;
 
   --ring: 0 0 0 3px var(--accent-soft);
-  /* Two-part shadow: a tight contact edge plus a soft drop. One blurred
-     shadow always looks like a sticker. */
+  /* Two-part shadow: a tight contact edge plus a soft drop. */
   --lift: 0 1px 1px rgba(12, 14, 20, 0.04), 0 2px 6px rgba(12, 14, 20, 0.06);
 
   color-scheme: light dark;
@@ -117,8 +95,7 @@
     --ink-2: #a9aeba;
     --ink-3: #767c8a;
 
-    /* Inverted, as the reference systems do: on a near-black canvas the most
-       prominent thing available is plain white. */
+    /* Inverted, as the reference systems do. */
     --action: #f4f5f7;
     --action-hover: #ffffff;
     --action-ink: #0b0c0e;

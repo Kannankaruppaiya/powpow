@@ -1,10 +1,4 @@
-/**
- * Follow-ups, the do-not-contact list, and the cold-email export.
- *
- * The do-not-contact tests are the ones that matter most: an opt-out that a
- * re-scrape, a different spelling or a second source can route around is a
- * legal problem, not a bug.
- */
+/** Follow-ups, the do-not-contact list, and the cold-email export. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 

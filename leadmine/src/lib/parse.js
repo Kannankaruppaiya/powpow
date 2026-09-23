@@ -1,11 +1,4 @@
-/**
- * Pure text-parsing helpers shared by the content script.
- *
- * This file is loaded as a classic content script (it cannot be an ES module —
- * Chrome does not support module content scripts), so it publishes itself on
- * `globalThis`. Node's ESM loader still executes it on import, which is how the
- * unit tests get at these functions without a browser.
- */
+/** Pure text-parsing helpers shared by the content script. */
 (() => {
   'use strict';
 
@@ -24,10 +17,7 @@
 
   const PHONE_RE = /(\+?\d[\d\s().-]{7,}\d)/;
 
-  /**
-   * Card rows mix phone numbers with review counts, opening hours and price
-   * bands, so a bare digit test is not enough.
-   */
+  /** Card rows mix phone numbers with review counts. */
   function looksLikePhone(text) {
     const t = norm(text);
     if (!PHONE_RE.test(t)) return false;
@@ -48,26 +38,12 @@
 
   const STATUS_RE = /^(open|clos|temporarily|permanently|24 hours|opens|closes)/i;
 
-  /**
-   * A fragment that is only a rating and/or a review count.
-   *
-   * Live Maps renders these as adjacent spans with no separator, so the card's
-   * text comes through glued: "5.0(139)". Matching the two halves separately
-   * was not enough — the joined form slipped past every filter and took the
-   * category slot, which then pushed the real category into the address and
-   * the real address out entirely.
-   */
+  /** A fragment that is only a rating and/or a review count. */
   const RATING_ONLY = /^[\d.,]*\s*(\([\d,]+\))?$/;
   const ADDRESS_HINT =
     /\d|street|st\b|road|rd\b|ave|avenue|lane|ln\b|nagar|colony|block|sector|floor|plaza|highway|cross|main\b/i;
 
-  /**
-   * Turn the middle-dot separated fragments of a result card into a category
-   * and an address.
-   *
-   * ["Dental clinic", "12, Anna Nagar", "Open ⋅ Closes 9 pm", "044 2345 6789"]
-   *   -> { category: "Dental clinic", address: "12, Anna Nagar", phone: "044 2345 6789" }
-   */
+  /** Turn the middle-dot separated fragments of a result card into a category and an address. */
   function parseCardParts(parts) {
     const out = { category: '', address: '', phone: '' };
 
@@ -92,21 +68,8 @@
   const AREA_NOISE =
     /^(india|united states|usa|uk|united kingdom|canada|australia|singapore|uae|deutschland|\d{4,6}(-\d{4})?)$/i;
 
-  /**
-   * Pull the neighbourhood out of a formatted address.
-   *
-   *   "12, 2nd Ave, Anna Nagar, Chennai, Tamil Nadu 600040, India"
-   *     with city "Chennai" -> "Anna Nagar"
-   *
-   * Countries and bare postcodes are dropped, then the segment immediately
-   * before the searched city wins. Without a city match, the second-to-last
-   * segment that carries no postcode is the best available guess.
-   */
-  /**
-   * A segment carrying a postcode, i.e. the state/region tail of an address
-   * rather than a neighbourhood: "IL 62701", "Tamil Nadu 600040",
-   * "London NW1 6XE".
-   */
+  /** Pull the neighbourhood out of a formatted address. */
+  /** A segment carrying a postcode, i.e. */
   const POSTAL_SEGMENT = /\d{4,}|\b[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}\b/;
 
   function deriveArea(address, city) {
@@ -128,10 +91,7 @@
       if (idx === 0) return segments[0];
     }
 
-    // No city to anchor on: drop the administrative tail (state + postcode)
-    // and the innermost remaining segment is the best available locality.
-    //   "5 Main St, Springfield, IL 62701"      -> "Springfield"
-    //   "221B Baker St, Marylebone, London NW1 6XE" -> "Marylebone"
+    // No city to anchor on.
     const usable = segments.filter((s) => !POSTAL_SEGMENT.test(s));
     return usable[usable.length - 1] || segments[segments.length - 1];
   }
@@ -143,17 +103,7 @@
     return index === -1 ? '' : norm(raw.slice(index + 'phone:tel:'.length));
   }
 
-  /**
-   * Author and text out of the title an engine shows for a LinkedIn post.
-   *
-   * LinkedIn titles its post pages in a few shapes, and engines add their own
-   * site suffix on top:
-   *
-   *   "Urgent SAP FI trainer requirement | Shreya Wagh"
-   *   "Shreya Wagh on LinkedIn: Urgent SAP FI trainer requirement…"
-   *   "Shreya Wagh's Post - LinkedIn"
-   *   "🚨 Urgent requirement | Shreya Wagh posted on the topic | LinkedIn"
-   */
+  /** Author and text out of the title an engine shows for a LinkedIn post. */
   function parsePostTitle(title) {
     let text = norm(title)
       .replace(/\s*[-|·–—]\s*LinkedIn\s*$/i, '')
@@ -172,8 +122,7 @@
         .slice(bar + 3)
         .replace(/\s+(?:posted|reposted|commented)(?: on the topic| on this)?$/i, '')
         .trim();
-      // A name is short. A long tail after the bar is part of the post, which
-      // happens when the post itself uses " | " as punctuation.
+      // A name is short.
       if (author && author.split(' ').length <= 8 && author.length <= 80) {
         return { author, text: text.slice(0, bar).trim() };
       }

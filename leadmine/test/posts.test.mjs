@@ -1,9 +1,4 @@
-/**
- * The Posts source's arithmetic and judgement, without a browser.
- *
- * Every id below is a real LinkedIn post id, read off a real post URL, with
- * the date LinkedIn itself showed for it.
- */
+/** The Posts source's arithmetic and judgement, without a browser. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 

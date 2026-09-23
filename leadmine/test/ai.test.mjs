@@ -1,12 +1,4 @@
-/**
- * Tests for the search planner.
- *
- * The model is the one part of this codebase that cannot be made
- * deterministic, so everything around it is: a fake fetch drives every failure
- * the two providers can produce, and the normaliser is tested against the
- * answers a model actually gives — padded lists, near-duplicates, missing
- * fields, JSON wrapped in a code fence.
- */
+/** Tests for the search planner. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -355,8 +347,7 @@ test('an unknown provider falls back rather than throwing on a typo', () => {
 /* ------------------------------------------------------ model and key shape */
 
 test('a model name that cannot be one falls back to the default', () => {
-  // The live failure: something that was not a model name reached the API and
-  // came back as "unexpected model name format", which explains nothing.
+  // The live failure: something that was not a model name reached the API and came back as "unexpected model name.
   assert.equal(cleanModel('gsk_abc123DEF', 'gemini-2.5-flash'), 'gemini-2.5-flash');
   assert.equal(cleanModel('', 'gemini-2.5-flash'), 'gemini-2.5-flash');
   assert.equal(cleanModel('   ', 'gemini-2.5-flash'), 'gemini-2.5-flash');
@@ -379,8 +370,7 @@ test('junk in the model box never reaches the request', async () => {
 
 test('a key belonging to the other provider is named as such', async () => {
   const fetchImpl = fakeFetch(() => geminiReply(READY));
-  // Both keys are opaque strings in a password box; pasting the wrong one is
-  // easy, and the provider's own reply for it explains nothing.
+  // Both keys are opaque strings in a password box.
   await assert.rejects(
     planSearches({ ...base, provider: 'gemini', apiKey: 'gsk_abc', fetchImpl }),
     /looks like a Groq key.*Google Gemini is selected/i
@@ -432,7 +422,6 @@ test('Gemini gets its own schema dialect, not JSON Schema', async () => {
   const schema = fetchImpl.calls[0].body.generationConfig.responseSchema;
 
   // Schema.type is an uppercase enum in the OpenAPI subset Gemini accepts.
-  // Lowercase "object" is rejected outright.
   assert.equal(schema.type, 'OBJECT');
   assert.equal(schema.properties.searches.type, 'ARRAY');
   assert.equal(schema.properties.searches.items.type, 'OBJECT');
@@ -446,8 +435,7 @@ test('Gemini gets its own schema dialect, not JSON Schema', async () => {
 });
 
 test('toGeminiSchema leaves the standard schema alone for everyone else', () => {
-  // The source of truth stays ordinary JSON Schema — Groq and the prompt use
-  // it, so the conversion must not mutate it in place.
+  // The source of truth stays ordinary JSON Schema.
   assert.equal(toGeminiSchema({ type: 'string' }).type, 'STRING');
   assert.equal(RESPONSE_SCHEMA.type, 'object', 'the original must be untouched');
   assert.equal(RESPONSE_SCHEMA.properties.searches.type, 'array');
@@ -531,8 +519,7 @@ test('Groq models come from its list endpoint', async () => {
   }));
   const models = await listModels({ provider: 'groq', apiKey: 'gsk_test', fetchImpl });
 
-  // Groq's list carries no capability field, so the id is the only signal for
-  // dropping the ones that cannot hold a conversation.
+  // Groq's list carries no capability field.
   assert.deepEqual(models.map((m) => m.id), ['llama-3.3-70b-versatile']);
   assert.equal(fetchImpl.calls[0].url, 'https://api.groq.com/openai/v1/models');
   assert.equal(fetchImpl.calls[0].init.headers.authorization, 'Bearer gsk_test');
@@ -560,7 +547,6 @@ test('the planner is told the public web is a people search too', () => {
   const prompt = buildUserPrompt({ brief: 'kotlin trainers', source: 'web' });
   assert.match(prompt, /\(people\)/, 'a role plan, not a company-category plan');
   assert.match(prompt, /public linkedin profiles/i);
-  // buildTerm wraps the query in site:linkedin.com/in "…" itself. A model that
-  // also wrote it would produce site:…in site:…in and match nothing.
+  // buildTerm wraps the query in site:linkedin.com/in "…" itself.
   assert.match(SYSTEM_PROMPT, /never write site:/i);
 });

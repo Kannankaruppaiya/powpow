@@ -1,11 +1,4 @@
-/**
- * Email discovery.
- *
- * Google Maps never exposes an email address, so the only honest way to get
- * one is to visit the business's own website and read what it publishes.
- * The service worker holds <all_urls> host permissions, so these fetches are
- * not subject to CORS.
- */
+/** Email discovery. */
 
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,24}/g;
 
@@ -59,16 +52,7 @@ export function normaliseUrl(raw) {
 
 /* ------------------------------------------------------ hidden addresses */
 
-/**
- * Cloudflare's "email address obfuscation".
- *
- * A site behind Cloudflare has every address on it rewritten on the way out:
- * the visible text becomes "[email protected]" and the address itself moves
- * into a hex string — `data-cfemail="…"` or `/cdn-cgi/l/email-protection#…`.
- * The first byte is a key and every byte after it is XORed with it. A plain
- * fetch sees only the hex, which is why a large share of small-business sites
- * came back with no email even though a visitor sees one.
- */
+/** Cloudflare's "email address obfuscation". */
 export function decodeCfEmail(hex) {
   const clean = String(hex || '').trim();
   if (!/^[0-9a-f]{4,}$/i.test(clean) || clean.length % 2) return '';
@@ -98,19 +82,11 @@ export function decodeEntities(text) {
     .replace(/&amp;/gi, '&');
 }
 
-/**
- * Addresses spelt out so a regex will not see them: `info [at] acme [dot] com`,
- * `sales(at)acme(dot)in`, `hello at acme dot co dot uk`.
- *
- * The bracketed forms are unambiguous. The bare "at … dot" form is only read
- * when the whole thing is one address-shaped run of words, because "meet us
- * at the office" must not become an email.
- */
+/** Addresses spelt out so a regex will not see them. */
 export function deobfuscate(text) {
   const t = String(text || '');
   const AT = '\\s*(?:\\[\\s*at\\s*\\]|\\(\\s*at\\s*\\)|\\{\\s*at\\s*\\})\\s*';
-  // A spelt-out dot may have spaces around it; a real "." may not, or the
-  // full stop ending a sentence becomes part of the domain ("acme.com. We").
+  // A spelt-out dot may have spaces around it.
   const DOT = '(?:\\s*(?:\\[\\s*dot\\s*\\]|\\(\\s*dot\\s*\\)|\\{\\s*dot\\s*\\})\\s*|\\.)';
   const out = [];
   const bracketed = new RegExp(`([a-z0-9._%+-]+)${AT}([a-z0-9-]+(?:${DOT}[a-z0-9-]+)+)`, 'gi');
@@ -120,9 +96,7 @@ export function deobfuscate(text) {
   }
   const bare = /\b([a-z0-9._%+-]{2,})\s+at\s+([a-z0-9-]{2,}(?:\s+dot\s+[a-z]{2,}){1,3})\b/gi;
   for (const m of t.matchAll(bare)) {
-    // "at" between two ordinary words is English, not an address. Require the
-    // local part to look like one: a role word, or something with a digit or
-    // a separator in it.
+    // "at" between two ordinary words is English, not an address.
     const local = m[1].toLowerCase();
     if (!/[._\d-]/.test(local) && !ROLE_LOCAL.test(local)) continue;
     out.push(`${m[1]}@${m[2].replace(/\s+dot\s+/gi, '.')}`);
@@ -135,14 +109,7 @@ const ROLE_LOCAL =
 
 /* ------------------------------------------------------------ structured data */
 
-/**
- * What a site says about itself in schema.org JSON-LD.
- *
- * Most site builders emit an Organization or LocalBusiness block with the
- * email, the phone, sometimes the founder and a one-line description — data
- * the business typed in itself, in fields that mean exactly what they say.
- * It is the most reliable thing on the page and it was never being read.
- */
+/** What a site says about itself in schema.org JSON-LD. */
 export function extractStructured(html) {
   const out = { emails: [], phones: [], people: [], description: '', employees: '', name: '' };
   const text = String(html || '');
@@ -195,13 +162,7 @@ function walkJsonLd(node, out, depth) {
 
 /* ------------------------------------------------------------- page text */
 
-/**
- * What the page says, as plain text, for the lead judge to read.
- *
- * The title and the meta description lead because they are the site's own
- * one-line summary; the body follows, stripped of scripts, styles and markup
- * and cut to a size a prompt can carry fifteen of.
- */
+/** What the page says, as plain text, for the lead judge to read. */
 export function pageText(html, limit = 1500) {
   const text = String(html || '');
   if (!text) return '';
@@ -220,14 +181,7 @@ export function pageText(html, limit = 1500) {
   return [...new Set(parts)].join('\n').slice(0, limit);
 }
 
-/**
- * Whether a plain fetch saw the site a visitor sees.
- *
- * Three ways it does not: the fetch failed outright (a firewall answering a
- * non-browser with 403 is the usual one), the page is a challenge, or the page
- * is a JavaScript shell whose content only exists once a browser runs it.
- * Any of the three is a reason to look again in a real tab.
- */
+/** Whether a plain fetch saw the site a visitor sees. */
 export function looksBlocked(html, status = 200) {
   if (!html || status >= 400) return true;
   const text = String(html);
@@ -247,8 +201,7 @@ export function extractEmails(html, siteHost = '') {
 
   const found = new Set();
 
-  // Cloudflare-hidden addresses are real and deliberate — the business put
-  // them there — so they rank with mailto: links.
+  // Cloudflare-hidden addresses are real and deliberate.
   for (const email of cloudflareEmails(html)) found.add(email);
 
   // mailto: links are unambiguous, so trust them first.
@@ -257,9 +210,7 @@ export function extractEmails(html, siteHost = '') {
     if (value) found.add(value);
   }
 
-  // Then the raw text, which catches addresses printed as plain copy — with
-  // entities decoded first, since `info&#64;acme.com` is an address written
-  // for a person and hidden from a regex.
+  // Then the raw text, which catches addresses printed as plain copy.
   const decoded = decodeEntities(html);
   for (const m of decoded.matchAll(EMAIL_RE)) found.add(m[0]);
   for (const email of deobfuscate(decoded.replace(/<[^>]+>/g, ' '))) found.add(email);
@@ -280,8 +231,7 @@ export function extractEmails(html, siteHost = '') {
     if (!cleaned.includes(email)) cleaned.push(email);
   }
 
-  // Rank: same domain as the website beats a free mailbox beats everything
-  // else; role addresses (info@, contact@) beat personal ones.
+  // Rank: same domain as the website beats a free mailbox beats everything else.
   const bareHost = String(siteHost || '').replace(/^www\./, '');
   const score = (email) => {
     const [local, host] = email.split('@');
@@ -296,13 +246,7 @@ export function extractEmails(html, siteHost = '') {
   return cleaned.sort((a, b) => score(b) - score(a));
 }
 
-/**
- * Social profiles a business links from its own site.
- *
- * These come out of the same HTML already fetched for the email, so they cost
- * nothing extra. Share widgets and intent links point at the visitor's own
- * account rather than the business, so they are filtered out.
- */
+/** Social profiles a business links from its own site. */
 const SOCIAL_PATTERNS = [
   { key: 'facebook', re: /https?:\/\/(?:[\w-]+\.)?facebook\.com\/[^\s"'<>]+/gi },
   { key: 'instagram', re: /https?:\/\/(?:www\.)?instagram\.com\/[^\s"'<>]+/gi },
@@ -341,13 +285,7 @@ export function extractSocialLinks(html) {
   return out;
 }
 
-/**
- * One page, and whether the server answered at all.
- *
- * The status is kept rather than folded into an empty string: a 403 from a
- * firewall and a page that genuinely lists no email are different problems,
- * and only the first is worth opening in a real tab.
- */
+/** One page, and whether the server answered at all. */
 async function fetchPage(url, timeoutMs, fetchImpl = fetch) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -376,8 +314,7 @@ function contactCandidates(html, url) {
     if (!/contact|reach-us|get-in-touch/i.test(m[1])) continue;
     try {
       const next = new URL(m[1], url);
-      // Only this site's own pages: a "contact" link to a form builder or a
-      // social network is not where the business keeps its address.
+      // Only this site's own pages.
       if (next.host === new URL(url).host) linked.push(next.toString());
     } catch {
       /* skip malformed href */
@@ -386,20 +323,7 @@ function contactCandidates(html, url) {
   return [...new Set([...linked, ...FALLBACK_PATHS.map((p) => new URL(p, url).toString())])].slice(0, 3);
 }
 
-/**
- * Look for an email on a single business website.
- *
- * Returns { email, allEmails, source, social, siteText, structured, blocked,
- * rendered }. `siteText` is what the page says in plain words, kept for the
- * lead judge; `structured` is the site's own JSON-LD. `blocked` means a plain
- * fetch did not see what a visitor sees.
- *
- * `render(url)` is optional and supplied by the service worker: it opens the
- * page in a real background tab and returns the HTML the browser built. It is
- * only called when the plain fetch was blocked or found nothing on a page that
- * looks like it needs JavaScript — a tab is slow and visible, so it is the
- * second look, never the first.
- */
+/** Look for an email on a single business website. */
 export async function findEmailForSite(
   website,
   { timeout = 12000, followContactPage = true, render = null, fetchImpl } = {}
@@ -423,10 +347,7 @@ export async function findEmailForSite(
   let blocked = looksBlocked(home, status);
   let rendered = false;
 
-  // The second look: a real tab, which runs the site's scripts and passes
-  // the checks a bare request fails. Only for a site that answered and
-  // refused, or answered with a page that is not really there yet — a dead
-  // domain, a 404 or a PDF will not become an email by opening a tab on it.
+  // The second look: a real tab, which runs the site's scripts and passes the checks a bare request fails.
   const refused = [401, 403, 429, 503].includes(status);
   const shell = status >= 200 && status < 300 && Boolean(home);
   if (blocked && render && (refused || shell)) {

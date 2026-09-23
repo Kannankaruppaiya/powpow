@@ -1,11 +1,4 @@
-/**
- * What differs between the two sources, in one place.
- *
- * The engine, the queue and the storage layer are source-agnostic; these are
- * the handful of facts that are not — how to build a search URL, whether a
- * geographic grid means anything, and which fields prove the scraper is still
- * working.
- */
+/** What differs between the two sources, in one place. */
 
 import { buildSearchUrl as mapsSearchUrl } from './geo.js';
 import { postSearchUrl } from './posts.js';
@@ -46,18 +39,14 @@ export const SOURCES = {
     supportsGrid: false,
     // People have no website to read an address off, so the email pass is moot.
     supportsEmails: false,
-    // A person has no category, and their headline is not the whole story:
-    // the best result for "kotlin trainer" had "Software Developer" as its
-    // headline and "AI Trainer" only in the line below it. Narrowing on the
-    // headline alone set that person aside.
+    // A person has no category, and their headline is not the whole story.
     filterField: ['headline', 'summary', 'company'],
     filterLabel: 'Headline contains',
     filterHint: 'Only keep people whose headline matches',
     urlPart: '/search/results/',
     buildUrl: (term) =>
       `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(String(term).trim())}`,
-    // LinkedIn matches keywords literally, so "java developer in London" makes
-    // it hunt for the word "in" across profiles. Space-join instead.
+    // LinkedIn matches keywords literally.
     buildTerm: (category, city) => [category, city].filter(Boolean).join(' ').trim(),
     noun: 'people',
   },
@@ -78,49 +67,15 @@ export const SOURCES = {
     filterLabel: 'Result text contains',
     filterHint: 'Only keep people whose result text matches',
     urlPart: '/search',
-    /*
-     * Google by default.
-     *
-     * Bing was the first choice, on the reasoning that Google challenges
-     * automated queries hardest. The live run said otherwise: the same query
-     * that Bing answered with "One last step — please solve the challenge"
-     * came back from Google as a full page of trainers. A guess about which
-     * engine is friendlier loses to one run against both.
-     */
+    // Google by default.
     buildUrl: (term) => `https://www.google.com/search?q=${encodeURIComponent(String(term).trim())}`,
-    /*
-     * The whole point of this source: `site:` restricts the engine to public
-     * LinkedIn profile pages, which name people the logged-in search will only
-     * show as "LinkedIn Member" once they are outside your network.
-     *
-     * The words are NOT quoted. Quoting made the whole phrase a literal:
-     * Google answered `site:linkedin.com/in "kotlin corporate trainer"` with
-     * "No results found", because almost nobody writes those three words in
-     * that order — then quietly re-ran it without the quotes and found plenty.
-     * Unquoted, the engine ranks on all of them and LeadMine's own category
-     * filter does the narrowing, which is the same division of labour the
-     * LinkedIn source uses.
-     */
+    // The whole point of this source.
     buildTerm: (category, city) =>
       ['site:linkedin.com/in', category, city].filter(Boolean).join(' ').trim(),
     noun: 'people',
   },
 
-  /*
-   * Recent LinkedIn posts that ask for something.
-   *
-   * Not people and not businesses: a post is an event — "SAP FI trainer
-   * required, Mumbai, starts Monday" — and what makes it a lead is that it is
-   * recent and that it asks. The engine finds candidates; the post's own id
-   * says exactly when it was written, and the classifier in posts.js says
-   * whether it asks, sells or thanks. See posts.js for why the engine's own
-   * date filter cannot be trusted with either.
-   *
-   * No LinkedIn login is needed for the engine path. "Use the tab I'm on"
-   * also reads a LinkedIn post search the user already has open — the only
-   * place a post from the last day or two can be found before any engine
-   * has indexed it.
-   */
+  // Recent LinkedIn posts that ask for something.
   posts: {
     id: 'posts',
     label: 'LinkedIn posts',
@@ -135,15 +90,12 @@ export const SOURCES = {
     filterLabel: 'Post text contains',
     filterHint: 'Only keep posts whose text matches',
     urlPart: '/search',
-    // "Use the tab I'm on" reads an engine's results or LinkedIn's own post
-    // search. '/search' alone would also admit a LinkedIn people search, and
-    // that page's adapter would hand back people into a posts run.
+    // "Use the tab I'm on" reads an engine's results or LinkedIn's own post search.
     matchesTab: (url) =>
       /^https:\/\/([\w-]+\.)?linkedin\.com\/search\/results\/content/.test(url) ||
       /^https?:\/\/(?:[\w-]+\.)?google\.[a-z.]+\/search\b/.test(url) ||
       /^https?:\/\/(?:[\w-]+\.)?duckduckgo\.com\//.test(url),
-    // One URL per intent group is built in tasks.js, where the window in
-    // days is known. This is the plain fallback for a bare term.
+    // One URL per intent group is built in tasks.js, where the window in days is known.
     buildUrl: (term) => postSearchUrl(String(term).trim(), 10),
     buildTerm: (category, city) =>
       ['site:linkedin.com/posts', category, city].filter(Boolean).join(' ').trim(),
@@ -170,7 +122,6 @@ export function buildTerm(id, category, city) {
 
 export function buildUrl(id, term, point) {
   const source = sourceFor(id);
-  // A point is meaningless where the grid does not apply; drop it rather than
-  // building a URL the site will ignore or choke on.
+  // A point is meaningless where the grid does not apply.
   return source.buildUrl(term, source.supportsGrid ? point : null);
 }

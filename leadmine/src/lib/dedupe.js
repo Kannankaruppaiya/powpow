@@ -1,12 +1,4 @@
-/**
- * Identity and merging for scraped records.
- *
- * A grid search deliberately overlaps: neighbouring cells return many of the
- * same businesses, and a batch of related searches ("dentist", "dental
- * clinic") returns more still. Every record therefore needs a stable identity,
- * and two sightings of one business need to combine into the better of the
- * two rather than becoming two rows.
- */
+/** Identity and merging for scraped records. */
 
 /** Normalise a name or place for comparison. */
 const key = (s) =>
@@ -17,19 +9,11 @@ const key = (s) =>
 /** Digits only, so "+91 98765 43210" and "098765 43210" compare equal-ish. */
 const phoneKey = (s) => {
   const digits = String(s || '').replace(/\D/g, '');
-  // Compare on the last 10 digits: country codes and trunk prefixes vary
-  // between the card text and the tel: attribute for the same business.
+  // Compare on the last 10 digits.
   return digits.length >= 10 ? digits.slice(-10) : digits;
 };
 
-/**
- * The identity of a business, best available.
- *
- * Google embeds a feature id in place URLs — "!1s0x3a5265ea4f0d3b1d:0x..." —
- * which is the same for a business no matter which search surfaced it. That is
- * by far the most reliable key; the rest are fallbacks for records that only
- * ever appeared in a results list.
- */
+/** The identity of a business, best available. */
 export function recordKey(record) {
   if (!record) return '';
 
@@ -43,12 +27,7 @@ export function recordKey(record) {
   const phone = phoneKey(record.phone);
   if (phone.length >= 10) return `tel:${phone}`;
 
-  // A LinkedIn profile URL is the one truly stable identity a person has: the
-  // slug does not change, and it is what lets the same person found through
-  // two different routes — the logged-in search and a public web result —
-  // come back as one row rather than two.
-  // A post is its id. The same post turns up under a /posts/ URL from an
-  // engine and a /feed/update/ URN on LinkedIn; the id is what both share.
+  // A LinkedIn profile URL is the one truly stable identity a person has.
   const post = String(record.postId || '');
   if (/^\d{18,20}$/.test(post)) return `post:${post}`;
 
@@ -58,8 +37,7 @@ export function recordKey(record) {
   const name = key(record.name);
   if (!name) return '';
 
-  // Name alone is not enough — chains repeat it across a city — so pair it
-  // with the most specific location text available.
+  // Name alone is not enough.
   const place = key(record.address) || key(record.area) || key(record.city);
   return place ? `name:${name}@${place}` : `name:${name}`;
 }
@@ -71,20 +49,13 @@ function isBetter(field, current, next) {
 
   if (Array.isArray(next)) return next.length > (Array.isArray(current) ? current.length : 0);
   // A detail-panel address is longer and more complete than a card's snippet.
-  // Post text too: an engine snippet is a truncated copy of what LinkedIn
-  // itself shows, and a merge must keep the whole post.
   if (field === 'address' || field === 'hours' || field === 'text') {
     return String(next).length > String(current).length;
   }
   return false;
 }
 
-/**
- * Fold `next` into `base`, keeping whichever fields are richer.
- *
- * Deep-scraped data wins over list-only data wholesale, because the detail
- * panel is authoritative for the fields both sources provide.
- */
+/** Fold `next` into `base`, keeping whichever fields are richer. */
 export function mergeRecords(base, next) {
   if (!base) return { ...next };
   if (!next) return base;
@@ -103,10 +74,7 @@ export function mergeRecords(base, next) {
   return merged;
 }
 
-/**
- * Collapse a list of records to one row per business.
- * Order is preserved by first sighting, which keeps exports stable.
- */
+/** Collapse a list of records to one row per business. */
 export function dedupeRecords(records) {
   const byKey = new Map();
   const anonymous = [];
@@ -123,18 +91,7 @@ export function dedupeRecords(records) {
   return [...byKey.values(), ...anonymous];
 }
 
-/**
- * Fold a task's haul into a running result set, in place.
- *
- * Grid cells overlap heavily, so most of what a later cell returns is already
- * present; those sightings merge into the existing row instead of appending.
- * Returns { added, touched }: how many genuinely new businesses appeared (the
- * number worth showing per search) and every record object that changed, so
- * the caller can persist just those rather than the whole set.
- *
- * Each record is stamped with its identity as `key`, which is also the primary
- * key in IndexedDB — so a re-sighting updates a row instead of duplicating it.
- */
+/** Fold a task's haul into a running result set, in place. */
 export function absorbInto(records, incoming) {
   const index = new Map();
   for (const record of records) {
@@ -148,7 +105,6 @@ export function absorbInto(records, incoming) {
     const id = recordKey(record);
     if (!id) {
       // Nothing to match on — keep it rather than silently lose a business.
-      // A synthetic key keeps it addressable in the database.
       const copy = { ...record, key: `anon:${records.length}:${Date.now()}` };
       records.push(copy);
       touched.push(copy);
@@ -171,12 +127,7 @@ export function absorbInto(records, incoming) {
   return { added, touched };
 }
 
-/**
- * A bounded set of business keys seen in previous runs.
- *
- * Kept as an array in storage (a Set does not survive structured cloning into
- * chrome.storage) and trimmed oldest-first so it cannot grow without limit.
- */
+/** A bounded set of business keys seen in previous runs. */
 export const SEEN_LIMIT = 50000;
 
 export function addToSeen(seen, records, limit = SEEN_LIMIT) {

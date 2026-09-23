@@ -1,26 +1,6 @@
-/**
- * The instructions the search planner runs on.
- *
- * Kept apart from the transport in `ai.js` because this is the part that gets
- * tuned. Two rules govern every edit here:
- *
- *   1. **It has to produce what the queue eats.** `parseBatch` reads
- *      "term, city" per line, so the model's job is to produce exactly those
- *      pairs. A beautifully reasoned answer in any other shape is useless.
- *
- *   2. **Short beats thorough.** This is sent on every call, and both Gemini
- *      Flash and the Groq-hosted models follow a page better than they follow
- *      ten. Rules that the JSON schema already enforces are not repeated in
- *      prose.
- */
+/** The instructions the search planner runs on. */
 
-/**
- * How many searches each depth is allowed to return.
- *
- * Deliberately not the same words as the panel's "How thorough?" — that
- * setting is the geographic grid, which is a different axis entirely. A user
- * can want four angles searched exhaustively, or sixteen searched quickly.
- */
+/** How many searches each depth is allowed to return. */
 export const DEPTH_LIMITS = { quick: 4, balanced: 8, deep: 16 };
 
 export const SYSTEM_PROMPT = `You are the search planner for a lead-generation tool. The user describes their
@@ -84,13 +64,7 @@ Reply in the user's own language for "understood", "reason" and "question".
 Write the searches in the language that will actually match listings in that
 country.`;
 
-/*
- * How each source is named to the model.
- *
- * The public web is a people search too — it just reaches them through a
- * search engine rather than through LinkedIn — so the plan it needs is the
- * same shape: roles, not company categories.
- */
+// How each source is named to the model.
 const SOURCE_LINE = {
   maps: 'google maps (businesses)',
   linkedin: 'linkedin (people)',
@@ -102,8 +76,7 @@ export function buildUserPrompt({ brief, source = 'maps', city = '', depth = 'ba
   const limit = DEPTH_LIMITS[depth] || DEPTH_LIMITS.balanced;
   const lines = [
     `Source: ${SOURCE_LINE[source] || SOURCE_LINE.maps}`,
-    // The form's own field is context, not an override — if the brief names a
-    // different place, the brief is the more recent thing the user said.
+    // The form's own field is context, not an override.
     city ? `Location already typed into the form: ${city}` : 'Location: not given',
     `Return at most ${limit} searches.`,
     '',
@@ -113,13 +86,7 @@ export function buildUserPrompt({ brief, source = 'maps', city = '', depth = 'ba
   return lines.join('\n');
 }
 
-/**
- * The response shape, as a JSON Schema.
- *
- * Both providers can enforce this server-side, which is the only reliable way
- * to get JSON back. Asking for it in prose gets you JSON most of the time, and
- * "most of the time" is a bug report.
- */
+/** The response shape, as a JSON Schema. */
 export const RESPONSE_SCHEMA = {
   type: 'object',
   properties: {

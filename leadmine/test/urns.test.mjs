@@ -1,11 +1,4 @@
-/**
- * The learned-id table.
- *
- * The property under test is mostly a negative one: that nothing is ever
- * invented. A wrong geoUrn does not throw — it silently searches the wrong
- * city and produces a spreadsheet that looks right, so "miss rather than
- * approximate" is the whole design.
- */
+/** The learned-id table. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -16,7 +9,6 @@ test('the seeds are only what was seen on a live page', () => {
   assert.equal(lookup(withSeed({}), 'serviceCategory', 'Corporate Training'), '20016');
 
   // Two more ids have been observed, but not which label belongs to which.
-  // Seeding that inference is the one thing this file must not do.
   const seeded = JSON.stringify(SEED);
   assert.ok(!seeded.includes('101138777'), 'an inferred pairing must not be seeded');
   assert.ok(!seeded.includes('106888327'));

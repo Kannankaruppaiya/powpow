@@ -1,27 +1,4 @@
-/**
- * Hand a finished run to PowPow.
- *
- * LeadMine lives in one Chrome window; the people who act on its leads live
- * in Telegram, WhatsApp and Slack. PowPow is the gateway between those
- * channels and an agent, and it already takes work from outside through one
- * endpoint (docs/automation/webhook.md in this repo):
- *
- *   POST {gateway}/hooks/agent
- *   Authorization: Bearer <hooks.token>
- *   { "message": "...", "name": "LeadMine", "deliver": true, "channel": "...", "to": "..." }
- *
- * The agent receives the leads as its prompt, writes the summary a person
- * wants to read — the best few, why, what to do next — and delivers it to the
- * channel. So a scheduled search at 8 a.m. is a message on the phone at 8:30
- * saying "three new trainer requirement posts in Chennai today", without the
- * extension knowing anything about Telegram.
- *
- * Runs in the service worker, because a scheduled run finishes with nobody
- * looking at the panel. That means the hook token is readable by the worker —
- * unlike the AI and finder keys, which never leave the panel. The token only
- * grants posting a message into the user's own gateway, and it is stored in
- * its own slot, never in a job, a record or an export.
- */
+/** Hand a finished run to PowPow. */
 
 export const HOOK_KEY = 'mls.powpow';
 
@@ -31,8 +8,7 @@ export const DEFAULT_HOOK = {
   token: '',
   channel: 'last',
   to: '',
-  // Only scheduled runs by default: a run the user started by hand has the
-  // user right there, looking at the panel.
+  // Only scheduled runs by default: a run the user started by hand has the user right there, looking at the panel.
   when: 'scheduled',
   maxLeads: 15,
 };
@@ -65,14 +41,7 @@ export function leadLine(record, note = {}) {
   return `- ${head}${why}${contact ? `\n  ${contact}` : ''}`;
 }
 
-/**
- * The prompt the agent gets.
- *
- * It says what the run was, how many were new, and lists the leads — best
- * first when some have been judged — then asks for a short summary for the
- * user. It never asks the agent to contact anyone: that decision stays with
- * the person reading the message.
- */
+/** The prompt the agent gets. */
 export function buildHookMessage({ records, notes = new Map(), config = {}, job = {}, scheduled = false, maxLeads = 15 }) {
   const source = config.source || 'maps';
   const noun = { maps: 'businesses', linkedin: 'people', web: 'people', posts: 'posts' }[source] || 'leads';
@@ -118,10 +87,7 @@ export function shouldSend(settings, { scheduled = false } = {}) {
   return settings.when === 'always' || scheduled;
 }
 
-/**
- * POST to the gateway. Returns { ok, status, error }. Never throws: a
- * gateway that is down must not turn a finished run into a failed one.
- */
+/** POST to the gateway. */
 export async function sendToPowPow(settings, message, { fetchImpl = typeof fetch === 'function' ? fetch : null, timeout = 15000 } = {}) {
   if (!fetchImpl) return { ok: false, status: 0, error: 'No network in this context.' };
   let url;

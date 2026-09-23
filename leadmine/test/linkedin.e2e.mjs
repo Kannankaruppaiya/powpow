@@ -1,14 +1,4 @@
-/**
- * Browser test for the LinkedIn People adapter.
- *
- * Runs the real content scripts in Chromium against a synthetic page shaped
- * like a LinkedIn People search — NOT against linkedin.com. The fixture
- * reproduces the two behaviours that actually make the adapter hard:
- * results hydrate lazily as you scroll (so early rounds see empty skeletons),
- * and the user can change the search underneath a run.
- *
- * Run with: npm run test:dom
- */
+/** Browser test for the LinkedIn People adapter. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
@@ -37,13 +27,7 @@ function findChromium() {
   return undefined;
 }
 
-/*
- * Three pages, not two.
- *
- * With two, "stopped after page two" and "finished" produce the same rows, so
- * the fixture could not tell them apart — which is exactly the bug the live
- * run had, and exactly what a two-page fixture is blind to.
- */
+// Three pages, not two.
 const PAGE_THREE = [
   {
     slug: 'arun-p', name: 'Arun P',
@@ -59,14 +43,7 @@ const PAGE_THREE = [
 
 const PAGE_TWO = [
   {
-    /*
-     * A person LinkedIn will not name.
-     *
-     * Outside the viewer's network the card comes back titled "LinkedIn
-     * Member" with NO profile link on it at all — which is why the run
-     * cannot collect them, and why a search showing twelve results can
-     * export three and look broken.
-     */
+    // A person LinkedIn will not name.
     anon: true,
     headline: 'Manager & Lead - Quality Engineering | Lead SDET | Regulatory Tech',
     location: 'Chennai, Tamil Nadu, India',
@@ -107,12 +84,9 @@ const PEOPLE = [
     location: 'Bengaluru, Karnataka, India', degree: '3rd+', openToWork: false,
   },
   {
-    // Copied from a real card in the user's export. The headline is full of
-    // commas and pipes, so anything matching "a location is comma-separated"
-    // naively puts a job title in the Location column.
+    // Copied from a real card in the user's export.
     slug: 'anubha-goel', name: 'Anubha Goel',
-    // The other shape of the duplicate: link text for assistive tech rather
-    // than a second copy of the bare name.
+    // The other shape of the duplicate: link text for assistive tech rather than a second copy of the bare name.
     sr: "View Anubha Goel's profile",
     headline: 'Technical Corporate Trainer|C,C++,Java FSD,Python FSD,DSA',
     current: 'Technical Trainer at Oracle',
@@ -120,21 +94,7 @@ const PEOPLE = [
   },
 ];
 
-/**
- * A page that hydrates its list in pages of two, the way LinkedIn does.
- *
- * Deliberately shaped like the live site rather than like the adapter:
- *   - no `reusable-search__entity-result-list` or other nameable hooks, since
- *     those are build output that changed under us on the real site;
- *   - the whole card wrapped inside the /in/ profile link, and the name
- *     printed twice inside it (visible, then for screen readers) — this is
- *     what the user's export caught, and it is why reading the anchor's text
- *     put the entire card, name doubled, into the Name column;
- *   - a second profile link per card ("X is a mutual connection"), which must
- *     not be mistaken for the person the card is about;
- *   - a promo card injected mid-list, which has no profile link at all;
- *   - a profile link in the top navigation, outside the results.
- */
+/** A page that hydrates its list in pages of two, the way LinkedIn does. */
 function fixture() {
   return `<!doctype html><html><head><meta charset="utf-8"><style>
     body { height: 3000px; margin: 0; }
@@ -281,8 +241,7 @@ async function run(t, { url, config = {}, mutate, instead } = {}) {
 
   if (mutate) await mutate(page);
 
-  // Some tests drive something other than a scrape — resolving a filter, for
-  // instance, which is a lookup rather than a run.
+  // Some tests drive something other than a scrape.
   const result = instead
     ? await instead(page)
     : await page.evaluate(
@@ -297,16 +256,9 @@ async function run(t, { url, config = {}, mutate, instead } = {}) {
   return result;
 }
 
-/**
- * A stand-in for LinkedIn's Locations filter, hostile in the ways the real one
- * is: hashed class names, a panel rendered as a portal at the end of the
- * document rather than inside the pill, and options that arrive ~300ms after
- * typing because the typeahead is network-backed.
- */
+/** A stand-in for LinkedIn's Locations filter, hostile in the ways the real one is. */
 const FILTER_PANEL = (catalog) => {
-  // The page already has a Locations pill — the one readPills was written
-  // against. Adding a second would mean the adapter picks the inert first
-  // one, which is exactly what it should do.
+  // The page already has a Locations pill — the one readPills was written against.
   const pill = [...document.querySelectorAll('button')].find((b) =>
     /^locations\b/i.test((b.getAttribute('aria-label') || b.textContent || '').trim())
   );
@@ -329,8 +281,7 @@ const FILTER_PANEL = (catalog) => {
     document.body.appendChild(panel);
     open = panel;
 
-    // Show results does what LinkedIn's does: writes the chosen ids into the
-    // URL. That is the whole reason no id has to be known in advance.
+    // Show results does what LinkedIn's does: writes the chosen ids into the URL.
     panel.querySelector('.zz').addEventListener('click', () => {
       const picked = [...opts.querySelectorAll('input:checked')].map((i) => i.value);
       const next = new URL(location.href);
@@ -400,10 +351,7 @@ async function resolve(t, want, catalog = CATALOG) {
 }
 
 test('a filter with no known id is applied by driving LinkedIn’s own panel', async (t) => {
-  // This is what makes an unknown place usable at all. `geoUrn` takes
-  // LinkedIn's internal number, which is undocumented — so rather than
-  // building a URL out of one, the run types the name into LinkedIn's filter,
-  // ticks what comes back and presses Show results. LinkedIn writes the URL.
+  // This is what makes an unknown place usable at all.
   const result = await run(t, {
     mutate: async (page) => {
       await page.evaluate(
@@ -429,20 +377,17 @@ test('a filter with no known id is applied by driving LinkedIn’s own panel', a
   if (!result) return;
 
   assert.equal(result.ok, true, result.reason);
-  // The URL LinkedIn wrote, carrying the id nobody had to know. It merges
-  // with what the page already had, exactly as the real one does.
+  // The URL LinkedIn wrote, carrying the id nobody had to know.
   assert.match(result.url, /102784390/);
   assert.match(result.url, /geoUrn=/);
-  // And the pairing is handed back, so the same search is a plain URL next
-  // time and drives nothing.
+  // And the pairing is handed back, so the same search is a plain URL next time and drives nothing.
   assert.deepEqual(result.applied, [
     { facet: 'geoUrn', id: '102784390', label: 'Chennai, Tamil Nadu, India' },
   ]);
 });
 
 test('a filter that cannot be applied fails loudly rather than running unfiltered', async (t) => {
-  // Scraping on regardless would hand back a spreadsheet of the wrong people
-  // that looks entirely right — the failure this whole design exists to avoid.
+  // Scraping on regardless would hand back a spreadsheet of the wrong people that looks entirely right.
   const result = await run(t, {
     mutate: async (page) => {
       await page.evaluate(
@@ -471,9 +416,7 @@ test('a filter that cannot be applied fails loudly rather than running unfiltere
 });
 
 test('a place name is resolved to LinkedIn’s own id by asking LinkedIn', async (t) => {
-  // `geoUrn` wants 102784390, not "Chennai", and that number is LinkedIn's
-  // own. The filter panel's typeahead is the only thing that knows it, so the
-  // adapter drives that box rather than shipping a table nobody publishes.
+  // `geoUrn` wants 102784390, not "Chennai", and that number is LinkedIn's own.
   const result = await resolve(t, { facet: 'geoUrn', label: 'chennai' });
   if (!result) return;
   assert.equal(result.ok, true, result.reason);
@@ -483,8 +426,7 @@ test('a place name is resolved to LinkedIn’s own id by asking LinkedIn', async
 });
 
 test('a broad name resolves to itself, never to a town inside it', async (t) => {
-  // "India" must not become "Theni, Tamil Nadu, India" just because the words
-  // appear in it. A prefix is allowed; a substring is not.
+  // "India" must not become "Theni, Tamil Nadu, India" just because the words appear in it.
   const result = await resolve(t, { facet: 'geoUrn', label: 'India' });
   if (!result) return;
   assert.equal(result.id, '102713980');
@@ -531,11 +473,7 @@ test('resolving survives every class name being rewritten', async (t) => {
 });
 
 test('the name LinkedIn gives a filter is learned alongside its id', async (t) => {
-  // LinkedIn's facets take ids, not names: geoUrn wants 102713980, not
-  // "India". Those ids are internal and not derivable, so the only place both
-  // halves appear together is the filter panel — the checkbox carries the id,
-  // its label carries the name. This is the pairing the whole facet feature
-  // rests on, and nothing else in the extension can produce it.
+  // LinkedIn's facets take ids, not names: geoUrn wants 102713980, not "India".
   const result = await run(t, {
     mutate: async (page) => {
       await page.evaluate(() => {
@@ -549,21 +487,14 @@ test('the name LinkedIn gives a filter is learned alongside its id', async (t) =
   });
   if (!result) return;
 
-  // The fixture's URL carries geoUrn=["102713980"], so the id in the URL and
-  // the label on the option are now paired.
+  // The fixture's URL carries geoUrn=["102713980"].
   assert.deepEqual(result.context.learned, [
     { facet: 'geoUrn', id: '102713980', label: 'India' },
   ]);
 });
 
 test('one applied filter teaches the whole list it was chosen from', async (t) => {
-  // Typing "usa" into LinkedIn's own location box renders ten places at once,
-  // every one of them carrying its id. Learning only the one that gets ticked
-  // throws the other nine away, and then LeadMine's own list stays almost
-  // empty however much the user browses. Options rendered together belong to
-  // one facet, so the moment any of them turns up in the URL the whole batch
-  // is attributable — which is an observation, not a guess: they were on
-  // screen together.
+  // Typing "usa" into LinkedIn's own location box renders ten places at once, every one of them carrying its id.
   const result = await run(t, {
     mutate: async (page) => {
       await page.evaluate(() => {
@@ -595,8 +526,7 @@ test('one applied filter teaches the whole list it was chosen from', async (t) =
 });
 
 test('an id with no name attached is not learned', async (t) => {
-  // Half an observation is a guess, and a guessed geoUrn does not fail — it
-  // searches somewhere else and hands back a plausible spreadsheet.
+  // Half an observation is a guess, and a guessed geoUrn does not fail.
   const result = await run(t, {
     mutate: async (page) => {
       await page.evaluate(() => {
@@ -614,8 +544,7 @@ test('an id with no name attached is not learned', async (t) => {
 });
 
 test('the URL a run was told to use is reported back with the results', async (t) => {
-  // A facet-driven task navigates to a URL the panel built; the context is
-  // what proves the page it actually landed on is that one.
+  // A facet-driven task navigates to a URL the panel built.
   const result = await run(t);
   if (!result) return;
   assert.match(result.context.url, /geoUrn=%5B%22102713980%22%5D/);
@@ -631,8 +560,7 @@ test('the LinkedIn adapter is chosen for a People search URL', async (t) => {
 test('lazily hydrated results are all collected', async (t) => {
   const result = await run(t);
   if (!result) return;
-  // Two of four render at load, the rest arrive on scroll, and two more
-  // pages bring two each.
+  // Two of four render at load, the rest arrive on scroll, and two more pages bring two each.
   assert.equal(result.records.length, 8, 'the scroll loop must pick up late arrivals');
 });
 
@@ -651,10 +579,7 @@ test('each person’s fields are read off the card', async (t) => {
 });
 
 test('the whole card being inside the profile link does not swallow every field', async (t) => {
-  // This is the export the user sent back: Name held the entire card with the
-  // person's name printed twice, and Headline/Company/Location/Connection were
-  // all empty. LinkedIn now wraps the card in the /in/ anchor, so reading the
-  // anchor's text returns the card. Fields come off the rendered lines instead.
+  // This is the export the user sent back.
   const result = await run(t);
   if (!result) return;
 
@@ -695,14 +620,7 @@ test('the active filters and query are read off the page', async (t) => {
   assert.ok(result.context.filters.geoUrn, 'a URL facet should be reported');
 });
 
-/**
- * A results page where LinkedIn named nobody.
- *
- * Not hypothetical: a country-wide search on a niche skill returns people who
- * are all outside the viewer's network, and every card comes back titled
- * "LinkedIn Member" with no profile link. Detection used to count profile
- * links, so this page had nothing to count.
- */
+/** A results page where LinkedIn named nobody. */
 const ALL_NAMELESS = `
   <nav><a href="https://www.linkedin.com/in/kannan-the-viewer/">Me</a></nav>
   <main>
@@ -730,8 +648,7 @@ test('a page where LinkedIn named nobody is still a results page', async (t) => 
   });
   if (!result) return;
 
-  // It used to fail with "No results list found on this page. Make sure the
-  // tab is showing search results." — while looking at a page full of them.
+  // It used to fail with "No results list found on this page.
   assert.equal(result.ok, true, result.error);
   assert.equal(result.records.length, 0);
   assert.equal(result.context.withheld, 3, JSON.stringify(result.context));
@@ -739,7 +656,6 @@ test('a page where LinkedIn named nobody is still a results page', async (t) => 
 
 test('a promoted card and the message overlay do not out-vote the results', async (t) => {
   // Two profile links outside the results, three withheld cards inside them.
-  // Counting only links picked the wrong container; counting cards does not.
   const result = await run(t, {
     mutate: (page) => page.evaluate((html) => { document.body.innerHTML = html; }, ALL_NAMELESS),
     instead: null,
@@ -792,8 +708,7 @@ test('a Maps URL does not select the LinkedIn adapter', async (t) => {
 });
 
 test('the results list is found by shape, without relying on class names', async (t) => {
-  // The fixture carries none of the class hooks the adapter used to name; if
-  // this passes, a LinkedIn rename cannot silently return zero results again.
+  // The fixture carries none of the class hooks the adapter used to name.
   const result = await run(t);
   if (!result) return;
   assert.equal(result.ok, true, result.error);
@@ -821,8 +736,7 @@ test('a profile link in the navigation is not scraped as a result', async (t) =>
 });
 
 test('when detection fails it reports what it actually saw', async (t) => {
-  // A page with no results at all. "No results found" is useless to whoever
-  // has to fix it; the counts are what make the next fix a one-shot.
+  // A page with no results at all.
   const result = await run(t, {
     mutate: async (page) => {
       await page.evaluate(() => {
@@ -841,8 +755,7 @@ test('when detection fails it reports what it actually saw', async (t) => {
 });
 
 test('results are found even when they sit outside <main>', async (t) => {
-  // Scoping the search to <main> was a guess about LinkedIn's layout, and a
-  // wrong guess looked exactly like "no results".
+  // Scoping the search to <main> was a guess about LinkedIn's layout.
   const result = await run(t, {
     mutate: async (page) => {
       await page.evaluate(() => {
@@ -882,12 +795,6 @@ test('cards that are not list items are still grouped correctly', async (t) => {
 
 test('paging is not stopped by LinkedIn rewriting its own URL', async (t) => {
   // The live symptom: exactly 20 profiles, every time — two pages, then stop.
-  //
-  // The search fingerprint was built from *every* URL parameter bar a
-  // four-item denylist, and LinkedIn appends its own tracking and session
-  // parameters as you page. So the fingerprint changed on its own, the adapter
-  // concluded the user had changed the search underneath it, and the run ended
-  // at page two reporting "the source said there are no more".
   const result = await run(t);
   if (!result) return;
 
@@ -900,8 +807,7 @@ test('paging is not stopped by LinkedIn rewriting its own URL', async (t) => {
 });
 
 test('a search the user really does change mid-run stops, and says so', async (t) => {
-  // The fingerprint still has to do its job: two different searches must not
-  // be blended into one export.
+  // The fingerprint still has to do its job: two different searches must not be blended into one export.
   const result = await run(t, {
     mutate: async (page) => {
       await page.evaluate(() => {
@@ -920,9 +826,7 @@ test('a search the user really does change mid-run stops, and says so', async (t
 });
 
 test('it pages past the first ten instead of stopping there', async (t) => {
-  // The live run stopped at exactly one page. Two faults did it: the engine
-  // held the list node from page one, which paging detaches, and the Next
-  // button was matched by an exact aria-label that did not exist.
+  // The live run stopped at exactly one page.
   const result = await run(t);
   if (!result) return;
 
@@ -938,23 +842,18 @@ test('people LinkedIn refuses to name are counted, not silently dropped', async 
   const result = await run(t);
   if (!result) return;
 
-  // The two anonymous cards on page two are real results with real headlines
-  // — LinkedIn just will not say who they are. Collecting them is impossible;
-  // saying nothing about them is what made a short run look like a broken one.
+  // The two anonymous cards on page two are real results with real headlines.
   assert.equal(result.context.withheld, 2, JSON.stringify(result.context));
 
   const names = result.records.map((r) => r.name);
   assert.ok(!names.includes('LinkedIn Member'), `a nameless card became a row: ${names.join(' | ')}`);
-  // Everyone LinkedIn did name still comes through: this is a report, not a
-  // new reason to drop people.
+  // Everyone LinkedIn did name still comes through: this is a report, not a new reason to drop people.
   assert.ok(names.includes('Vikram S'), names.join(' | '));
   assert.ok(names.includes('Meera T'), names.join(' | '));
 });
 
 test('a skeleton that never loads is not reported as a withheld identity', async (t) => {
-  // The fixture carries one <li> that stays empty for the whole run. Counting
-  // it would put a number in front of the user that nothing on the page
-  // supports — and the count is the only evidence they have for "why so few".
+  // The fixture carries one <li> that stays empty for the whole run.
   const result = await run(t);
   if (!result) return;
   assert.equal(result.context.withheld, 2, 'the empty card was counted as a person');

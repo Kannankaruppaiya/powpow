@@ -1,10 +1,4 @@
-/**
- * The search cache, keyed on what a search actually is.
- *
- * Every URL below was read off the live site during one session, including
- * the noise LinkedIn appends to it. Two runs of the identical search produce
- * different URLs, which is exactly why the raw URL cannot be the key.
- */
+/** The search cache, keyed on what a search actually is. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -22,16 +16,13 @@ test('the same search on a different page is the same search', () => {
 });
 
 test('LinkedIn’s own tracking parameters are not part of the question', () => {
-  // origin, searchId, spellCorrectionEnabled and the rest change between two
-  // runs of the identical search. Keyed on the raw URL, no repeat would ever
-  // hit the cache.
+  // origin, searchId, spellCorrectionEnabled and the rest change between two runs of the identical search.
   const withTracking = `${PLAIN}&origin=SWITCH_SEARCH_VERTICAL&searchId=1788&heroEntityKey=urn%3Ali%3Afsd_profile%3AABC`;
   assert.equal(cacheKey(withTracking), cacheKey(PLAIN));
 });
 
 test('a different filter is a different search', () => {
-  // The whole risk of a cache: serving one search's answer for another. A
-  // location filter is the difference between Chennai and the country.
+  // The whole risk of a cache: serving one search's answer for another.
   assert.notEqual(cacheKey(FACETED), cacheKey(PLAIN));
   const other = FACETED.replace('102713980', '101138777');
   assert.notEqual(cacheKey(FACETED), cacheKey(other), 'two places share a key');
@@ -58,8 +49,7 @@ test('an old answer is not served as a fresh one', () => {
 
 test('each page ages on its own, not on the entry', () => {
   const now = Date.now();
-  // Fetching one new deep page used to reset the age of everything already
-  // held: page one could be a month old while the entry called itself fresh.
+  // Fetching one new deep page used to reset the age of everything already held.
   let entry = absorb(emptyEntry(), 1, [{ name: 'old' }], now - 30 * 86400000);
   entry = absorb(entry, 2, [{ name: 'new' }], now);
   assert.equal(depthOf(entry, now), 0, 'a stale page one still counted as depth');
@@ -95,17 +85,11 @@ test('a stale answer is re-fetched from the first page', () => {
   assert.equal(plan.have.length, 0, 'stale records must not be mixed into a fresh run');
 });
 
-/*
- * The parts a source-text assertion cannot reach: what actually happens to an
- * entry as pages arrive, fail, or arrive out of order.
- */
+// The parts a source-text assertion cannot reach.
 
 test('a page is only held once its records have arrived', () => {
   const now = Date.now();
-  // A scrape that failed hands back nothing. The page is recorded as empty
-  // rather than not at all — it was fetched and it was genuinely empty, and
-  // paying for it twice helps nobody — but a page never passed to absorb is
-  // never held.
+  // A scrape that failed hands back nothing.
   const entry = absorb(emptyEntry(), 1, [{ name: 'a' }], now);
   assert.equal(depthOf(entry), 1);
   assert.equal(depthOf(absorb(entry, 'not a page', [{}], now)), 1, 'a bad page number must not extend the depth');
@@ -113,8 +97,7 @@ test('a page is only held once its records have arrived', () => {
 
 test('a gap in the pages is not depth', () => {
   const now = Date.now();
-  // Pages 1, 2 and 7 are not seven pages. Resuming at eight would leave
-  // three of them permanently unvisited, and nothing would ever say so.
+  // Pages 1, 2 and 7 are not seven pages.
   let entry = absorb(emptyEntry(), 1, [{ name: 'a' }], now);
   entry = absorb(entry, 2, [{ name: 'b' }], now);
   entry = absorb(entry, 7, [{ name: 'g' }], now);
@@ -144,14 +127,7 @@ test('a month-old page is never served alongside a fresh one', () => {
   assert.deepEqual(plan.have, [], 'a month-old page was handed back as this run’s answer');
 });
 
-/*
- * A search shorter than the depth asked for.
- *
- * Ten pages wanted, three exist. Without an end marker the cache always looked
- * seven pages short, so every repeat paid for page one and then for one more
- * page that only repeated the last — two searches a run for an answer already
- * held in full.
- */
+// A search shorter than the depth asked for.
 test('a search with fewer pages than asked for is answered from disk once all are held', () => {
   const now = Date.now();
   const entry = markEnd(held(3, now), 3);
@@ -186,8 +162,7 @@ test('a search that grew past its end is no longer complete', () => {
 });
 
 test('a people search and an "all" search for the same words are different searches', () => {
-  // The adapter reads both /people/ and /all/ pages. Keyed on the words
-  // alone, a cached people search was served for an "all" search and back.
+  // The adapter reads both /people/ and /all/ pages.
   const people = cacheKey('https://www.linkedin.com/search/results/people/?keywords=kotlin');
   const all = cacheKey('https://www.linkedin.com/search/results/all/?keywords=kotlin');
   assert.notEqual(people, all);

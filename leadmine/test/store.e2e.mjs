@@ -1,12 +1,4 @@
-/**
- * Browser test for the IndexedDB layer.
- *
- * Node has no IndexedDB, so this drives the real module inside Chromium
- * against a real database — which is the only way to catch the mistakes that
- * matter here (transaction lifetimes, index queries, cursor paging).
- *
- * Run with: npm run test:dom
- */
+/** Browser test for the IndexedDB layer. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync, readdirSync } from 'node:fs';

@@ -1,38 +1,14 @@
-/**
- * IndexedDB persistence.
- *
- * The previous design kept every scraped record inside one job object in
- * chrome.storage.local and rewrote the whole thing on each progress update.
- * At 5,000 records that is a ~4.8 MB blob re-serialised on the order of a
- * thousand times per run — several gigabytes of writes for one scrape.
- *
- * Here the job metadata (the queue and the counters, which stay small) is
- * separate from the records, and records are written per task in one
- * transaction. Both the service worker and the side panel are extension pages
- * on the same origin, so the side panel reads records straight out of the
- * database rather than pulling them through a message — which also sidesteps
- * the 64 MiB message ceiling on a big export.
- */
+/** IndexedDB persistence. */
 
-// Deliberately not renamed with the product. The database holds the user's
-// results and their cross-run "already downloaded" index; renaming it would
-// orphan both behind a name nobody sees. A rebrand is not worth someone's data.
+// Deliberately not renamed with the product.
 const DB_NAME = 'maps-lead-scraper';
-// 2: `notes` (what the user and the judge said about a lead) and
-// `suppression` (the do-not-contact list). Both are added, nothing is moved.
+// 2: `notes` (what the user and the judge said about a lead) and `suppression` (the do-not-contact list).
 const DB_VERSION = 2;
 
 export const STORE_META = 'meta';
 export const STORE_RECORDS = 'records';
 export const STORE_SEEN = 'seen';
-/**
- * What was said about a lead, apart from what was scraped about it.
- *
- * A record is rewritten whole every time a run sees that business again, so a
- * verdict or a "contacted" stored on it would be wiped by the next scrape of
- * the same street. Notes are keyed by the same identity and never touched by a
- * run, so they survive re-scrapes, new runs and Clear.
- */
+/** What was said about a lead, apart from what was scraped about it. */
 export const STORE_NOTES = 'notes';
 /** Addresses, domains and profiles never to contact. Survives everything. */
 export const STORE_SUPPRESSION = 'suppression';
@@ -76,9 +52,7 @@ export function openDb() {
     request.onsuccess = () => {
       clearTimeout(blockedTimer);
       const db = request.result;
-      // A newer build opening a newer version must not be blocked by this
-      // connection — the side panel left open across an extension reload is
-      // exactly that. Close, and the next call reopens at the new version.
+      // A newer build opening a newer version must not be blocked by this connection.
       db.onversionchange = () => {
         db.close();
         dbPromise = null;
@@ -89,10 +63,7 @@ export function openDb() {
       clearTimeout(blockedTimer);
       reject(request.error);
     };
-    // "Blocked" is a wait, not a failure: an older connection still holds the
-    // previous version, and the upgrade proceeds the moment it closes (every
-    // connection this build opens closes itself on `versionchange`). Only a
-    // block that never lifts is an error.
+    // "Blocked" is a wait, not a failure.
     request.onblocked = () => {
       clearTimeout(blockedTimer);
       blockedTimer = setTimeout(
@@ -149,13 +120,7 @@ export async function getMeta(key) {
 
 /* ----------------------------------------------------------------- records */
 
-/**
- * Write records for a job in one transaction.
- *
- * Callers pass only the records a task actually touched, so the cost of a
- * progress write is proportional to that task rather than to everything
- * collected so far.
- */
+/** Write records for a job in one transaction. */
 export async function putRecords(jobId, records) {
   if (!records || !records.length) return 0;
   const db = await openDb();
@@ -176,13 +141,7 @@ export async function getRecords(jobId) {
   return (await request(index.getAll(IDBKeyRange.only(jobId)))) || [];
 }
 
-/**
- * Every record from every run.
- *
- * Linking a person to the business they work at means looking across runs:
- * the businesses came from last week's Maps search and the people from
- * today's LinkedIn one, and each run only ever reads its own rows.
- */
+/** Every record from every run. */
 export async function getAllRecords() {
   const db = await openDb();
   const tx = db.transaction(STORE_RECORDS, 'readonly');
@@ -195,10 +154,7 @@ export async function countRecords(jobId) {
   return request(tx.objectStore(STORE_RECORDS).index('jobId').count(IDBKeyRange.only(jobId)));
 }
 
-/**
- * Read a window of a job's records, for a virtualised table that must stay
- * responsive with tens of thousands of rows.
- */
+/** Read a window of a job's records. */
 export async function pageRecords(jobId, offset = 0, limit = 100) {
   const db = await openDb();
   const tx = db.transaction(STORE_RECORDS, 'readonly');
@@ -318,12 +274,7 @@ export async function getAllNotes() {
   return new Map(all.map((note) => [note.key, note]));
 }
 
-/**
- * Merge patches into notes, one transaction for the lot.
- *
- * `patches` is [{ key, ...fields }]. A field set to null is removed, so a
- * verdict the user takes back does not linger as an empty string.
- */
+/** Merge patches into notes, one transaction for the lot. */
 export async function putNotes(patches) {
   if (!patches || !patches.length) return 0;
   const db = await openDb();

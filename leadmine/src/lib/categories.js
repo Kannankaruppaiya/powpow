@@ -1,21 +1,6 @@
-/**
- * Category narrowing.
- *
- * A search like "wholesale store" returns whatever Google thinks is close:
- * furniture wholesalers, produce markets, cell-phone accessory shops. The
- * search box cannot express "only the wholesale markets", so this does —
- * after the listings are collected, before anything expensive is spent on
- * them.
- *
- * Optional throughout: an empty filter keeps everything, which is the
- * behaviour every run had before this existed.
- */
+/** Category narrowing. */
 
-/**
- * A starting list for the picker. Not exhaustive and not meant to be — the
- * useful suggestions are the categories a run actually returned, which the
- * panel merges in on top of these.
- */
+/** A starting list for the picker. */
 export const COMMON_CATEGORIES = [
   'Software company',
   'IT services',
@@ -67,12 +52,7 @@ export const COMMON_CATEGORIES = [
 
 const norm = (value) => String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
 
-/**
- * Split what the user typed into terms.
- *
- * Commas separate alternatives, so "wholesale, distributor" keeps either.
- * Blank in means no filtering at all.
- */
+/** Split what the user typed into terms. */
 export function parseCategoryFilter(text) {
   return String(text || '')
     .split(',')
@@ -80,14 +60,7 @@ export function parseCategoryFilter(text) {
     .filter(Boolean);
 }
 
-/**
- * Does this value satisfy any of the terms?
- *
- * Substring, not exact: someone typing "wholesale" means the wholesale
- * markets, the wholesale grocers and the furniture wholesalers — demanding an
- * exact category name would make the field useless, because nobody knows what
- * Google will label a listing.
- */
+/** Does this value satisfy any of the terms? */
 export function matchesCategory(value, terms) {
   if (!terms || !terms.length) return true;
   const haystack = norm(value);
@@ -95,16 +68,7 @@ export function matchesCategory(value, terms) {
   return terms.some((term) => haystack.includes(term));
 }
 
-/**
- * The text a filter is matched against, which is more than one field for a
- * person.
- *
- * A business carries its category in one place. A person does not: LinkedIn's
- * best lead for "kotlin trainer" had the headline "Software Developer
- * @Invisible | JAVA | KOTLIN | DSA" and the word *Trainer* only in the line
- * underneath — "Current: Kotlin Coding Specialist - AI Trainer". Filtering the
- * headline alone set the best result aside.
- */
+/** The text a filter is matched against, which is more than one field for a person. */
 function filterText(record, field) {
   const fields = Array.isArray(field) ? field : [field];
   return fields
@@ -113,15 +77,7 @@ function filterText(record, field) {
     .join(' · ');
 }
 
-/**
- * Split records into the ones to keep and the ones to drop.
- *
- * `field` differs by source: a business has a category, a person has a
- * headline, a current role and an employer. Records with nothing in any of
- * those fields are dropped when a filter is set — an unlabelled row cannot be
- * shown to satisfy the filter, and silently keeping it would defeat the point
- * of narrowing.
- */
+/** Split records into the ones to keep and the ones to drop. */
 export function filterByCategory(records, text, field = 'category') {
   const terms = parseCategoryFilter(text);
   if (!terms.length) return { kept: records || [], dropped: [] };
@@ -134,10 +90,7 @@ export function filterByCategory(records, text, field = 'category') {
   return { kept, dropped };
 }
 
-/**
- * The distinct values a result set actually used, most common first.
- * These are the suggestions worth offering — they are known to exist.
- */
+/** The distinct values a result set actually used, most common first. */
 export function observedCategories(records, field = 'category') {
   const counts = new Map();
   for (const record of records || []) {

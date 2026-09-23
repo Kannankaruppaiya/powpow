@@ -1,10 +1,4 @@
-/**
- * Behaviours of the run loop that are cheaper to assert against the source
- * than to drive through a whole browser run.
- *
- * Both of these are things a live run got wrong, and both are the kind of
- * regression a refactor reintroduces quietly.
- */
+/** Behaviours of the run loop that are cheaper to assert against the source than to drive through a whole. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -15,9 +9,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const WORKER = readFileSync(join(ROOT, 'src/background/service-worker.js'), 'utf8');
 
 test('rows the category filter sets aside are marked, never deleted', () => {
-  // A live run found 235 businesses, set every one aside, and deleted them —
-  // so the panel showed "0 businesses" and the only way back was to re-run
-  // ten searches. The filter narrows the view; it must not destroy the work.
+  // A live run found 235 businesses, set every one aside, and deleted them.
   const block = WORKER.slice(WORKER.indexOf('filterByCategory(records'), WORKER.indexOf('config.skipSeen'));
   assert.ok(block.includes('putRecords'), 'set-aside rows are written back with a marker');
   assert.ok(!block.includes('deleteRecords'), 'and are not deleted');
@@ -31,9 +23,7 @@ test('a filter that keeps nothing says so, and says the rows are still there', (
 });
 
 test('a tab-lifecycle failure is retried rather than losing the search', async () => {
-  // "The page keeping the extension port is moved into back/forward cache"
-  // is Chrome's messaging layer reporting that the tab moved. The scrape was
-  // not wrong, and losing one search in ten to it is a bad trade.
+  // "The page keeping the extension port is moved into back/forward cache" is Chrome's messaging layer reporting.
   const { isTransient } = await loadTransient();
 
   assert.equal(isTransient('The page keeping the extension port is moved into back/forward cache, so the message channel is closed.'), true);
@@ -85,14 +75,12 @@ async function loadTransient() {
 }
 
 test('a run that finished before a restart no longer owns the screen', () => {
-  // Every extension reload was painting a dead run's error back over the
-  // form, which reads as "the reload did nothing" — three reloads in a row.
+  // Every extension reload was painting a dead run's error back over the form.
   const block = WORKER.slice(WORKER.indexOf('async function loadJob'), WORKER.indexOf('const ready'));
   assert.match(block, /\['done', 'error', 'cancelled'\]\.includes\(job\.status\)/);
   assert.match(block, /job\.stale = true/);
 
-  // A paused run is unfinished and Resume lives in the run view, so it keeps
-  // the screen. Marking it stale would strand it.
+  // A paused run is unfinished and Resume lives in the run view, so it keeps the screen.
   assert.ok(!/paused/.test(block.slice(block.indexOf('job.stale = true') - 120, block.indexOf('job.stale = true'))),
     'paused must not be in the stale list');
 });
@@ -104,19 +92,14 @@ test('a new run clears the stale flag rather than inheriting it', () => {
 });
 
 test('every handler the message switch calls actually exists', () => {
-  // A live panel answered "Uncaught ReferenceError: resolveFacet is not
-  // defined". The route had been added to the switch and the function it calls
-  // had not — the edit that was supposed to add it failed silently. Nothing
-  // caught it, because the panel's tests stub sendMessage and never reach the
-  // worker at all.
+  // A live panel answered "Uncaught ReferenceError: resolveFacet is not defined".
   const switchBlock = WORKER.slice(
     WORKER.indexOf('switch (msg.type) {'),
     WORKER.indexOf('/* ------', WORKER.indexOf('switch (msg.type) {'))
   );
   assert.ok(switchBlock.includes('START_JOB'), 'the block being scanned is the right one');
 
-  // Bare calls only: a method on an imported namespace (store.countSeen) is
-  // that module's business, not this one's.
+  // Bare calls only: a method on an imported namespace.
   const called = new Set(
     [...switchBlock.matchAll(/(?<![.\w$])([a-z][A-Za-z0-9_]*)\s*\(/g)].map((m) => m[1])
   );
@@ -138,9 +121,7 @@ test('every handler the message switch calls actually exists', () => {
 });
 
 test('a filter LinkedIn has to apply is applied before anything is scraped', () => {
-  // A facet takes LinkedIn's own id, and those are undocumented — so a place
-  // nobody has looked up cannot go in a URL. It can go in LinkedIn's filter
-  // panel, and the run drives that before it reads a single card.
+  // A facet takes LinkedIn's own id, and those are undocumented.
   const block = WORKER.slice(
     WORKER.indexOf('if (task.applyFilters'),
     WORKER.indexOf('if (cancelRequested) throw', WORKER.indexOf('if (task.applyFilters'))
@@ -149,8 +130,7 @@ test('a filter LinkedIn has to apply is applied before anything is scraped', () 
   assert.match(block, /throw new Error/, 'and a filter that will not apply fails the task');
   assert.ok(block.includes('rememberUrns'), 'whatever it learned on the way is kept');
 
-  // Order matters: applying rebuilds the results list, so scraping the page
-  // before it lands would read the unfiltered one.
+  // Order matters: applying rebuilds the results list.
   assert.ok(
     WORKER.indexOf('APPLY_FILTERS') < WORKER.indexOf("type: 'RUN_SCRAPE'"),
     'filters are applied before the scrape, not after'
@@ -158,9 +138,7 @@ test('a filter LinkedIn has to apply is applied before anything is scraped', () 
 });
 
 test('every page LinkedIn is asked for is counted against the allowance', () => {
-  // A month's allowance went in eight days with nothing counting it, and the
-  // run read as broken rather than out of budget. Every navigation to a
-  // people-search URL has to increment, including the ones a filter causes.
+  // A month's allowance went in eight days with nothing counting it.
   assert.ok(
     WORKER.indexOf('countSearchPage') !== -1,
     'nothing counts what this extension asks LinkedIn for'
@@ -178,16 +156,13 @@ test('every page LinkedIn is asked for is counted against the allowance', () => 
 
 test('the allowance resets with the calendar month, the way LinkedIn’s does', () => {
   const block = WORKER.slice(WORKER.indexOf('async function countSearchPage'), WORKER.indexOf('async function readBudget'));
-  // Carrying last month's total forward would refuse runs the allowance
-  // actually permits — the opposite failure, and just as wrong.
+  // Carrying last month's total forward would refuse runs the allowance actually permits.
   assert.match(block, /stored\.month === month/, 'a new month must start from zero');
   assert.match(block, /stored\.day === day/, 'and so must a new day');
 });
 
 test('LinkedIn pages by URL, and the worker is what turns the page', () => {
-  // Proved in LinkedIn's own Network panel: turning a page fires one
-  // `document` request for "…&page=N" and no XHR. A navigation destroys the
-  // content script, so the harvest loop cannot own paging.
+  // Proved in LinkedIn's own Network panel: turning a page fires one `document` request for "…&page=N" and no XHR.
   assert.match(WORKER, /pagesByUrl/, 'nothing marks the sources that page by URL');
   assert.match(WORKER, /pageUrl\(base, page\)/, 'the next page is not built from the URL');
   const paging = WORKER.slice(WORKER.indexOf('async function pageThrough'));
@@ -196,19 +171,14 @@ test('LinkedIn pages by URL, and the worker is what turns the page', () => {
 });
 
 test('paging starts from where the tab actually is, not from where it was sent', () => {
-  // Applying a filter makes LinkedIn rewrite the URL. Paging the URL we asked
-  // for would drop the filters that had just been applied, and hand back the
-  // right number of the wrong people with nothing erroring.
+  // Applying a filter makes LinkedIn rewrite the URL.
   assert.match(WORKER, /task\.currentUrl = live\.url/, 'the live URL is never read');
   const paging = WORKER.slice(WORKER.indexOf('async function pageThrough'));
   assert.match(paging, /task\.currentUrl \|\| task\.url/, 'paging ignores the live URL');
 });
 
 test('a run stops at the budget rather than discovering the wall', () => {
-  // Paging by URL made reaching all 100 pages reliable for the first time,
-  // which is exactly the danger: at 100 pages a run, three runs spend a
-  // month. The previous version only avoided that by failing to find its own
-  // Next button.
+  // Paging by URL made reaching all 100 pages reliable for the first time, which is exactly the danger.
   const paging = WORKER.slice(WORKER.indexOf('async function pageThrough'));
   assert.match(paging, /config\.maxPages \|\| 10\b/, 'the default depth is not bounded to something sane');
   assert.match(paging, /budgetLeft/, 'paging never checks what is left');
@@ -220,19 +190,14 @@ test('a run stops at the budget rather than discovering the wall', () => {
 });
 
 test('the budget ceiling is a default to stop at, not a fact', () => {
-  // LinkedIn does not publish the number and does not hold it fixed — it is
-  // decided from behaviour. Hard-coding it with no way out would refuse runs
-  // an account actually permits.
+  // LinkedIn does not publish the number and does not hold it fixed — it is decided from behaviour.
   const block = WORKER.slice(WORKER.indexOf('const MONTHLY_ALLOWANCE'), WORKER.indexOf('async function countSearchPage'));
   assert.match(block, /config\.searchBudget/, 'the ceiling cannot be raised by the user');
   assert.match(block, /cap - inMonth/, 'what is left is not computed from what was spent');
 });
 
 test('the wait between pages is a range, not a number', () => {
-  // Everything else about a run already looks like a person: the user's own
-  // Chrome, their own address, their own session. The clock was the one thing
-  // that did not — ten pages at a fixed 1200ms is twenty seconds of perfectly
-  // even spacing, and evenness is the signal.
+  // Everything else about a run already looks like a person.
   const block = WORKER.slice(WORKER.indexOf('function pageDelay'), WORKER.indexOf('const wait ='));
   assert.match(block, /Math\.random\(\)/, 'the delay is still a constant');
   assert.match(block, /pagesSoFar/, 'the delay does not change as the run goes on');
@@ -243,10 +208,7 @@ test('the wait between pages is a range, not a number', () => {
 });
 
 test('the cache is consulted before the tab moves, not after', () => {
-  // Consulted inside the paging loop, the first navigation and its count had
-  // already happened — so a "free" repeat still spent a search while the
-  // panel said none were spent. Order is the whole of this fix, and order is
-  // what a source assertion can actually check.
+  // Consulted inside the paging loop, the first navigation and its count had already happened.
   const check = WORKER.indexOf('const hit = await servedFromCache(');
   const navigate = WORKER.indexOf('await chrome.tabs.update(tabId, { url,');
   assert.ok(check > 0, 'nothing consults the cache in runTask');
@@ -254,10 +216,7 @@ test('the cache is consulted before the tab moves, not after', () => {
 });
 
 test('a page is recorded only once it has been read', () => {
-  // Recorded at navigation time, a failed scrape or a cancel would mark a
-  // page whose people were never collected, and the next run would skip it
-  // for good. The semantics live in search-cache.js and are tested there;
-  // what this checks is that the worker calls it in the right place.
+  // Recorded at navigation time, a failed scrape or a cancel would mark a page whose people were never collected.
   const paging = WORKER.slice(WORKER.indexOf('async function pageThrough'));
   const guard = paging.indexOf('if (!next || !next.ok)');
   const record = paging.indexOf('entry = absorb(entry, page,');
@@ -266,20 +225,14 @@ test('a page is recorded only once it has been read', () => {
 });
 
 test('the cache is only rewritten when a page was actually fetched', () => {
-  // Rewriting the timestamp every time it is asked for would make a week-old
-  // answer immortal, which is the failure mode of every cache written in a
-  // hurry. Comparing depths could not tell: `reused` is clamped to the
-  // requested depth and the stored depth is not, so asking for fewer pages
-  // than are held looked like a fetch.
+  // Rewriting the timestamp every time it is asked for would make a week-old answer immortal.
   const paging = WORKER.slice(WORKER.indexOf('async function pageThrough'));
   assert.match(paging, /if \(key && fetchedAny\)/, 'the entry is rewritten even when nothing was fetched');
   assert.match(paging, /fetchedAny = true;/, 'nothing ever records that a page was paid for');
 });
 
 test('everything used in the paging loop is declared before it is used', () => {
-  // `absorb(entry, …)` sat ten lines above `let entry`, so every multi-page
-  // run threw a ReferenceError after paying for page one — and the source
-  // assertions above all still passed. Order is checkable; this checks it.
+  // `absorb(entry, …)` sat ten lines above `let entry`.
   const paging = WORKER.slice(WORKER.indexOf('async function pageThrough'));
   for (const name of ['entry', 'key', 'plan', 'fetchedAny']) {
     const declared = paging.search(new RegExp(`(?:const|let) ${name}\\b`));
@@ -290,18 +243,14 @@ test('everything used in the paging loop is declared before it is used', () => {
 });
 
 test('a cached answer is deduplicated the way a live one is', () => {
-  // LinkedIn repeats people across pages and a live run merges them. Handing
-  // back the raw concatenation gave a cached answer fewer unique people than
-  // the search that produced it, and reported the inflated number.
+  // LinkedIn repeats people across pages and a live run merges them.
   const cached = WORKER.slice(WORKER.indexOf('async function servedFromCache'), WORKER.indexOf('async function pageThrough'));
   assert.match(cached, /recordKey\(record\)/, 'a cache hit hands back duplicates');
   assert.ok(!/task\.stoppedBecause/.test(cached), 'a run answered in full from disk reads as one that stopped early');
 });
 
 test('set-aside rows are written under this job, where the panel looks for them', () => {
-  // They were written under `job.id`, which does not exist. A row stored
-  // under `undefined` falls out of the jobId index: "Show them" showed
-  // nothing, and the rows sat in the database for good, cleared by nothing.
+  // They were written under `job.id`, which does not exist.
   const block = WORKER.slice(WORKER.indexOf('filterByCategory(records'), WORKER.indexOf('config.skipSeen'));
   assert.match(block, /putRecords\(job\.jobId,/);
   assert.doesNotMatch(WORKER, /\bjob\.id\b/, 'the job has no `id` field');

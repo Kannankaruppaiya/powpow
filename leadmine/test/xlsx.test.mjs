@@ -19,8 +19,7 @@ function readZip(bytes) {
 
     const bodyAt = at + 30 + nameLen + extraLen;
     const body = bytes.subarray(bodyAt, bodyAt + compressed);
-    // The writer emits raw DEFLATE (method 8, no zlib header), matching what
-    // CompressionStream('deflate-raw') produces.
+    // The writer emits raw DEFLATE.
     const raw = method === 8 ? new Uint8Array(inflateRawSync(Buffer.from(body))) : body;
 
     files[name] = { text: new TextDecoder().decode(raw), method };

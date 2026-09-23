@@ -1,27 +1,4 @@
-/**
- * The lead judge.
- *
- * A run hands back six hundred businesses and nothing about which of them are
- * worth a call. Reading every row is the job this does instead: each lead is
- * read against the user's own description of a good one, and comes back with
- * a verdict and — the part that matters — the reason for it, in a sentence
- * the user can disagree with. That idea is OpenOutreach's: the reason is the
- * product, and correcting the description is how a wrong verdict is fixed.
- *
- * The same call also reads what the business's own website says (collected
- * during the email pass) and pulls out what a spreadsheet cannot: what they
- * actually sell, who runs the place, and how big it looks. For posts, it is a
- * second opinion on the keyword classifier — "is this person asking for what
- * I offer?" is a question words-in-a-list answer badly.
- *
- * The user's own thumbs-up and thumbs-down travel with every call as worked
- * examples, so the judge learns what this user means by "fit" rather than
- * what the model assumes. No model is trained; the examples are the memory.
- *
- * Runs in the side panel, never the worker: the API key lives there and only
- * there (see ai.js), and a judge the user did not press is a bill they did not
- * choose.
- */
+/** The lead judge. */
 
 import { requestJson, responseSpec, DEFAULT_PROVIDER } from './ai.js';
 
@@ -43,13 +20,7 @@ export function kindOf(record) {
   return 'business';
 }
 
-/**
- * One lead as the model reads it: the fields that bear on fit, nothing else.
- *
- * Phones and emails are left out on purpose. They say nothing about fit, and
- * a prompt is a third party — the less contact data leaves the browser for a
- * judgement that does not need it, the better.
- */
+/** One lead as the model reads it: the fields that bear on fit, nothing else. */
 export function leadDigest(record) {
   const kind = kindOf(record);
   if (kind === 'post') {
@@ -151,12 +122,7 @@ verdict is exactly one of "fit", "maybe", "no_fit".`;
 
 export const JUDGE_SPEC = responseSpec(JUDGE_SCHEMA, JUDGE_HINT);
 
-/**
- * The user's own judgements, as examples the judge must follow.
- *
- * Newest first, both kinds represented when there are both — eight thumbs-up
- * teach nothing about where the line is.
- */
+/** The user's own judgements, as examples the judge must follow. */
 export function examplesFrom(records, notes, { kind, limit = MAX_EXAMPLES } = {}) {
   const byKey = new Map((records || []).map((r) => [r.key, r]));
   const marked = [...(notes instanceof Map ? notes.values() : notes || [])]
@@ -199,13 +165,7 @@ export function buildJudgePrompt({ brief, kind, leads, examples = [] }) {
   return parts.join('\n\n');
 }
 
-/**
- * Re-check the model's answer before it is written anywhere.
- *
- * Model output is untrusted input: an id we did not send is dropped, a verdict
- * outside the three is dropped, every string is clipped. Returns a Map from
- * our id to a clean result.
- */
+/** Re-check the model's answer before it is written anywhere. */
 export function normaliseJudgement(raw, ids) {
   const wanted = new Set(ids);
   const out = new Map();
@@ -241,17 +201,7 @@ export function batchesOf(records, size = BATCH_SIZE) {
   return out;
 }
 
-/**
- * Judge leads, batch by batch, reporting as it goes.
- *
- * Returns note patches — [{ key, verdict, reason, services, decisionMaker,
- * size, judgedAt, judgedBy }] — for the caller to store. `onBatch` receives
- * each batch's patches as soon as they exist, so a long run shows verdicts
- * arriving and a failure halfway keeps everything already judged.
- *
- * A batch the model answers only in part is not an error: the leads it
- * skipped simply stay unjudged and can be judged again.
- */
+/** Judge leads, batch by batch, reporting as it goes. */
 export async function judgeLeads({
   records,
   brief,
@@ -312,13 +262,7 @@ export async function judgeLeads({
   return patches;
 }
 
-/**
- * The verdict to show and act on: the user's own mark wins over the model's.
- *
- * A thumbs-down on a "fit" is the user correcting the judge, and everything
- * downstream — the filter, the email finder, the export — has to follow the
- * correction rather than the thing corrected.
- */
+/** The verdict to show and act on: the user's own mark wins over the model's. */
 export function effectiveVerdict(note) {
   if (!note) return '';
   if (note.feedback === 'good') return 'fit';

@@ -46,8 +46,7 @@ test('classify walks the decision table', () => {
 });
 
 test('classify checks syntax before anything touches the network', () => {
-  // A malformed address must not be reported as unknown just because no MX
-  // answer was supplied.
+  // A malformed address must not be reported as unknown just because no MX answer was supplied.
   assert.equal(classify('not-an-email', null).status, STATUS.INVALID);
 });
 

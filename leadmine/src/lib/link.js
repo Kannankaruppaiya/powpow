@@ -1,23 +1,4 @@
-/**
- * The business and the people who work there, joined.
- *
- * A Maps run finds "Acme Dental Care" with a phone and an info@ address. A
- * LinkedIn run finds "Dr. Priya — Founder at Acme Dental Care". They are the
- * same lead — the business and the person who decides for it — and they were
- * two rows in two files that nobody joined.
- *
- * Two keys, best first, the way OpenOutFind keys a company:
- *   1. the website domain, when both sides have one (a person's company page
- *      or a profile's employer link rarely carries it, but a business found
- *      from a person's post sometimes does);
- *   2. the company name, normalised hard — case, punctuation, and the legal
- *      and filler words ("Pvt Ltd", "Private Limited", "Inc", "The") that two
- *      sources write differently for one company.
- *
- * A name that normalises to too little ("A2", "The Clinic") is not linked:
- * a wrong join puts a stranger's phone on a person's row, which is worse
- * than no join.
- */
+/** The business and the people who work there, joined. */
 
 import { domainOf } from './crm.js';
 
@@ -51,14 +32,7 @@ export function employerOf(person) {
 const isPerson = (r) => r && (r.source === 'linkedin' || r.source === 'web');
 const isBusiness = (r) => r && (!r.source || r.source === 'maps');
 
-/**
- * Join people to businesses across every run.
- *
- * Returns { personToBusiness: Map<personKey, business>,
- *           businessToPeople: Map<businessKey, person[]> }.
- * A person joins at most one business; a name two businesses share (a chain,
- * a franchise) joins neither, since there is no telling which branch.
- */
+/** Join people to businesses across every run. */
 export function linkRecords(records) {
   const byDomain = new Map();
   const byName = new Map();

@@ -1,11 +1,4 @@
-/**
- * The "Where?" picker's lists, and the data behind them.
- *
- * Two things are being checked, and the second matters as much as the first:
- * the functions that shape a list, and the *generated data* they shape. The
- * data is committed rather than fetched, so nothing else would notice if a
- * rebuild dropped half the world.
- */
+/** The "Where?" picker's lists, and the data behind them. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -53,8 +46,7 @@ test('a town is offered exactly as it will be searched', () => {
   const maps = citiesFor(india, 'Tamil Nadu');
   assert.ok(maps.includes('Chennai, Tamil Nadu'));
 
-  // LinkedIn matches keywords literally, and no profile says "Tamil Nadu"
-  // just because the person is in Chennai.
+  // LinkedIn matches keywords literally, and no profile says "Tamil Nadu" just because the person is in Chennai.
   const linkedin = citiesFor(india, 'Tamil Nadu', { source: 'linkedin' });
   assert.ok(linkedin.includes('Chennai'));
   assert.ok(!linkedin.some((name) => name.includes(',')));
@@ -86,16 +78,13 @@ test('a missing or state-less country yields nothing rather than throwing', () =
 });
 
 test('a state that is not in this country is not silently searched', () => {
-  // Picking India → Tamil Nadu and then switching to Singapore must not leave
-  // Tamil Nadu selected, and asking for it anyway must return nothing.
+  // Picking India → Tamil Nadu and then switching to Singapore must not leave Tamil Nadu selected.
   const singapore = read('SG.json');
   assert.deepEqual(citiesFor(singapore, 'Tamil Nadu'), []);
 });
 
 test('a public-web town keeps its state, the way the profile page prints it', () => {
-  // A public profile prints "Chennai, Tamil Nadu, India" in full, so the state
-  // really is on the page — and Springfield is as ambiguous to a search engine
-  // as it is to Maps.
+  // A public profile prints "Chennai, Tamil Nadu, India" in full, so the state really is on the page.
   const web = citiesFor(india, 'Tamil Nadu', { source: 'web' });
   assert.ok(web.includes('Chennai, Tamil Nadu'));
   assert.ok(!web.includes('Chennai'), 'the bare name is the LinkedIn form');

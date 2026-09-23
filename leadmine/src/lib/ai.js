@@ -1,54 +1,8 @@
-/**
- * The search planner's transport.
- *
- * The user describes their business in their own words; this turns that into
- * the concrete searches the queue runs. Two providers are supported because
- * they fail differently — Gemini's free tier has a daily cap, Groq's has a
- * per-minute one — and having the other to switch to is worth the small amount
- * of code that costs.
- *
- * Everything here is written against the providers' own machine-readable
- * specs rather than from memory, because guessing at this cost several rounds
- * of "unexpected model name format":
- *
- *   - Gemini: the v1beta discovery document
- *     (generativelanguage.googleapis.com/$discovery/rest?version=v1beta), which
- *     is the authority on field names, the Schema dialect and the enums.
- *   - Groq: their own TypeScript SDK, which is generated from their OpenAPI
- *     spec (github.com/groq/groq-typescript).
- *
- * Four things are deliberate:
- *
- *   1. **The key never leaves the browser.** It lives in chrome.storage.local,
- *      goes out in a request header, and is kept out of `readConfig()` so it
- *      cannot reach the service worker, a saved job, or an exported file. It
- *      is never put in a URL — query strings end up in logs and history.
- *
- *   2. **Model names are never guessed.** Both providers list their own
- *      models; the panel offers that list. Every model failure so far came
- *      from a name typed or remembered rather than read from the provider.
- *
- *   3. **JSON is enforced by the API, not requested in prose.** Gemini gets a
- *      responseSchema in *its* dialect (uppercase type enums — an OpenAPI
- *      subset, not JSON Schema); Groq gets JSON mode plus the shape in the
- *      prompt, since its endpoint takes standard JSON Schema only on some
- *      models.
- *
- *   4. **The model's output is untrusted input.** Everything that comes back
- *      is re-checked here: shape, length, duplicates, count. A planner that
- *      returns forty near-identical searches would quietly turn a five-minute
- *      run into an hour.
- */
+/** The search planner's transport. */
 
 import { SYSTEM_PROMPT, RESPONSE_SCHEMA, DEPTH_LIMITS, buildUserPrompt } from './plan-prompt.js';
 
-/**
- * Gemini's `Schema` is an OpenAPI 3.0 subset, not JSON Schema: `type` is an
- * uppercase enum, and a list of allowed values needs `format: "enum"` on a
- * STRING. Sending lowercase `"object"` is rejected. The schema is written once
- * as ordinary JSON Schema and converted here, so Groq and the prompt can keep
- * using the standard form.
- */
+/** Gemini's `Schema` is an OpenAPI 3.0 subset, not JSON Schema. */
 const GEMINI_TYPES = {
   string: 'STRING', number: 'NUMBER', integer: 'INTEGER',
   boolean: 'BOOLEAN', array: 'ARRAY', object: 'OBJECT', null: 'NULL',
@@ -71,8 +25,7 @@ export function toGeminiSchema(schema) {
     for (const [key, value] of Object.entries(schema.properties)) {
       out.properties[key] = toGeminiSchema(value);
     }
-    // Field order is part of the contract: it is the order the model fills
-    // them in, and "status" before "searches" is what makes a refusal cheap.
+    // Field order is part of the contract.
     out.propertyOrdering = Object.keys(schema.properties);
   }
   if (Array.isArray(schema.required)) out.required = [...schema.required];
@@ -81,14 +34,7 @@ export function toGeminiSchema(schema) {
 
 const GEMINI_SCHEMA = toGeminiSchema(RESPONSE_SCHEMA);
 
-/**
- * What a call must come back as, in both providers' dialects.
- *
- * Gemini enforces a schema at the API; Groq's JSON mode needs the shape spelt
- * out in the prompt. The planner was the only caller once, so both were baked
- * into the requests. The lead judge (`qualify.js`) asks for a different shape,
- * so the pair is a value now, and the planner's is simply the default.
- */
+/** What a call must come back as, in both providers' dialects. */
 export function responseSpec(schema, hint) {
   return { gemini: toGeminiSchema(schema), hint: String(hint || '') };
 }
@@ -124,8 +70,7 @@ export const PROVIDERS = {
 
     parseModels(json) {
       return (json.models || [])
-        // Only models that can answer this call at all. The list also carries
-        // embedding and legacy text models, which cannot.
+        // Only models that can answer this call at all.
         .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
         .map((m) => ({
           // Names come back as "models/gemini-2.5-flash"; the URL adds that.
@@ -137,14 +82,11 @@ export const PROVIDERS = {
 
     request(model, key, system, user, spec = PLAN_SPEC) {
       return {
-        // The path parameter is `models/{model}` and the spec constrains it to
-        // ^models/[^/]+$ — a name with a slash in it is the "unexpected model
-        // name format" error, not a missing model.
+        // The path parameter is `models/{model}` and the spec constrains it to ^models/[^/]+$.
         url: `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
           model
         )}:generateContent`,
-        // A header, not ?key= — a URL carrying a secret gets logged by
-        // everything it passes through.
+        // A header, not ?key= — a URL carrying a secret gets logged by everything it passes through.
         headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
         body: {
           // camelCase is the canonical JSON name in the discovery document.
@@ -159,14 +101,7 @@ export const PROVIDERS = {
       };
     },
 
-    /**
-     * The answer, or why there isn't one.
-     *
-     * A blocked or truncated response is a well-formed 200 with no text in it.
-     * Reading only `candidates[0].content.parts` turns every one of those into
-     * "returned something unreadable", which sends the user looking in the
-     * wrong place.
-     */
+    /** The answer, or why there isn't one. */
     read(json) {
       const blocked = (json.promptFeedback || {}).blockReason;
       if (blocked) {
@@ -205,9 +140,7 @@ export const PROVIDERS = {
     parseModels(json) {
       return (json.data || [])
         .map((m) => ({ id: String(m.id || ''), label: String(m.id || '') }))
-        // Groq's model list carries no capability field — their own SDK types
-        // it as id/created/object/owned_by and nothing else — so the id is the
-        // only signal for which of these can hold a conversation at all.
+        // Groq's model list carries no capability field.
         .filter((m) => m.id && !/whisper|tts|guard|^distil/i.test(m.id));
     },
 
@@ -218,9 +151,7 @@ export const PROVIDERS = {
         body: {
           model,
           temperature: 0.3,
-          // json_object, not json_schema: the schema form is only accepted on
-          // some of Groq's models, and a planner that fails on the model the
-          // user picked is worse than one that states the shape in the prompt.
+          // json_object, not json_schema.
           response_format: { type: 'json_object' },
           messages: [
             { role: 'system', content: `${system}\n\n${spec.hint}` },
@@ -265,36 +196,20 @@ export function providerFor(id) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/**
- * The model id to actually send.
- *
- * A model box sitting under a key box collects things that are not model
- * names. Rather than pass whatever is in it to the API and relay
- * "unexpected model name format" back, anything that cannot be a model id is
- * ignored and the provider's default is used — which is what the user wanted
- * from a box they never meant to fill.
- */
+/** The model id to actually send. */
 export function cleanModel(name, fallback) {
   const value = String(name || '')
     .trim()
     // "models/gemini-2.5-flash" is how the docs write it; the path adds its own.
     .replace(/^models\//, '');
   if (!value || value.length > 80) return fallback;
-  // An API key pasted into the model box is the case this exists for, and it
-  // is the one thing no model id can be.
+  // An API key pasted into the model box is the case this exists for, and it is the one thing no model id can be.
   if (wrongProviderFor(value)) return fallback;
-  // Model ids are one token: letters, digits and separators. Groq namespaces
-  // some of its own with a slash, so that is allowed too.
+  // Model ids are one token: letters, digits and separators.
   return /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(value) ? value : fallback;
 }
 
-/**
- * A key that plainly belongs to the other provider.
- *
- * Both keys are opaque strings in a password box, so pasting one under the
- * wrong provider is easy and the API's own answer for it ("invalid argument")
- * says nothing about the actual mistake.
- */
+/** A key that plainly belongs to the other provider. */
 export function wrongProviderFor(key) {
   const value = String(key || '').trim();
   for (const conf of Object.values(PROVIDERS)) {
@@ -303,13 +218,7 @@ export function wrongProviderFor(key) {
   return null;
 }
 
-/**
- * Pull the JSON object out of whatever came back.
- *
- * JSON mode makes this the common path, not the only one: a model can still
- * wrap the object in a ```json fence or add a sentence before it, and losing a
- * good plan to a stray backtick is a bad trade.
- */
+/** Pull the JSON object out of whatever came back. */
 export function parseJsonish(text) {
   const raw = String(text || '').trim();
   if (!raw) return null;
@@ -338,13 +247,7 @@ export function parseJsonish(text) {
 
 const STOPWORDS = new Set(['the', 'a', 'an', 'in', 'near', 'me', 'for', 'and', 'of', 'my']);
 
-/**
- * A key that collapses searches which would find the same businesses.
- *
- * "cleaning products", "Cleaning Product" and "products cleaning" are one
- * search wearing three hats; running all three triples the time for nothing.
- * Words are singularised and sorted, so word order and plurals stop mattering.
- */
+/** A key that collapses searches which would find the same businesses. */
 export function searchKey(text) {
   return String(text || '')
     .toLowerCase()
@@ -358,12 +261,7 @@ export function searchKey(text) {
 
 const clip = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
 
-/**
- * Re-check the model's answer before anyone acts on it.
- *
- * Everything past this point is treated as data the user typed, so this is
- * where a hallucinated forty-item plan or an empty "ready" gets caught.
- */
+/** Re-check the model's answer before anyone acts on it. */
 export function normalisePlan(raw, { depth = 'balanced', city = '' } = {}) {
   if (!raw || typeof raw !== 'object') {
     throw new Error('The planner did not return a usable answer. Try again.');
@@ -382,8 +280,7 @@ export function normalisePlan(raw, { depth = 'balanced', city = '' } = {}) {
   for (const item of Array.isArray(raw.searches) ? raw.searches : []) {
     const query = clip(item && item.query, 80);
     if (!query) continue;
-    // The city is part of the identity: the same category in two cities is two
-    // searches, not a duplicate.
+    // The city is part of the identity: the same category in two cities is two searches, not a duplicate.
     const where = clip((item && item.city) || city, 80);
     const key = `${searchKey(query)}|${searchKey(where)}`;
     if (seen.has(key)) continue;
@@ -444,13 +341,7 @@ function httpError(status, body, model, what = 'planner') {
   return new Error(`The ${what} failed (HTTP ${status}). ${clip(body, 160)}`);
 }
 
-/**
- * The models this key can actually use, straight from the provider.
- *
- * This exists so that no model name is ever typed or remembered. Every model
- * failure in this feature so far came from a name that was not read from the
- * provider's own list.
- */
+/** The models this key can actually use, straight from the provider. */
 export async function listModels({
   provider = DEFAULT_PROVIDER,
   apiKey = '',
@@ -499,18 +390,7 @@ function mismatchError(belongsTo, conf) {
   );
 }
 
-/**
- * One JSON answer from the chosen provider.
- *
- * The request, the single retry, the refusal handling and the parse were the
- * planner's alone; the lead judge needs every one of them unchanged, so they
- * live here and each caller only brings its prompt and its shape. `what`
- * names the feature in the messages a user reads — "Could not reach the
- * planner" is wrong about a judge.
- *
- * Returns the parsed object. Checking what is inside it stays with the
- * caller, because only the caller knows what a usable answer is.
- */
+/** One JSON answer from the chosen provider. */
 export async function requestJson({
   provider = DEFAULT_PROVIDER,
   apiKey = '',
@@ -566,8 +446,7 @@ export async function requestJson({
     if (!response.ok) {
       const body = await response.text().catch(() => '');
       lastError = httpError(response.status, body, wanted, what);
-      // Only a transient status is worth a second attempt; a rejected key
-      // will be rejected just as fast the second time.
+      // Only a transient status is worth a second attempt.
       if (response.status === 429 || response.status >= 500) continue;
       throw lastError;
     }
@@ -575,8 +454,7 @@ export async function requestJson({
     const json = await response.json().catch(() => null);
     const { text, error } = conf.read(json || {});
     if (error) {
-      // A refusal is the provider's final answer, not a hiccup — retrying it
-      // just spends another request to be told the same thing.
+      // A refusal is the provider's final answer, not a hiccup.
       lastError = new Error(error);
       if (!/try again/i.test(error)) throw lastError;
       continue;
@@ -593,12 +471,7 @@ export async function requestJson({
   throw lastError || new Error(`The ${what} failed.`);
 }
 
-/**
- * Plan the searches for a brief.
- *
- * `fetchImpl` and `sleepImpl` are injectable so the tests can drive every
- * failure path without a network or an API key.
- */
+/** Plan the searches for a brief. */
 export async function planSearches({
   brief,
   source = 'maps',

@@ -1,41 +1,10 @@
-/**
- * LinkedIn People search adapter.
- *
- * LinkedIn has no public API for people search, so this reads the page the
- * signed-in user is already looking at. Two consequences shape the code:
- *
- *   1. The result list is lazily hydrated. LinkedIn renders empty <li>
- *      skeletons and fills them as they approach the viewport, so a result
- *      that exists in the DOM may have no text yet. Anything without a profile
- *      link is treated as not-yet-rendered and simply retried next round.
- *
- *   2. Class names are build output and rotate constantly. Selectors here go
- *      through the same ladder as the Maps adapter: semantic attributes first
- *      (the /in/ profile link, aria-labels, roles), structural position next,
- *      hashed classes last and only as one option among several.
- *
- * Unlike Maps, the user drives this page — they can retype the query or change
- * a filter mid-run — so the adapter fingerprints the search and refuses to
- * keep collecting if it changes underneath.
- */
+/** LinkedIn People search adapter. */
 (() => {
   'use strict';
 
   const { norm, nameKey } = globalThis.MLSParse;
 
-  /*
-   * A person LinkedIn will not name.
-   *
-   * Outside your network — and once a month's searching passes LinkedIn's
-   * commercial-use limit, well inside it too — a card comes back titled
-   * "LinkedIn Member" with no profile link on it at all. There is no name and
-   * no URL to collect, so the run cannot use it.
-   *
-   * It used to skip these in silence, and that silence is the bug: a search
-   * showing twelve results and exporting three looks exactly like a broken
-   * scraper. It is not. LinkedIn withheld nine identities, and saying so is
-   * the difference between "this is broken" and "use the other source".
-   */
+  // A person LinkedIn will not name.
   const ANONYMOUS = /^linkedin member$/i;
 
   const SEL = {
@@ -47,55 +16,21 @@
     captcha: '#captcha-internal, iframe[title*="captcha" i], .challenge-dialog',
   };
 
-  // A trailing \b cannot match after the "+" in "3rd+" — "+" is not a word
-  // character, so the boundary never fires and the match silently degrades to
-  // "3rd". A negative lookahead for a word character is the correct edge here.
+  // A trailing \b cannot match after the "+" in "3rd+".
   const DEGREE_RE = /\b(1st|2nd|3rd\+?)(?!\w)/i;
 
-  /**
-   * Find the results list by shape, not by class name.
-   *
-   * Naming it was the original approach and it failed on the live site within
-   * weeks: LinkedIn's classes are build output. What does not change is the
-   * shape — a container whose children each hold a link to a profile.
-   */
+  /** Find the results list by shape, not by class name. */
   function findResultList() {
     return groupResults().list;
   }
 
-  /**
-   * Group the page's profile links into result cards and their container.
-   *
-   * Every ancestor is a candidate container, not just the first one with two
-   * link-bearing children. Stopping at the first meant a card's own inner
-   * wrapper won — grouping the person with the "is a mutual connection" link
-   * beneath them, instead of grouping the cards with each other.
-   *
-   * Returns the counts alongside the result, because when this finds nothing
-   * the counts are the only way to tell why.
-   */
+  /** Group the page's profile links into result cards and their container. */
   function groupResults() {
-    // Search the whole document. Scoping to <main> was a guess about where
-    // LinkedIn puts its results, and a wrong one is indistinguishable from
-    // "no results" — sibling cards are evidence enough wherever they sit.
+    // Search the whole document.
     const anchors = [...document.querySelectorAll(SEL.profileLink)];
     const links = anchors.filter((a) => profileUrl(a) && !a.closest('nav, header'));
 
-    /*
-     * A card LinkedIn refused to name votes for its list too.
-     *
-     * The list used to be found as "the container holding the most profile
-     * links", which quietly assumed every result has one. On a search whose
-     * results are mostly outside your network that assumption inverts: nine
-     * cards out of ten carry no link at all, so a handful of links in the
-     * message overlay or a promoted card can out-vote the results — and a
-     * page where NO result is named has nothing to vote at all, so the run
-     * failed with "No results list found on this page" while looking at a
-     * page full of results.
-     *
-     * A withheld card is still a card. It is found by the one thing LinkedIn
-     * does render for it: the words "LinkedIn Member" as a leaf.
-     */
+    // A card LinkedIn refused to name votes for its list too.
     const nameless = [...document.querySelectorAll('span, div, p, h3')].filter(
       (el) => !el.children.length && ANONYMOUS.test(norm(el.textContent))
     );
@@ -111,24 +46,7 @@
       }
     }
 
-    /*
-     * A list's cards are siblings of one kind — li, li, li.
-     *
-     * Size alone cannot separate a list from the page holding it. On a search
-     * whose results LinkedIn will not name, three cards in the list tie with
-     * three regions of <body> that hold one card each: the results, a
-     * promoted profile, the message overlay. <body> won that tie and the
-     * promoted profile became a "result".
-     *
-     * Depth cannot separate them either, in either direction: while the list
-     * is still hydrating it holds two cards, which ties with the two links
-     * inside a single card — its profile anchor and its mutual-connection
-     * footer — and the deeper of those is the card, not the list.
-     *
-     * What actually tells them apart is what the children are. A list's are
-     * all the same tag; a page region holds a <main>, an <aside> and an
-     * overlay, and one card holds an <a> and a <div>.
-     */
+    // A list's cards are siblings of one kind — li, li, li.
     const uniform = (items) => items.size >= 2 && new Set([...items].map((el) => el.tagName)).size === 1;
 
     let list = null;
@@ -137,9 +55,7 @@
       const size = items.size;
       const depth = ancestorDepth(container);
       const alike = uniform(items);
-      // Looking like a list beats being bigger. Among equals: the most cards,
-      // then the shallower, which is the list rather than something inside a
-      // card.
+      // Looking like a list beats being bigger.
       const better =
         alike !== best.uniform
           ? alike
@@ -168,11 +84,7 @@
   }
 
 
-  /**
-   * What the page actually looks like, for when detection fails.
-   * A user can paste this; "no results found" on a page full of results cannot
-   * be acted on by anyone.
-   */
+  /** What the page actually looks like, for when detection fails. */
   function describeDom() {
     const g = groupResults();
     const sample = [...document.querySelectorAll(SEL.profileLink)]
@@ -190,32 +102,16 @@
     );
   }
 
-  /**
-   * The list as it exists right now.
-   *
-   * LinkedIn replaces the results wholesale when you page, so a node captured
-   * on page 1 is detached by page 2 and reports nothing.
-   */
+  /** The list as it exists right now. */
   function liveList(list) {
     return list && list.isConnected ? list : findResultList();
   }
 
-  /**
-   * The control that brings the next results, found by what it says rather
-   * than by an exact aria-label. `button[aria-label="Next"]` matched nothing
-   * on the live site.
-   *
-   * Two labels, because LinkedIn ships two layouts: numbered pagination with
-   * a Next button, and a list that grows behind a "Show more results" button.
-   * Matching only "next" left the second one stuck at whatever had already
-   * loaded.
-   */
+  /** The control that brings the next results, found by what it says rather than by an exact aria-label. */
   const MORE_LABEL = /^next\b|next page|show more result|see more result|load more/i;
 
   function findNextButton() {
-    // The pagination container is a hint about where to look first, never a
-    // restriction: scoping the search to it meant that if any *other* element
-    // happened to carry a "pagination" class, the real button was invisible.
+    // The pagination container is a hint about where to look first, never a restriction.
     const pagination = document.querySelector('[class*="pagination" i]');
     for (const scope of [pagination, document].filter(Boolean)) {
       for (const el of scope.querySelectorAll('button, a[role="button"]')) {
@@ -227,13 +123,7 @@
     return null;
   }
 
-  /**
-   * Scroll to the foot of whatever is actually scrolling.
-   *
-   * `window.scrollTo` alone is a guess that the page scrolls. When the results
-   * sit in their own scrollable panel it does nothing at all, and the lazy
-   * list never hydrates past the first screenful.
-   */
+  /** Scroll to the foot of whatever is actually scrolling. */
   function scrollToEnd(list) {
     window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'auto' });
     for (let el = list; el; el = el.parentElement) {
@@ -253,12 +143,7 @@
     return lis.length ? lis : [...list.children];
   }
 
-  /**
-   * The profile a card is *about*.
-   *
-   * Cards carry more than one profile link — "Suranjith Prasad is a mutual
-   * connection" is one too — so the first is taken, which is the name.
-   */
+  /** The profile a card is *about*. */
   function itemProfileUrl(item) {
     for (const link of item.querySelectorAll(SEL.profileLink)) {
       const url = profileUrl(link);
@@ -267,15 +152,7 @@
     return '';
   }
 
-  /**
-   * Record a card that is a person but carries no identity.
-   *
-   * Only a card LinkedIn has explicitly titled "LinkedIn Member" counts. A
-   * card with no link and no text is a skeleton that has not hydrated yet,
-   * and one with a name but no link is something else going wrong — neither
-   * is a withheld identity, and guessing they are would put a made-up number
-   * in front of the user.
-   */
+  /** Record a card that is a person but carries no identity. */
   function noteWithheld(item) {
     const lines = cardLines(item).filter((line) => !NOISE.test(line));
     if (!lines.length || !ANONYMOUS.test(norm(lines[0]))) return;
@@ -295,22 +172,10 @@
     }
   }
 
-  /*
-   * Cards seen but not collectable, fingerprinted so paging does not count
-   * one person twice. Two anonymous people with the same headline and place
-   * do collapse into one — which undercounts rather than overstates, and an
-   * overstated number here would be its own lie.
-   */
+  // Cards seen but not collectable, fingerprinted so paging does not count one person twice.
   const withheld = new Set();
 
-  /**
-   * The card's visible text, one entry per rendered line.
-   *
-   * innerText is the right tool here and querySelector is not: it returns what
-   * a person actually sees, in reading order, and it does not care what any of
-   * it is called. Every class-based extractor written for this page has been
-   * broken by LinkedIn within weeks; line order has not changed in years.
-   */
+  /** The card's visible text, one entry per rendered line. */
   function cardLines(item) {
     const lines = [];
     for (const raw of String(item.innerText || '').split('\n')) {
@@ -322,28 +187,15 @@
     return lines;
   }
 
-  /**
-   * Drop the link text LinkedIn renders for screen readers.
-   *
-   * It sits inline next to the visible name, so it lands on the same line and
-   * would otherwise be read as part of the person's name.
-   */
+  /** Drop the link text LinkedIn renders for screen readers. */
   function stripScreenReader(text) {
-    // No leading word boundary: the copy sits flush against the visible name,
-    // so the text can read "Anubha GoelView Anubha Goel's profile".
+    // No leading word boundary.
     return String(text).replace(/view\s+.{1,60}?['’]s\s+profile/gi, ' ');
   }
 
-  /**
-   * "Priya Sharma Priya Sharma • 2nd" -> "Priya Sharma • 2nd".
-   *
-   * LinkedIn prints the name twice — once visible, once for assistive tech —
-   * in two inline spans, which innerText joins into a single line. Dropping
-   * repeated *lines* misses this; the repeat has to be undone within the line.
-   */
+  /** "Priya Sharma Priya Sharma • 2nd" -> "Priya Sharma • 2nd". */
   function undouble(line) {
-    // The two spans sit flush against each other, so there may be no space
-    // between the copies at all: "Priya SharmaPriya Sharma".
+    // The two spans sit flush against each other, so there may be no space between the copies at all.
     return norm(line.replace(/^(.{4,60}?)\s*\1(?=$|[\s•·,|])/, '$1'));
   }
 
@@ -355,13 +207,7 @@
   const CONTEXT_LINE = /^(current|past|about|summary)\s*:/i;
   const MUTUAL_LINE = /\bmutual connections?\b/i;
 
-  /**
-   * Does this line look like a place rather than a job title?
-   *
-   * Locations are short, comma-separated and free of the punctuation people
-   * pack headlines with. "Indore, Madhya Pradesh, India" passes;
-   * "Technical Trainer|C,C++,Java FSD" does not, despite the commas.
-   */
+  /** Does this line look like a place rather than a job title? */
   function looksLikeLocation(line) {
     if (!line || line.length > 70) return false;
     if (/[|@:/]/.test(line)) return false;
@@ -379,14 +225,7 @@
     return at ? norm(at[1]).replace(/[.,]$/, '') : '';
   }
 
-  /**
-   * Read one result card.
-   *
-   * Everything below the profile URL comes from the card's lines and their
-   * order, not from any class name. LinkedIn now wraps the whole card in the
-   * profile link, so reading the anchor's text gets the entire card and the
-   * name twice — which is exactly what the previous version exported.
-   */
+  /** Read one result card. */
   function extractItem(item) {
     const url = itemProfileUrl(item);
     // No profile link means the skeleton has not hydrated yet.
@@ -404,8 +243,7 @@
     const contextLine = rest.find((line) => CONTEXT_LINE.test(line)) || '';
     const locationLine = rest.find(looksLikeLocation) || '';
 
-    // The headline is the first line that is not the degree, the location,
-    // the "Current:" context or the mutual-connection footer.
+    // The headline is the first line that is not the degree.
     const headline =
       rest.find(
         (line) =>
@@ -438,13 +276,7 @@
 
   /* ------------------------------------------------------------- filters */
 
-  /**
-   * Read whatever filters the user has actually applied.
-   *
-   * These are never hardcoded: the pills in the filter bar carry their current
-   * state in aria-label / aria-pressed, and the URL carries the rest, so both
-   * are read and merged.
-   */
+  /** Read whatever filters the user has actually applied. */
   function readFilters() {
     // "Current company filter. Clicking this button displays..." → keep the head.
     const filters = { ...readPills() };
@@ -458,19 +290,7 @@
     return filters;
   }
 
-  /**
-   * The URL parameters that are actually a facet the user chose.
-   *
-   * The fingerprint used to be built from *every* parameter except a four-item
-   * denylist, and that is what stopped every paginated run at page two:
-   * LinkedIn rewrites the URL as you page, adding its own tracking and session
-   * parameters, so the fingerprint changed on its own and the adapter
-   * concluded the user had changed the search.
-   *
-   * An allowlist fails in the right direction. A parameter we have not heard
-   * of can no longer end a run; at worst a facet edit goes unnoticed — and the
-   * filter pills below catch almost all of those anyway.
-   */
+  /** The URL parameters that are actually a facet the user chose. */
   const FACET_PARAMS = new Set([
     'geoUrn', 'currentCompany', 'pastCompany', 'industry', 'network',
     'schoolFilter', 'schoolFreetext', 'serviceCategory', 'titleFreeText',
@@ -478,36 +298,10 @@
     'profileLanguage', 'openToVolunteer', 'contactInterest',
   ]);
 
-  /**
-   * Labels seen on filter options, keyed by the id LinkedIn puts in the URL.
-   *
-   * LinkedIn's facets take ids, not names — geoUrn wants 102713980, not
-   * "India" — and those ids are internal, undocumented and not derivable. The
-   * only place both halves appear together is the filter panel: the checkbox
-   * carries the id, its label carries the name. So whenever the user ticks
-   * one, both are recorded here, and `learnedUrns` pairs them with whichever
-   * URL parameter the id then turns up in.
-   *
-   * Observation only. Nothing is inferred, and a value seen without a label
-   * is simply not learned — a wrong id searches the wrong place and hands
-   * back a plausible spreadsheet, which is worse than knowing nothing.
-   */
+  /** Labels seen on filter options, keyed by the id LinkedIn puts in the URL. */
   const seenLabels = new Map();
 
-  /**
-   * Options that appeared together, which is what makes one applied filter
-   * teach ten.
-   *
-   * Typing "usa" into LinkedIn's location box renders United States, US Virgin
-   * Islands, Uşak, Worcester and half a dozen more — every one of them with
-   * its id sitting on the checkbox. Learning only the one that gets ticked
-   * throws the other nine away, and then the panel's own list stays almost
-   * empty however much the user browses.
-   *
-   * Options rendered in the same panel belong to the same facet, so the moment
-   * *any* of them turns up in the URL, the whole batch is attributable — and
-   * that is an observation, not a guess: they were on screen together.
-   */
+  /** Options that appeared together, which is what makes one applied filter teach ten. */
   const batches = [];
 
   function noteOption(input, batch) {
@@ -544,13 +338,7 @@
     true
   );
 
-  /*
-   * Watch for filter options arriving.
-   *
-   * LinkedIn's typeahead is network-backed, so the options appear well after
-   * any click. Scanning only when a run starts would miss every list the user
-   * scrolled past on the way here.
-   */
+  // Watch for filter options arriving.
   if (typeof MutationObserver === 'function') {
     let pending = null;
     new MutationObserver((mutations) => {
@@ -571,13 +359,7 @@
     }).observe(document.documentElement, { childList: true, subtree: true });
   }
 
-  /**
-   * Everything the current URL lets us attribute to a facet.
-   *
-   * An id in the URL names its own facet. Any other option that was on screen
-   * beside it belongs to the same one, so a single applied filter teaches the
-   * whole list it was chosen from.
-   */
+  /** Everything the current URL lets us attribute to a facet. */
   function learnedUrns() {
     const out = [];
     const seenPair = new Set();
@@ -613,8 +395,7 @@
 
   function searchContext() {
     const params = new URLSearchParams(location.search);
-    // Anything already on screen when a run starts is worth recording too —
-    // a panel left open, or options rendered before the observer attached.
+    // Anything already on screen when a run starts is worth recording too.
     noteBatch(document);
     return {
       query: norm(params.get('keywords') || ''),
@@ -624,17 +405,12 @@
     };
   }
 
-  /**
-   * A stable summary of "which search is this". The user owns this page and
-   * can retype the query mid-run; comparing this each round is how the adapter
-   * notices rather than silently mixing two searches into one file.
-   */
+  /** A stable summary of "which search is this". */
   function fingerprint() {
     const params = new URLSearchParams(location.search);
     const parts = [nameKey(params.get('keywords') || '')];
 
-    // Only the facets, and only the pills the user has actually applied —
-    // nothing the site rewrites while paging.
+    // Only the facets, and only the pills the user has actually applied — nothing the site rewrites while paging.
     for (const [key, value] of [...params].sort()) {
       if (FACET_PARAMS.has(key)) parts.push(`${key}=${value}`);
     }
@@ -662,18 +438,7 @@
 
   /* ------------------------------------------------- resolving a filter */
 
-  /*
-   * Ask LinkedIn for its own id for a name.
-   *
-   * `geoUrn` wants 102713980, not "Chennai", and that number is LinkedIn's
-   * own — undocumented, and not derivable from anything we hold. But the page
-   * already contains a resolver: the filter panel's typeahead. Type into it
-   * and LinkedIn answers with its options, each carrying its id.
-   *
-   * So this drives that box once per new name and remembers the answer.
-   * Everything is found by shape rather than class name, because LinkedIn's
-   * classes are build output and change without notice.
-   */
+  // Ask LinkedIn for its own id for a name.
 
   const FACET_PILL = { geoUrn: 'location', serviceCategory: 'service categor' };
   const APPLY_LABEL = /show results|apply|done/i;
@@ -691,12 +456,7 @@
     return null;
   }
 
-  /**
-   * The open panel, by shape: whatever holds a text box and an apply button.
-   *
-   * It renders as a portal at the end of the document rather than inside the
-   * pill, so anything scoped to the pill's subtree finds nothing.
-   */
+  /** The open panel, by shape: whatever holds a text box and an apply button. */
   function findPanel() {
     for (const box of document.querySelectorAll('input[type="text"], input[type="search"]')) {
       for (let el = box.parentElement; el && el !== document.body; el = el.parentElement) {
@@ -733,13 +493,7 @@
 
   const fold = (text) => norm(text).toLowerCase().replace(/[.,]/g, '');
 
-  /**
-   * Find a filter value in its panel and either read it or apply it.
-   *
-   * The same six steps either way — open the pill, type, wait for the
-   * network-backed list, match, tick — and then a choice: put the panel back
-   * (a lookup) or press Show results (a filter the user asked for).
-   */
+  /** Find a filter value in its panel and either read it or apply it. */
   async function pickInPanel({ facet, label, apply }, { waitFor, sleep }) {
     const pill = findPill(facet);
     if (!pill) return { ok: false, reason: `this page has no ${facet} filter` };
@@ -759,16 +513,13 @@
     );
     if (!options) return { ok: false, reason: `LinkedIn offered nothing for “${label}”` };
 
-    // Exact first. A prefix is the fallback, so "Chennai" finds "Chennai,
-    // Tamil Nadu, India" — but never a substring, which would let "India"
-    // match "Theni, Tamil Nadu, India".
+    // Exact first.
     const wanted = fold(label);
     const hit =
       options.find((o) => fold(o.label) === wanted) ||
       options.find((o) => fold(o.label).startsWith(wanted));
 
-    // Whatever was offered is worth keeping either way; a near miss now is an
-    // exact hit the next time the user types one of these names.
+    // Whatever was offered is worth keeping either way.
     noteBatch(found.panel);
 
     if (!hit) {
@@ -790,8 +541,7 @@
       return { ok: true, facet, id, label: hit.label };
     }
 
-    // Applying is LinkedIn's own job — press its button and let it build the
-    // URL. That is why no id has to be known in advance: the page knows.
+    // Applying is LinkedIn's own job — press its button and let it build the URL.
     const before = location.href;
     found.apply.click();
     const changed = await waitFor(
@@ -804,15 +554,7 @@
 
   const resolveFacet = (want, helpers) => pickInPanel({ ...want, apply: false }, helpers);
 
-  /**
-   * Apply every filter the run asked for, in LinkedIn's own UI.
-   *
-   * This is what makes the ids optional. Rather than building a URL out of
-   * numbers nobody publishes, the page is driven the way a person would drive
-   * it — type the name, tick what comes back, press Show results — and
-   * LinkedIn writes the URL itself. Every option seen on the way is learned,
-   * so the next run for the same place could skip all of this.
-   */
+  /** Apply every filter the run asked for, in LinkedIn's own UI. */
   async function applyFilters(wants, helpers) {
     const applied = [];
     for (const want of wants || []) {
@@ -865,8 +607,7 @@
       const list = await waitFor(() => findResultList(), { timeout: 20000 });
       if (list) return list;
 
-      // LinkedIn's markup changes often enough that "not found" has to carry
-      // evidence, or every breakage costs a guessing round.
+      // LinkedIn's markup changes often enough that "not found" has to carry evidence.
       throw new Error(
         `Could not find the results on this LinkedIn page. Details for a bug report — ${describeDom()}`
       );
@@ -890,25 +631,19 @@
       return item ? extractItem(item) : null;
     },
 
-    // Why this adapter stopped, when the reason is its own rather than the
-    // page's. "The source said there are no more" was reported for a search
-    // the adapter itself had decided to abandon, which sent everyone looking
-    // at LinkedIn instead of at this file.
+    // Why this adapter stopped, when the reason is its own rather than the page's.
     get endReason() {
       return endReason;
     },
 
     reachedEnd() {
-      // The user changing the query is an end condition too — better to stop
-      // than to blend two different searches into one export.
+      // The user changing the query is an end condition too.
       if (expectedFingerprint !== null && fingerprint() !== expectedFingerprint) {
         console.warn('[leadmine] LinkedIn search changed mid-run; stopping.');
         endReason = 'the search on the page changed';
         return true;
       }
-      // Exhaustion is loadMore's call: no Next button does not mean this page
-      // has finished hydrating, and treating it that way cut the last cards
-      // off every final page.
+      // Exhaustion is loadMore's call.
       return false;
     },
 
@@ -920,25 +655,17 @@
         return live ? resultItems(live).map(itemProfileUrl).filter(Boolean) : [];
       };
 
-      // Scroll first: it hydrates lazily-rendered cards, and it is also what
-      // brings the pagination control into the DOM at the foot of the page.
-      //
-      // Twice, with a wait between, because LinkedIn renders in chunks: one
-      // jump to the bottom moves the bottom, and the footer that carries the
-      // pagination is the last thing to arrive.
+      // Scroll first: it hydrates lazily-rendered cards.
       const before = idsNow();
       scrollToEnd(liveList(list));
       await sleep(700);
       scrollToEnd(liveList(list));
       await sleep(700);
 
-      // Count *usable* results, not raw children: skeleton items exist from
-      // the start and hydrating one fills it in without adding an element.
+      // Count *usable* results, not raw children.
       if (idsNow().length > before.length) return true;
 
-      // Wait for the control rather than looking once. A single check the
-      // moment scrolling stops finds nothing on a page that renders its
-      // footer late, and the run then ends after one page of ten.
+      // Wait for the control rather than looking once.
       const next = await waitFor(findNextButton, { timeout: 4000 });
       if (!next) {
         endReason = 'LinkedIn offered no next page';
@@ -946,8 +673,7 @@
       }
 
       next.click();
-      // Wait for the list to actually turn over rather than guessing at a
-      // delay — the first result changing is the signal the page has moved.
+      // Wait for the list to actually turn over rather than guessing at a delay.
       const turned = await waitFor(
         () => {
           const ids = idsNow();
@@ -960,9 +686,7 @@
       return Boolean(turned);
     },
 
-    // Everything worth having is on the card; opening each profile would
-    // multiply the request count for very little, and is exactly the pattern
-    // LinkedIn acts on.
+    // Everything worth having is on the card.
     needsDetail() {
       return false;
     },
@@ -973,8 +697,7 @@
         r.area = r.location || '';
         r.searchCategory = config.category || '';
       }
-      // The count travels with the run, not in a console warning nobody has
-      // open: this is the answer to "why only three?".
+      // The count travels with the run, not in a console warning nobody has open.
       if (context) context.withheld = withheld.size;
     },
   };

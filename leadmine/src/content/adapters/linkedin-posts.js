@@ -1,22 +1,4 @@
-/**
- * LinkedIn post search, read from the tab the user already has open.
- *
- * The Posts source normally searches an engine, which needs no LinkedIn login
- * but only knows about a post once it has indexed it — one to three weeks
- * after the post, for most of them. LinkedIn's own "Posts" search, sorted by
- * latest and filtered to the past week, has yesterday's post today. That makes
- * it the only way to find the newest requirements, and the reason this
- * adapter exists.
- *
- * It only ever reads the page the user set up — the source runs it through
- * "Use the tab I'm on", never by navigating — and it never opens a post or a
- * profile. Everything is on the card: the post's id (and so its exact time),
- * its author and a link to them, and the whole text, which LinkedIn keeps in
- * the DOM even when it clamps it behind "…see more".
- *
- * Found by shape, like the other adapters: a post is any element carrying an
- * activity URN, whatever LinkedIn calls it this month.
- */
+/** LinkedIn post search, read from the tab the user already has open. */
 (() => {
   'use strict';
 
@@ -25,11 +7,9 @@
   const URN = /urn:li:activity:(\d{18,20})(?!\d)/;
 
   const SEL = {
-    // Where LinkedIn puts a post's URN. Attributes, not classes: these have
-    // outlived three redesigns of the markup around them.
+    // Where LinkedIn puts a post's URN.
     urnHolders: '[data-urn*="urn:li:activity:"], [data-id*="urn:li:activity:"], [data-entity-urn*="urn:li:activity:"]',
-    // The post body. Two generations of class, then the whole card as a last
-    // resort — reading too much beats reading nothing.
+    // The post body.
     commentary: '.update-components-text, .feed-shared-inline-show-more-text, .feed-shared-update-v2__description',
     actor: '.update-components-actor, .feed-shared-actor',
     actorName: '.update-components-actor__title, .update-components-actor__name, .feed-shared-actor__name',
@@ -43,14 +23,7 @@
       .map((value) => (value.match(URN) || [])[1])
       .find(Boolean) || '';
 
-  /**
-   * One element per post: the outermost one carrying its URN.
-   *
-   * LinkedIn nests URN holders — the card, then an inner wrapper, sometimes a
-   * reshared post inside it with a URN of its own. The outermost holder is
-   * the post as the user sees it; a reshared original inside it is part of
-   * that post, not a second result.
-   */
+  /** One element per post: the outermost one carrying its URN. */
   function postCards() {
     const cards = new Map();
     for (const el of document.querySelectorAll(SEL.urnHolders)) {
@@ -74,9 +47,7 @@
   function authorOf(card) {
     const actor = card.querySelector(SEL.actor) || card;
     const nameEl = actor.querySelector(SEL.actorName);
-    // LinkedIn renders the name twice — once for the eye (aria-hidden) and
-    // once for a screen reader, clipped rather than removed, so innerText
-    // reads both: "Girish PM Girish PM". The sighted copy is the name.
+    // LinkedIn renders the name twice.
     const sighted = nameEl && nameEl.querySelector('[aria-hidden="true"]');
     const name = sighted
       ? norm(sighted.textContent)

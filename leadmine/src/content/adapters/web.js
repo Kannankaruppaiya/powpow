@@ -1,28 +1,4 @@
-/**
- * Public-web adapter: LinkedIn profiles found through a search engine.
- *
- * The reason this exists is a hard limit in the other adapter. LinkedIn's
- * logged-in people search *anonymises anyone outside your network* — the card
- * reads "LinkedIn Member" with no name — so a search that reaches the whole
- * site still hands back rows nobody can act on. The same person's public
- * profile page names them. It is a discovery problem, not a reading one: the
- * profile is readable, the URL is what is missing.
- *
- * Search engines have that URL. They have indexed hundreds of millions of
- * public LinkedIn profiles, and a result carries the name and the headline in
- * its title. No LinkedIn login, no connection degree, no anonymising.
- *
- * Everything here is found by SHAPE, because the engines this has to survive
- * lay their results out differently and all of them change:
- *
- *   - a result is any link that resolves to linkedin.com/in/<slug>
- *   - its title is a heading inside that link, or the link's own text
- *   - its snippet is whatever text sits around it, up to the next person
- *
- * Profiles are never opened. The title already carries the name and headline,
- * and opening each one multiplies the request count for very little — the same
- * call the LinkedIn adapter makes with `needsDetail`.
- */
+/** Public-web adapter: LinkedIn profiles found through a search engine. */
 (() => {
   'use strict';
 
@@ -30,13 +6,7 @@
 
   const PROFILE = /(?:^|\.)linkedin\.com\/in\/([^/?#]+)/i;
 
-  /**
-   * The profile URL a link points at, following one layer of redirect.
-   *
-   * DuckDuckGo wraps every result in `/l/?uddg=<encoded>`; Google mostly links
-   * straight out. Unwrapping one layer covers both without knowing which
-   * engine this is.
-   */
+  /** The profile URL a link points at, following one layer of redirect. */
   function profileFrom(anchor) {
     const raw = anchor.getAttribute('href') || '';
     if (!raw) return null;
@@ -59,18 +29,7 @@
     return { slug: slug.toLowerCase(), url: `https://www.linkedin.com/in/${slug}` };
   }
 
-  /*
-   * Posts, not people.
-   *
-   * The Posts source runs the same engine search with `site:linkedin.com/posts`
-   * and wants each result's post rather than a profile. Everything else here —
-   * finding the results region, telling a result from page furniture, reading
-   * the snippet, paging safely, spotting a CAPTCHA — is the same problem, so
-   * the adapter keeps one set of shape rules and swaps only what a result
-   * links to. The query decides which: it is on the page, it cannot drift
-   * from what the run asked for, and a person searching by hand gets the
-   * same reading.
-   */
+  // Posts, not people.
   const POSTS_QUERY = /site:\S*linkedin\.com\/(?:posts|feed)/i;
   const POST_PAGE = /(?:^|\.)linkedin\.com\/(?:posts|feed\/update)\//i;
   const POST_ID = /(?:activity|ugcPost|share)(?:%3A|:|-)(\d{18,20})(?!\d)/i;
@@ -107,8 +66,7 @@
     const match = decoded.match(POST_ID);
     if (!match) return null;
 
-    // Tracking parameters are not part of the post, and they make the same
-    // post look like two links.
+    // Tracking parameters are not part of the post, and they make the same post look like two links.
     let clean = decoded;
     try {
       const url = new URL(decoded);
@@ -126,15 +84,7 @@
   const URLISH = /^(?:https?:|www\.)/i;
   const isUrlish = (text) => URLISH.test(text) || /linkedin\.com/i.test(text.replace(/\s*[›>/]\s*/g, ''));
 
-  /**
-   * Every distinct profile on the page, each paired with its best anchor.
-   *
-   * A result carries the same profile two or three times — the title, the
-   * breadcrumb URL under it, sometimes a thumbnail — and they are not in a
-   * fixed order across engines. Taking the first would put
-   * "linkedin.com › in › priya-sharma" in the Name column, so the anchor that
-   * reads like a title wins: not URL-shaped, and the longest of what is left.
-   */
+  /** Every distinct profile on the page, each paired with its best anchor. */
   function profileAnchors(root) {
     const found = [];
     for (const anchor of root.querySelectorAll('a[href]')) {
@@ -151,17 +101,7 @@
     return n;
   };
 
-  /**
-   * The part of the page the results live in.
-   *
-   * Every engine's header links to something — and on a query like
-   * `site:linkedin.com/in` one of those links is a profile, which then walks
-   * into the export as a person nobody searched for. Chrome is a lone link
-   * far from the crowd; results come in a cluster. So: the deepest element
-   * that still holds a majority of the profiles on the page. Falls back to
-   * the whole document when there are too few results for a majority to mean
-   * anything.
-   */
+  /** The part of the page the results live in. */
   function resultsRoot(doc = document) {
     const anchors = profileAnchors(doc);
     const total = new Set(anchors.map((a) => a.slug)).size;
@@ -186,19 +126,7 @@
     return best;
   }
 
-  /**
-   * Is this link a result, or is it part of the page?
-   *
-   * The cluster rule alone cannot tell: on a page where the query matched
-   * nothing, the engine's own header link to a profile is the ONLY profile
-   * link, so it is trivially the majority and came back as a person named
-   * "LinkedIn" — a fabricated row on an empty search, which is the worst
-   * failure this adapter has.
-   *
-   * A result is titled. Every engine puts that title in a heading, on one
-   * side of the link or the other, and gives it a line of text underneath. A
-   * navigation link has neither.
-   */
+  /** Is this link a result, or is it part of the page? */
   const looksLikeResult = (anchor) => Boolean(headingOf(anchor)) || Boolean(snippetFor(anchor));
 
   function resultLinks() {
@@ -214,16 +142,7 @@
     return [...best.values()];
   }
 
-  /**
-   * The title text of a result.
-   *
-   * DuckDuckGo puts the anchor inside the heading, so the anchor's own text is
-   * the title. Google does the opposite: the anchor wraps the site line AND
-   * the heading, so its text reads "LinkedIn · K P Ranjith Kumar 4.8K+
-   * followers K P Ranjith Kumar - Transforming corporate teams…" and the Name
-   * column gets all of it. A heading inside the link is the title whenever
-   * there is one — that is what a heading means.
-   */
+  /** The title text of a result. */
   const HEADING = 'h1, h2, h3, h4, h5, h6';
 
   /** The heading a result is titled by, whichever side of the link it is on. */
@@ -234,14 +153,7 @@
     return norm(heading ? heading.textContent : anchor.textContent);
   }
 
-  /**
-   * Split a result title into a name and a headline.
-   *
-   * The shape every engine shows is the same, because it is LinkedIn's own
-   * page title: "Raghu Vaidyanathan - Manager Finance at Visesh Cargo |
-   * LinkedIn". The separator is a hyphen or an en/em dash, and only the first
-   * one splits — plenty of names contain the second.
-   */
+  /** Split a result title into a name and a headline. */
   function splitTitle(title) {
     const text = norm(title)
       // Trailing site name, in whichever language the engine served.
@@ -264,30 +176,14 @@
   const PLACE = /,\s*[A-Z]/;
   const NOISE = /^(https?:|www\.|\d+\s*(days?|hours?|weeks?|months?)\s+ago)/i;
 
-  // "Chennai, Tamil Nadu, India" — two or three capitalised parts, each at
-  // most three words, separated by commas. Loose enough for any country's
-  // place names, tight enough that a sentence does not match it.
-  //
-  // No full stop inside a word, deliberately: with one, "…at Globex.
-  // Coimbatore, Tamil Nadu, India" matches from "Globex" and the employer
-  // lands in the Location column. The cost is a "St." losing its prefix,
-  // which is a smaller wrong answer than a sentence boundary being read as
-  // part of a place.
+  // "Chennai, Tamil Nadu, India" — two or three capitalised parts, each at most three words, separated by commas.
   const PART = "[A-Z][\\w'’-]*(?: [A-Z][\\w'’-]*){0,2}";
   const PLACE_RUN = new RegExp(`${PART}, ${PART}(?:, ${PART})?`, 'g');
 
   const placeLike = (piece) =>
     piece && piece.length <= 60 && !NOISE.test(piece) && PLACE.test(piece) && !/\bat\b/i.test(piece);
 
-  /**
-   * A location out of the snippet, if it reads like one.
-   *
-   * Snippets are prose and vary by engine, so this only accepts a fragment
-   * that looks like a place — "Chennai, Tamil Nadu, India" — rather than
-   * guessing at the first line. Engines that bullet their fields give it up
-   * whole; the rest need the place picked out of the middle of a sentence,
-   * which is what the second pass does.
-   */
+  /** A location out of the snippet, if it reads like one. */
   function locationFrom(text) {
     const flat = norm(text);
     for (const part of flat.split(/\s*[·|•]\s*|\s{2,}/)) {
@@ -310,25 +206,14 @@
     return slugs;
   }
 
-  /**
-   * The text around a result, which is where the snippet lives.
-   *
-   * Climbing stops by shape, not by length: the moment a block links to a
-   * second person it is the results list, not one result, and anything read
-   * from there belongs to somebody else. A block linking to the same person
-   * three times is still one result, so distinct profiles are what is
-   * counted.
-   */
+  /** The text around a result, which is where the snippet lives. */
   function snippetFor(anchor) {
     let best = anchor.parentElement || document.body;
     for (let el = best, hops = 0; el && el !== document.body && hops < 6; el = el.parentElement, hops += 1) {
       if (slugsIn(el).size > 1) break;
       best = el;
     }
-    // Every link to this same person is chrome, not snippet: the title, and
-    // the breadcrumb URL printed under it. Leaving the breadcrumb in put
-    // "linkedin.com > in > priya-sharma Chennai, Tamil Nadu, India" in the
-    // Location column, because it sits in the same run of text as the place.
+    // Every link to this same person is chrome, not snippet: the title, and the breadcrumb URL printed under it.
     let text = norm(best.textContent);
     for (const link of best.querySelectorAll('a[href]')) {
       if (!targetFrom(link)) continue;
@@ -339,25 +224,14 @@
     return norm(text);
   }
 
-  /*
-   * A challenge page, in the words the engines actually use.
-   *
-   * The first version of this looked for "unusual traffic" and "captcha" —
-   * Google's words. Bing's challenge says "One last step / Please solve the
-   * challenge below to continue / Verifying…" and matched none of them, so a
-   * live run read the challenge page as an empty result set and reported
-   * "the search engine offered no next page". A wrong reason is worse than no
-   * reason: it sends everyone to look at the query.
-   */
+  // A challenge page, in the words the engines actually use.
   const CHALLENGE =
     /unusual traffic|are you a robot|verify (?:you are|that you are) (?:a )?human|captcha|solve the challenge|one last step|before you continue|automated queries|access denied|too many requests/i;
 
   function challengeIn(doc) {
     const body = doc && doc.body;
     if (!body) return false;
-    // innerText is layout-dependent and empty in a parsed document, so the
-    // fetched next page needs textContent. Either way only the top of the
-    // page matters: a challenge is all a challenge page has on it.
+    // innerText is layout-dependent and empty in a parsed document, so the fetched next page needs textContent.
     const text = norm(body.innerText || body.textContent || '').slice(0, 600);
     return CHALLENGE.test(text);
   }
@@ -373,23 +247,7 @@
     return null;
   }
 
-  /**
-   * The URL a Next control leads to, or '' if it is not one.
-   *
-   * The origin check is the whole of this function's safety. `findNext`
-   * searches every link on the page, and on a search engine the links are
-   * results — content an attacker can rank and title. A result titled "Show
-   * more results for kotlin trainers" matches the label pattern as well as
-   * the engine's own control does, and sits above it in document order.
-   *
-   * Without this check that URL was fetched with credentials and its markup
-   * imported into the live page: a request to a site of the attacker's
-   * choosing carrying whatever cookies the user has there, and their HTML
-   * dropped into the search engine's own origin.
-   *
-   * The next page of a search is on the search engine. Anything else is not
-   * a next page, whatever it calls itself.
-   */
+  /** The URL a Next control leads to, or '' if it is not one. */
   function nextUrl(doc) {
     const el = findNext(doc);
     if (!el) return '';
@@ -403,14 +261,7 @@
     }
   }
 
-  /*
-   * Markup from another page, made inert before it touches this one.
-   *
-   * DOMParser does not run anything, but these nodes are about to be inserted
-   * into a live document, where an `onerror` on an <img> fires immediately —
-   * in the page's own origin, not this script's isolated world. Result markup
-   * is not trusted input, so nothing that can execute survives the trip.
-   */
+  // Markup from another page, made inert before it touches this one.
   const EXECUTABLE = 'script, iframe, object, embed, link, meta, base, form';
 
   function sanitise(node) {
@@ -430,12 +281,7 @@
     return node.matches && node.matches(EXECUTABLE) ? null : node;
   }
 
-  /*
-   * The engine's own date in front of a snippet — "5 days ago —", "Sep 7,
-   * 2026 ·". It is the engine's guess at when it saw the page, not when the
-   * post was written, so it is dropped rather than kept as text; the post id
-   * carries the real date.
-   */
+  // The engine's own date in front of a snippet — "5 days ago —", "Sep 7, 2026 ·".
   const ENGINE_DATE =
     /^(?:\d+\s+(?:minutes?|hours?|days?|weeks?|months?)\s+ago|[A-Z][a-z]{2,8}\.? \d{1,2}, \d{4}|\d{1,2} [A-Z][a-z]{2,8}\.? \d{4})\s*[—–·-]\s*/;
 
@@ -443,8 +289,7 @@
   function postRecord(hit) {
     const { author, text: fromTitle } = parsePostTitle(titleOf(hit.anchor));
     const snippet = snippetFor(hit.anchor).replace(ENGINE_DATE, '').trim();
-    // The title is usually the post's first line and the snippet the next
-    // few. Keep both, once: some engines repeat the title in the snippet.
+    // The title is usually the post's first line and the snippet the next few.
     const text =
       fromTitle && !snippet.toLowerCase().includes(fromTitle.toLowerCase().slice(0, 40))
         ? `${fromTitle} — ${snippet}`
@@ -464,17 +309,7 @@
 
   let endReason = '';
 
-  /*
-   * The page the next Next link is read from.
-   *
-   * Paging here does not click. On an engine, Next is a full navigation, and a
-   * navigation destroys the content script mid-run — the scrape would be
-   * abandoned with whatever page one gave and no error anywhere. So the next
-   * page is fetched and its results are appended to the ones already on
-   * screen, which is also what the harvest loop upstream expects: a list that
-   * grows. This holds the last page fetched, so page three is found from page
-   * two rather than from the page still in the tab.
-   */
+  // The page the next Next link is read from.
   let latest = null;
 
   globalThis.MLSAdapters = globalThis.MLSAdapters || {};
@@ -482,10 +317,7 @@
     id: 'web',
 
     matchesUrl(url) {
-      // A results page on one of the engines — never Maps, which has its own
-      // adapter and also lives on google.com.
-      // DuckDuckGo's results live at the site root ("/?q="), not under
-      // /search, so one path pattern does not cover both engines.
+      // A results page on one of the engines — never Maps, which has its own adapter and also lives on google.com.
       return (
         /^https?:\/\/(?:[\w-]+\.)?google\.[a-z.]+\/search\b/i.test(url) ||
         /^https?:\/\/(?:[\w-]+\.)?duckduckgo\.com\/(?:html\/?)?\?.*\bq=/i.test(url)
@@ -512,9 +344,7 @@
 
     async waitForResults() {
       const { waitFor } = globalThis.MLSEngine;
-      // The page itself, once it holds at least one profile link. A results
-      // page with none is a real answer, not a failure — some queries simply
-      // match nothing.
+      // The page itself, once it holds at least one profile link.
       await waitFor(() => (resultLinks().length ? document.body : null), { timeout: 8000 });
       return document.body;
     },
@@ -554,9 +384,7 @@
     async loadMore() {
       const url = nextUrl(latest || document);
       if (!url) {
-        // "No next page" is only true if there was a page. An engine that
-        // answered nothing at all is a different problem and needs saying so,
-        // or the query is the first thing everyone re-reads.
+        // "No next page" is only true if there was a page.
         endReason = this.getResultIds().length
           ? 'the search engine offered no next page'
           : 'the search engine returned no results for this query';
@@ -565,16 +393,13 @@
 
       let doc = null;
       try {
-        // same-origin, not include: the URL is already checked to be this
-        // engine, and `include` is what would have sent the user's cookies
-        // to somebody else's server if that check were ever bypassed.
+        // same-origin, not include.
         const response = await fetch(url, { credentials: 'same-origin', redirect: 'follow' });
         if (!response.ok) {
           endReason = `the search engine answered ${response.status} for the next page`;
           return false;
         }
-        // A redirect can land anywhere. Where it landed is what was actually
-        // fetched, so that is what has to be on the engine.
+        // A redirect can land anywhere.
         if (response.url && new URL(response.url).origin !== location.origin) {
           endReason = 'the next page redirected off the search engine';
           return false;
@@ -591,10 +416,7 @@
       }
 
       const before = new Set(this.getResultIds());
-      // Appended INTO the results, never beside them: resultsRoot picks the
-      // element holding a majority of the profiles, so a second cluster
-      // somewhere else in the page would push it back up to <body> and the
-      // header's own profile link would start counting as a person again.
+      // Appended INTO the results, never beside them.
       const into = resultsRoot(document);
       for (const node of [...resultsRoot(doc).children]) {
         const safe = sanitise(document.importNode(node, true));
@@ -607,9 +429,7 @@
       return gained;
     },
 
-    // The title already carries the name and the headline. Opening every
-    // profile would multiply the request count for very little — the same
-    // call the LinkedIn adapter makes.
+    // The title already carries the name and the headline.
     needsDetail() {
       return false;
     },

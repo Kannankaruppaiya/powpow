@@ -1,22 +1,4 @@
-/**
- * LeadMine — background service worker.
- *
- * Owns the run. A run is a queue of search tasks (batch entries × grid cells),
- * each of which drives the Maps tab and returns records that are merged into
- * one deduplicated set. The queue and the accumulated records are written to
- * storage after every task, so closing the popup, an evicted service worker or
- * a crashed browser all leave a run that can be resumed rather than repeated.
- *
- * After the queue drains, two enrichment passes run over the merged records:
- * emails (and social links) from each business's website, then email
- * verification over DNS-over-HTTPS.
- *
- * Records live in IndexedDB, not in the job object. Keeping them together
- * meant every progress update re-serialised the entire result set — several
- * gigabytes of writes over a large run — and capped how much could be handed
- * to the UI in one message. Now only the records a task actually touched are
- * written, and the side panel reads the database directly.
- */
+/** LeadMine — background service worker. */
 
 import { findEmailForSite, mapWithConcurrency } from '../lib/email.js';
 import { verifyEmail, isSendable } from '../lib/verify.js';
@@ -64,8 +46,7 @@ const DEFAULT_JOB = {
   notified: '',
   skippedSeen: 0,
   filteredOut: 0,
-  // Set when a settled run survives a restart. It stays readable, but it
-  // stops owning the screen — see loadJob().
+  // Set when a settled run survives a restart.
   stale: false,
   health: null,
   tabId: null,
@@ -74,17 +55,12 @@ const DEFAULT_JOB = {
 };
 
 let job = { ...DEFAULT_JOB };
-// The working set for the current run. Held in memory so merging stays cheap,
-// mirrored to IndexedDB after every task so nothing is lost.
+// The working set for the current run.
 let records = [];
 let cancelRequested = false;
 let keepAlive = null;
 
-/**
- * Chrome evicts an idle MV3 service worker after 30 seconds, which would
- * abandon a scrape halfway through. Touching an extension API on a timer
- * resets that clock for as long as a run is actually in progress.
- */
+/** Chrome evicts an idle MV3 service worker after 30 seconds, which would abandon a scrape halfway through. */
 function startKeepAlive() {
   if (keepAlive) return;
   keepAlive = setInterval(() => {
@@ -105,8 +81,7 @@ async function loadJob() {
   if (stored) job = { ...DEFAULT_JOB, ...stored };
   records = job.jobId ? await store.getRecords(job.jobId) : [];
 
-  // A worker restart means the in-flight task was abandoned. Say so honestly
-  // and offer to resume rather than silently reporting the run as finished.
+  // A worker restart means the in-flight task was abandoned.
   if (job.status === 'running') {
     for (const task of job.tasks) if (task.status === 'running') task.status = 'pending';
     const resumable = job.tasks.some((t) => t.status === 'pending');
@@ -116,13 +91,7 @@ async function loadJob() {
       : `Recovered ${records.length} results from the previous run.`;
   }
 
-  // A run that had already finished before this restart is history. Its rows
-  // stay in Results and its file is still downloadable, but it does not get
-  // to own the screen: every extension reload was painting a dead run's error
-  // back over the form, which reads as "the reload did nothing".
-  //
-  // A paused run is the exception — it is unfinished, and Resume lives in the
-  // run view, so it keeps the screen.
+  // A run that had already finished before this restart is history.
   if (['done', 'error', 'cancelled'].includes(job.status)) job.stale = true;
 
   return job;
@@ -130,11 +99,7 @@ async function loadJob() {
 
 const ready = loadJob();
 
-/**
- * Persist the job metadata — the queue and the counters only. This object stays
- * small however many businesses have been collected, which is the whole point
- * of keeping records in their own store.
- */
+/** Persist the job metadata — the queue and the counters only. */
 async function save(patch = {}) {
   job = { ...job, ...patch };
   await store.putMeta(STORE_KEY, job);
@@ -156,20 +121,16 @@ function publicJob() {
     websitesFound: records.filter((r) => r.website).length,
     tasksSettled: settled,
     tasksTotal: total,
-    // "1 searches failed" with no reason is not a report. Carry the first
-    // failure's message so the panel can say what actually went wrong.
+    // "1 searches failed" with no reason is not a report.
     taskError: (tasks.find((t) => t.status === 'failed' && t.error) || {}).error || '',
     // People the source showed but refused to identify, across every search.
-    // Without this the panel cannot tell a broken scrape from a run where
-    // LinkedIn simply would not say who most of the results were.
     withheld: tasks.reduce((n, t) => n + ((t.context && t.context.withheld) || 0), 0),
     // Why collection ended, from the last search that ran.
     stoppedBecause:
       [...tasks].reverse().find((t) => t.stoppedBecause) &&
       [...tasks].reverse().find((t) => t.stoppedBecause).stoppedBecause,
     canResume: job.status === 'paused' && tasks.some((t) => t.status === 'pending'),
-    // Selectors that stopped matching and were found again from memory. The
-    // run worked; the selectors still want repairing.
+    // Selectors that stopped matching and were found again from memory.
     healed: [...new Set(tasks.flatMap((t) => (t.context && t.context.healed) || []))],
     // A preview only — the side panel pages the full set out of IndexedDB.
     preview: records.slice(0, 60),
@@ -178,19 +139,12 @@ function publicJob() {
 
 /* ------------------------------------------------------------- tab plumbing */
 
-/**
- * Wait until the tab has finished loading a URL containing `expect`.
- *
- * The URL check is not decoration: immediately after tabs.update the tab can
- * still report the *previous* page as complete, and without it the very first
- * search would be scraped off about:blank.
- */
+/** Wait until the tab has finished loading a URL containing `expect`. */
 function waitForTabComplete(tabId, expect = '/maps/', timeout = 45000) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       chrome.tabs.onUpdated.removeListener(listener);
-      // Every source waits here, not only Maps: naming Maps on a LinkedIn run
-      // sent people looking for a Maps tab that was never involved.
+      // Every source waits here, not only Maps.
       reject(new Error(`Timed out waiting for the page to load (${expect}).`));
     }, timeout);
 
@@ -240,11 +194,7 @@ async function ensureContentScript(tabId) {
   await new Promise((r) => setTimeout(r, 300));
 }
 
-/**
- * Maps rewrites its own URL with the map centre once the results settle, which
- * is where the grid gets its coordinates from — no geocoding service needed.
- * The centre appears a moment after load, so give it a few tries.
- */
+/** Maps rewrites its own URL with the map centre once the results settle. */
 async function readMapCentre(tabId, attempts = 8) {
   for (let i = 0; i < attempts; i += 1) {
     try {
@@ -261,13 +211,7 @@ async function readMapCentre(tabId, attempts = 8) {
 
 /* ---------------------------------------------------------------- the queue */
 
-/**
- * A failure that is about the tab rather than about the page.
- *
- * These come from Chrome's own messaging layer when the tab navigates, is
- * discarded, or goes into the back/forward cache mid-scrape. The scrape was
- * never wrong; the channel it was speaking over went away.
- */
+/** A failure that is about the tab rather than about the page. */
 function isTransient(message) {
   return /back\/forward cache|message channel is closed|message port closed|Receiving end does not exist|No tab with id|Frame with ID/i.test(
     String(message || '')
@@ -278,23 +222,10 @@ async function runTask(task, config, tabId) {
   const source = sourceFor(config.source);
 
   if (!task.useCurrentTab) {
-    // A LinkedIn task built from facets already knows its exact URL — the
-    // keyword string cannot express geoUrn or serviceCategory, so it is not
-    // asked to.
+    // A LinkedIn task built from facets already knows its exact URL.
     const url = task.url || buildUrl(source.id, task.term, task.point);
 
-    /*
-     * A search already answered costs nothing — including its first page.
-     *
-     * This has to be checked before the tab moves. Consulted inside the
-     * paging loop instead, the first navigation and its count had already
-     * happened, so a "free" repeat still spent a search while the panel said
-     * none were spent.
-     *
-     * Only when the URL is final. A task whose filters LinkedIn still has to
-     * apply does not know its own identity yet: the facet ids are what the
-     * key is built from, and LinkedIn has not written them.
-     */
+    // A search already answered costs nothing — including its first page.
     if (pagesByUrl(config) && !(task.applyFilters && task.applyFilters.length)) {
       const hit = await servedFromCache(task, config, url);
       if (hit) return hit;
@@ -313,16 +244,7 @@ async function runTask(task, config, tabId) {
     // Maps hydrates its feed after `complete`; a short settle avoids a race.
     await new Promise((r) => setTimeout(r, 2500));
 
-    /*
-     * Filters LinkedIn has to apply for us.
-     *
-     * A facet takes LinkedIn's own id — geoUrn wants 102784390, not "Chennai"
-     * — and those numbers are undocumented, so a name nobody has looked up
-     * cannot be put in a URL. It can be put in LinkedIn's filter panel
-     * though: type it, tick what comes back, press Show results, and LinkedIn
-     * writes the URL itself. The ids are learned on the way, so the same
-     * search skips all of this next time.
-     */
+    // Filters LinkedIn has to apply for us.
     if (task.applyFilters && task.applyFilters.length) {
       await ensureContentScript(tabId);
       const applied = await chrome.tabs.sendMessage(tabId, {
@@ -335,9 +257,7 @@ async function runTask(task, config, tabId) {
         );
       }
       await rememberUrns(applied.applied);
-      // Pressing "Show results" makes LinkedIn run the search again, once per
-      // filter. A run with two unresolved filters costs three search pages,
-      // not one — which is invisible unless it is counted.
+      // Pressing "Show results" makes LinkedIn run the search again, once per filter.
       for (let i = 0; i < task.applyFilters.length; i += 1) await countSearchPage();
       // The results list rebuilds after a filter lands.
       await new Promise((r) => setTimeout(r, 2500));
@@ -347,9 +267,7 @@ async function runTask(task, config, tabId) {
 
   await ensureContentScript(tabId);
 
-  // Page from where the tab actually is. Applying a filter makes LinkedIn
-  // rewrite the URL, and paging the one we asked for would quietly drop the
-  // filters that had just been applied.
+  // Page from where the tab actually is.
   try {
     const live = await chrome.tabs.get(tabId);
     if (live && live.url) task.currentUrl = live.url;
@@ -366,12 +284,9 @@ async function runTask(task, config, tabId) {
   }
   if (!response.ok) throw new Error(response.error || 'Scrape failed.');
 
-  // The page knows what it is searching for; on a current-tab run that is the
-  // only place the query and the user's filters exist.
+  // The page knows what it is searching for.
   if (response.context) task.context = response.context;
-  // The page is the only place a filter's name and LinkedIn's id for it appear
-  // together. Whatever it saw, keep — one filter applied by hand is one filter
-  // this extension can build for itself from then on.
+  // The page is the only place a filter's name and LinkedIn's id for it appear together.
   if (response.context && response.context.learned) await rememberUrns(response.context.learned);
   if (response.stoppedBecause) task.stoppedBecause = response.stoppedBecause;
 
@@ -384,23 +299,7 @@ async function runTask(task, config, tabId) {
 
 /* ------------------------------------------------------------------ pacing */
 
-/**
- * How long to wait between pages.
- *
- * Everything else about this extension already looks like a person: it runs
- * in the user's own Chrome, from their own address, in their own signed-in
- * session. There is no headless browser to detect, no datacenter address, no
- * automation framework to fingerprint.
- *
- * What does not look like a person is the clock. Ten pages at a fixed 1200ms
- * is twenty seconds of perfectly even spacing, and evenness is the signal —
- * a person reads a page for three seconds, then eleven, then one. So the wait
- * is a range rather than a number, and it lengthens as a run goes on, the way
- * attention does.
- *
- * This makes a run slower on purpose. It is the only thing about the run that
- * was worth hiding, and a detected run returns nothing at all.
- */
+/** How long to wait between pages. */
 function pageDelay(pagesSoFar = 0) {
   const base = 1800 + Math.min(pagesSoFar, 10) * 260;
   return Math.round(base + Math.random() * 3400);
@@ -412,12 +311,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const BUDGET_KEY = 'searchBudget';
 
-/*
- * Roughly what a free LinkedIn account gets in a calendar month before the
- * commercial-use limit lands. Not a published number and not a fixed one —
- * LinkedIn decides it from behaviour — so it is a default to stop at, not a
- * fact, and `config.searchBudget` overrides it.
- */
+// Roughly what a free LinkedIn account gets in a calendar month before the commercial-use limit lands.
 const MONTHLY_ALLOWANCE = 300;
 
 /** Search pages left this month, by our own count. */
@@ -431,19 +325,7 @@ async function budgetLeft(config = {}) {
 const thisMonth = () => new Date().toISOString().slice(0, 7);
 const today = () => new Date().toISOString().slice(0, 10);
 
-/**
- * Count one search-results page fetched from LinkedIn.
- *
- * LinkedIn's allowance is a number on their server that nothing here can
- * read. What CAN be counted, exactly, is what this extension itself asks
- * for — every navigation to a people-search URL is one, and nothing else in
- * a run touches that surface. Counting our own actions is the whole of what
- * is knowable, and it is enough to stop before the wall instead of finding
- * it.
- *
- * A month of testing spent an allowance nobody was counting. This is that
- * counter.
- */
+/** Count one search-results page fetched from LinkedIn. */
 async function countSearchPage() {
   const stored = (await chrome.storage.local.get(BUDGET_KEY))[BUDGET_KEY] || {};
   const month = thisMonth();
@@ -468,37 +350,19 @@ async function readBudget() {
   };
 }
 
-/*
- * Which sources turn a page by changing the URL.
- *
- * LinkedIn does, and its own Network panel is where that was settled: turning
- * a page fires ONE `document` request for `…&page=N`, and no XHR at all. The
- * adapter had been scrolling twice, waiting 1.4 seconds, then hunting four
- * more for a control whose label reads like "next" — all to add one to a
- * number. When the hunt failed the run stopped and blamed LinkedIn.
- */
+// Which sources turn a page by changing the URL.
 const pagesByUrl = (config) => config.source === 'linkedin';
 
-/**
- * The whole answer, if it is already on disk.
- *
- * Returns the records and leaves the tab where it is — no navigation, no
- * count against the allowance. Returns null when the cache cannot cover what
- * this run wants, and the run proceeds normally from page one.
- */
+/** The whole answer, if it is already on disk. */
 async function servedFromCache(task, config, url) {
   const key = cacheKey(url);
   if (!key) return null;
   const wantPages = Math.min(config.maxPages || 10, 100);
   const plan = planFrom(await store.getMeta(key), wantPages);
-  // A search that has fewer pages than were asked for is still answered in
-  // full once all of its pages are held.
+  // A search that has fewer pages than were asked for is still answered in full once all of its pages are held.
   if (plan.reused < wantPages && !plan.complete) return null;
 
-  // The stored pages are raw: LinkedIn repeats people across pages, and a
-  // live run merges them. Handing back the concatenation would give a cached
-  // answer fewer unique people than the search that produced it, and report
-  // the inflated number.
+  // The stored pages are raw: LinkedIn repeats people across pages, and a live run merges them.
   const byKey = new Map();
   for (const record of plan.have) {
     const id = recordKey(record) || record.profileUrl;
@@ -508,8 +372,7 @@ async function servedFromCache(task, config, url) {
 
   task.pagesFetched = 0;
   task.pagesReused = plan.reused;
-  // Deliberately not `stoppedBecause`: the panel renders that as "stopped
-  // because …", and a run answered in full from disk did not stop early.
+  // Deliberately not `stoppedBecause`.
   await save({
     found: people.length,
     message: `Answered from an earlier run — ${plan.reused} pages, no LinkedIn searches spent.`,
@@ -518,29 +381,11 @@ async function servedFromCache(task, config, url) {
   return want ? people.slice(0, want) : people;
 }
 
-/**
- * The rest of the pages, one navigation each.
- *
- * A navigation kills the content script, so this cannot live in the harvest
- * loop; the worker owns it. Every page is scraped on its own and merged here.
- *
- * It stops on the first page that adds nobody new. LinkedIn serves the last
- * page over and over rather than erroring, so "nothing new" is the end — and
- * it is also what a wrong URL looks like, which is the same thing to a run.
- */
+/** The rest of the pages, one navigation each. */
 async function pageThrough(first, task, config, tabId) {
   const source = sourceFor(config.source);
   const want = config.maxResults || 0;
-  /*
-   * How deep to go by default.
-   *
-   * LinkedIn will serve 100 pages of ten to a free account, and paging by URL
-   * made reaching all of them reliable for the first time — which is exactly
-   * the danger. At 100 pages a run, three runs spend a month's allowance, and
-   * the previous version only avoided that by failing to find its own Next
-   * button. Ten pages is a hundred people, which is what a search is usually
-   * for; the number is the user's to raise.
-   */
+  // How deep to go by default.
   const lastPage = Math.min(config.maxPages || 10, 100);
 
   const byKey = new Map(first.map((r) => [recordKey(r) || r.profileUrl, r]));
@@ -548,25 +393,13 @@ async function pageThrough(first, task, config, tabId) {
   const start = pageOf(base);
   task.pagesFetched = 1;
 
-  /*
-   * What this search already returned, the last time it was run.
-   *
-   * Most of a month's allowance went on repeats: a run stops early and is
-   * re-run, a filter is adjusted and the whole thing starts from page one
-   * again. None of those needed to touch LinkedIn. Pages already held are
-   * merged in and skipped, so a repeat is free and only going deeper costs.
-   */
+  // What this search already returned, the last time it was run.
   const key = cacheKey(base);
   let entry = key ? await store.getMeta(key) : null;
-  // Whether this run actually paid for a page. Comparing depths could not
-  // tell: `reused` is clamped to the requested depth and the stored depth is
-  // not, so a run asking for fewer pages than are held looked like a fetch
-  // and refreshed the very timestamps the cache ages on.
+  // Whether this run actually paid for a page.
   let fetchedAny = false;
   const plan = planFrom(entry, lastPage);
-  // Page one came back with `first`, before this function was called. Folded
-  // in here, after `entry` exists — above the declarations it was a temporal
-  // dead zone, and every multi-page run threw after paying for page one.
+  // Page one came back with `first`, before this function was called.
   if (key) entry = absorb(entry, start, first);
   for (const record of plan.have) {
     const id = recordKey(record) || record.profileUrl;
@@ -580,8 +413,7 @@ async function pageThrough(first, task, config, tabId) {
   }
   task.pagesReused = plan.reused;
 
-  // Every page this search has is already held: going on would only pay to
-  // be shown the last page again.
+  // Every page this search has is already held: going on would only pay to be shown the last page again.
   const firstToFetch = plan.complete ? lastPage + 1 : Math.max(start + 1, plan.from);
   for (let page = firstToFetch; page <= lastPage; page += 1) {
     if (cancelRequested) break;
@@ -617,23 +449,19 @@ async function pageThrough(first, task, config, tabId) {
     }
 
     const before = byKey.size;
-    // Recorded only now, with the page read. Marking it held at navigation
-    // time would let a failed scrape or a cancel record a page whose people
-    // were never collected, and the next run would skip it for good.
+    // Recorded only now, with the page read.
     if (key) entry = absorb(entry, page, next.records || []);
     for (const record of next.records || []) {
       const key = recordKey(record) || record.profileUrl;
       if (key && !byKey.has(key)) byKey.set(key, record);
     }
     if (next.context) task.context = { ...(task.context || {}), ...next.context,
-      // The count of people LinkedIn would not name is per page; it has to add
-      // up across them or the panel understates it by a factor of the pages.
+      // The count of people LinkedIn would not name is per page.
       withheld: ((task.context || {}).withheld || 0) + (next.context.withheld || 0) };
 
     if (byKey.size === before) {
       task.stoppedBecause = `page ${page} repeated what page ${page - 1} already had`;
-      // Where the search ends, so a repeat is answered from disk instead of
-      // paying to rediscover it.
+      // Where the search ends, so a repeat is answered from disk instead of paying to rediscover it.
       if (key) entry = markEnd(entry, page - 1);
       break;
     }
@@ -643,30 +471,13 @@ async function pageThrough(first, task, config, tabId) {
   }
 
   const out = [...byKey.values()];
-  // Written even when the run stopped early: a partial answer still saves the
-  // pages it did pay for, and the next run resumes past them.
-  // Only when something was actually fetched. Rewriting the timestamp on a
-  // pure cache hit would keep a week-old answer alive forever, simply because
-  // it kept being asked for.
+  // Written even when the run stopped early.
   if (key && fetchedAny) await store.putMeta(key, entry);
   return want ? out.slice(0, want) : out;
 }
 
-/**
- * Turn a filter's name into LinkedIn's id for it, by asking LinkedIn.
- *
- * `geoUrn` wants 102784390, not "Chennai", and that number is LinkedIn's own —
- * undocumented, and not derivable from anything held here. But the page has a
- * resolver already: the filter panel's typeahead. This drives it, on whichever
- * LinkedIn search tab is open, and stores the answer so it happens once per
- * name and never again.
- */
-/**
- * Store filter-name-to-id pairs the page handed back.
- *
- * Written only when something is genuinely new, because this runs after every
- * task and a run that learned nothing should not touch storage.
- */
+/** Turn a filter's name into LinkedIn's id for it, by asking LinkedIn. */
+/** Store filter-name-to-id pairs the page handed back. */
 async function rememberUrns(pairs) {
   if (!pairs || !pairs.length) return;
   const stored = await chrome.storage.local.get(URN_KEY);
@@ -692,8 +503,7 @@ async function drainQueue(config, tabId) {
 
     try {
       let harvested = await runTask(task, config, tabId);
-      // A post is dated and judged as it arrives, so the live cards already
-      // say how old it is and whether it asks for anything.
+      // A post is dated and judged as it arrives.
       if (config.source === 'posts') {
         const topic = task.category || (task.context && task.context.query) || config.category || '';
         const now = Date.now();
@@ -703,13 +513,10 @@ async function drainQueue(config, tabId) {
       task.status = 'done';
 
       const { added, touched } = absorbInto(records, harvested);
-      // Only the rows this task changed are written, so the cost of a progress
-      // save is proportional to the task rather than to the whole run.
+      // Only the rows this task changed are written.
       await store.putRecords(job.jobId, touched);
 
-      // The first search of each term also reveals where the city is; use that
-      // to lay the grid before moving on. Non-geographic sources never set
-      // this flag, so the tab URL is not read at all for them.
+      // The first search of each term also reveals where the city is; use that to lay the grid before moving on.
       if (task.expandsToGrid) {
         task.expandsToGrid = false;
         const centre = await readMapCentre(tabId);
@@ -718,12 +525,7 @@ async function drainQueue(config, tabId) {
         else if (!centre) task.error = 'Could not read the map centre — grid skipped.';
       }
 
-      // If every selector for a field has stopped matching, stop now rather
-      // than filling a spreadsheet with blank columns. Which fields count
-      // depends on the source: a business always has a place link, a person
-      // always has a profile URL.
-      // A current-tab run learns its search from the page, so fold that back
-      // into the job for the status line and the download's filename.
+      // If every selector for a field has stopped matching.
       if (task.context && task.context.query && !job.config.category) {
         await save({ config: { ...job.config, category: task.context.query } });
       }
@@ -751,10 +553,7 @@ async function drainQueue(config, tabId) {
         task.status = 'pending'; // leave it for a resume
         return;
       }
-      // Some failures are the tab moving, not the scrape being wrong: Chrome
-      // closes the message channel when the page it belongs to is put into
-      // the back/forward cache. Losing a whole search to that is a bad trade
-      // when re-running it costs one navigation.
+      // Some failures are the tab moving, not the scrape being wrong.
       task.attempts = (task.attempts || 0) + 1;
       if (isTransient(message) && task.attempts < 3) {
         task.status = 'pending';
@@ -774,17 +573,7 @@ async function drainQueue(config, tabId) {
 
 /* --------------------------------------------------------- email enrichment */
 
-/*
- * A real tab, for the sites a plain fetch cannot read.
- *
- * Some sites answer a request that is not a browser with a 403, a challenge
- * page, or an empty shell their JavaScript fills in later. A visitor sees an
- * email on all of them; a fetch saw none. Opening the page in a background tab
- * lets the browser do what browsers do, and the HTML it built is read back.
- *
- * One tab at a time, never focused, always closed — and capped per run,
- * because a tab is slow and it is the user's browser.
- */
+// A real tab, for the sites a plain fetch cannot read.
 let renderChain = Promise.resolve();
 let rendersThisRun = 0;
 
@@ -794,8 +583,7 @@ function renderInTab(url, { timeout = 20000, settle = 1500 } = {}) {
     let tab = null;
     try {
       tab = await chrome.tabs.create({ url, active: false });
-      // "http" rather than the host: a site may redirect to www., to https,
-      // or to another domain entirely, and any real page will do.
+      // "http" rather than the host.
       await waitForTabComplete(tab.id, 'http', timeout);
       await wait(settle);
       const [result] = await chrome.scripting.executeScript({
@@ -847,9 +635,7 @@ async function enrichEmails(records, config) {
         record.emailSource = source;
         hits += 1;
       }
-      // What the site says about itself, for the lead judge. Kept on the row
-      // but never exported as a column — it is working material, not a lead
-      // field.
+      // What the site says about itself, for the lead judge.
       if (siteText) record.siteText = siteText;
       if (structured) {
         if (structured.description) record.siteDescription = structured.description;
@@ -916,19 +702,10 @@ async function finishRun(config) {
     return;
   }
 
-  // Narrowing happens before enrichment for the same reason as the dedupe
-  // below: there is no point fetching a website for a listing the user has
-  // already said they do not want.
+  // Narrowing happens before enrichment for the same reason as the dedupe below.
   const source = sourceFor(config.source);
 
-  /*
-   * Posts: keep the recent ones that ask for something.
-   *
-   * Re-annotated first, because two sightings of one post merged into the
-   * longer text, and the longer text is the better judge. Then narrowed on
-   * the post's own date and on intent — set aside with a reason, never
-   * deleted, the same as the category filter below.
-   */
+  // Posts: keep the recent ones that ask for something.
   if (source.id === 'posts') {
     const now = Date.now();
     records = records.map((r) => annotatePost(r, { now, topic: r.searchCategory || config.category || '' }));
@@ -949,14 +726,7 @@ async function finishRun(config) {
   if (filterText) {
     const { kept, dropped } = filterByCategory(records, config.categoryFilter, source.filterField);
     if (dropped.length) {
-      // Marked, never deleted. A filter that sets aside everything is almost
-      // always the wrong filter, and deleting the rows destroys the evidence
-      // at exactly the moment the user needs it — along with an hour of
-      // scraping they would have to repeat to get it back.
-      // Under the job's jobId — the job has no plain id field, and rows
-      // written under `undefined` fall out of the jobId index — the panel's "Show them"
-      // found nothing, and the rows stayed in the database for good, reachable
-      // by no job and cleared by no Clear.
+      // Marked, never deleted.
       await store.putRecords(job.jobId, dropped.map((r) => ({ ...r, setAside: filterText })));
       records = kept;
       await save({
@@ -970,13 +740,7 @@ async function finishRun(config) {
     }
   }
 
-  /*
-   * The do-not-contact list, before anything else is spent on these rows.
-   *
-   * An opt-out follows the person, not the run: whoever asked not to be
-   * contacted must not come back because a new search found them again. Set
-   * aside with the reason — never deleted — like every other narrowing.
-   */
+  // The do-not-contact list, before anything else is spent on these rows.
   const suppression = await store.getSuppression().catch(() => []);
   if (suppression.length) {
     const notes = await store.getNotes(records.map((r) => r.key)).catch(() => new Map());
@@ -995,13 +759,11 @@ async function finishRun(config) {
     }
   }
 
-  // Cross-run dedupe happens before enrichment so we never spend fetches on
-  // businesses the user already exported.
+  // Cross-run dedupe happens before enrichment so we never spend fetches on businesses the user already exported.
   if (config.skipSeen) {
     const seen = await store.filterSeen(records.map((r) => r.key));
     if (seen.size) {
-      // These rows were written as each task finished, so drop them from the
-      // database too — not just from the working set.
+      // These rows were written as each task finished, so drop them from the database too.
       await store.deleteRecords(records.filter((r) => seen.has(r.key)).map((r) => r.key));
       records = records.filter((r) => !seen.has(r.key));
       await save({
@@ -1042,12 +804,7 @@ async function finishRun(config) {
   await notifyPowPow(config);
 }
 
-/**
- * Hand the finished run to PowPow, if the user asked for that.
- *
- * Never fails the run: the leads are already safe in the database, and a
- * gateway that is down is a line in the panel, not an error.
- */
+/** Hand the finished run to PowPow, if the user asked for that. */
 async function notifyPowPow(config) {
   const stored = (await chrome.storage.local.get(HOOK_KEY))[HOOK_KEY] || {};
   const settings = { ...DEFAULT_HOOK, ...stored };
@@ -1085,13 +842,7 @@ async function execute(config, tabId) {
   }
 }
 
-/**
- * The tab a run will drive.
- *
- * Normally the extension opens its own and navigates it per task. In
- * current-tab mode it adopts the tab the user already has open — the whole
- * point being that navigating would discard the filters they set by hand.
- */
+/** The tab a run will drive. */
 async function acquireTab(config) {
   if (!config.useCurrentTab) {
     // A fresh tab: after a browser restart the previous one is long gone.
@@ -1196,8 +947,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       );
 
     case 'START_JOB':
-      // Fire and forget: the run outlives this message and reports through
-      // JOB_UPDATE broadcasts.
+      // Fire and forget: the run outlives this message and reports through JOB_UPDATE broadcasts.
       ready
         .then(() => startJob(msg.config))
         .catch((err) => save({ status: 'error', error: String(err.message || err), message: String(err.message || err) }));
@@ -1215,8 +965,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       return reply(cancelJob().then(() => ({})));
 
     case 'GET_RECORDS':
-      // The side panel normally reads IndexedDB itself; this stays for any
-      // caller that cannot, and for small result sets.
+      // The side panel normally reads IndexedDB itself.
       return reply(ready.then(() => ({ records, config: job.config })));
 
     case 'CLEAR_JOB':
@@ -1246,19 +995,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
 /* ---------------------------------------------------------------- schedule */
 
-/**
- * Arm the alarm for the saved schedule, or clear it.
- *
- * `when`, not `periodInMinutes`: "weekdays at 8:30" is not a fixed period,
- * so each firing arms the next one. Re-armed on install, on startup and
- * whenever the panel changes the schedule.
- */
+/** Arm the alarm for the saved schedule, or clear it. */
 async function armSchedule({ catchUp = false } = {}) {
   const schedule = { ...DEFAULT_SCHEDULE, ...((await chrome.storage.local.get(SCHEDULE_KEY))[SCHEDULE_KEY] || {}) };
   await chrome.alarms.clear(ALARM_NAME);
   if (!schedule.enabled || cannotSchedule(schedule.config)) return;
-  // Chrome was closed at the scheduled time. Clearing the alarm above would
-  // lose that run, so it is run now — runScheduled re-arms for the next one.
+  // Chrome was closed at the scheduled time.
   if (catchUp && missedRun(schedule)) {
     void runScheduled();
     return;
@@ -1267,10 +1009,7 @@ async function armSchedule({ catchUp = false } = {}) {
   if (when) await chrome.alarms.create(ALARM_NAME, { when });
 }
 
-/**
- * At startup Chrome may fire an overdue alarm while the catch-up above is
- * starting the same run; one flag makes the second arrival a no-op.
- */
+/** At startup Chrome may fire an overdue alarm while the catch-up above is starting the same run. */
 let scheduledStarting = false;
 
 async function runScheduled() {
@@ -1282,13 +1021,11 @@ async function runScheduled() {
     if (!schedule.enabled) return;
     const why = cannotSchedule(schedule.config);
     if (why) throw new Error(why);
-    // A run already going is the user's; the schedule waits for tomorrow
-    // rather than stopping it.
+    // A run already going is the user's; the schedule waits for tomorrow rather than stopping it.
     if (job.status === 'running') return;
     await chrome.storage.local.set({ [SCHEDULE_KEY]: { ...schedule, lastRunAt: Date.now() } });
     const started = startJob(scheduledConfig(schedule.config), { scheduled: true });
-    // The job's own status guards from here on; the flag only has to cover
-    // the moments before startJob marks it running.
+    // The job's own status guards from here on.
     scheduledStarting = false;
     await started;
   } catch (err) {
@@ -1305,16 +1042,12 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes[SCHEDULE_KEY]) {
-    // Only the panel's edits re-arm; the run's own lastRunAt write arms in
-    // its `finally`, and re-arming twice is harmless anyway.
+    // Only the panel's edits re-arm.
     void armSchedule();
   }
 });
 
-/**
- * Clicking the toolbar icon opens the side panel. Without this the action has
- * no popup and would do nothing at all.
- */
+/** Clicking the toolbar icon opens the side panel. */
 chrome.runtime.onInstalled.addListener(() => {
   ready.catch(() => {});
   void armSchedule();

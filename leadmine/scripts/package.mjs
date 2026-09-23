@@ -1,12 +1,4 @@
-/**
- * Bundles the extension into dist/leadmine-v<version>.zip.
- *
- * Writes the ZIP by hand (local headers + central directory + EOCD, deflated
- * with node:zlib) so packaging needs no dependencies and no system `zip`,
- * which keeps it working on Windows too.
- *
- * Run with: node scripts/package.mjs
- */
+/** Bundles the extension into dist/leadmine-v<version>.zip. */
 import { deflateRawSync } from 'node:zlib';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';

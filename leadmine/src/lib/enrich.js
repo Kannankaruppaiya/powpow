@@ -1,32 +1,4 @@
-/**
- * A work email for a person — the one paid step.
- *
- * A LinkedIn or public-web row names a person and a profile and nothing you
- * can write to. Email finders resolve a profile URL to a verified work
- * address; this talks to two of them, with the request and response shapes
- * taken from OpenOutFind's clients (github.com/eracle/OpenOutFind,
- * `openoutfind/enrichment/`), which were built against the providers' docs:
- *
- *   - Apollo: POST /api/v1/people/match — synchronous, one call, and a miss
- *     costs nothing. Only an address Apollo marks "verified" counts.
- *   - BetterContact: POST /api/v2/async → request_id, then poll GET
- *     /api/v2/async/{id} until "terminated". A credit goes when the job is
- *     accepted, hit or miss.
- *
- * Three rules, all about money:
- *
- *   1. **Nothing is looked up that the user did not pick.** The caller passes
- *      the leads — by default only the ones judged a fit — and a ceiling.
- *   2. **Only the profile URL leaves the browser.** Both providers resolve
- *      better with a name and a company, and both work with the URL alone;
- *      the less of someone's record goes to a third party, the better.
- *   3. **A "guessed" address is a miss.** A pattern-matched first.last@domain
- *      with no delivery evidence would sit in the Email column looking exactly
- *      like a real one, and bounce.
- *
- * Runs in the side panel, where its key lives — never in the worker, never in
- * a saved job, never in an export.
- */
+/** A work email for a person — the one paid step. */
 
 export const FINDERS = {
   apollo: {
@@ -112,12 +84,7 @@ async function call(fetchImpl, url, init, label) {
   return response.json().catch(() => ({}));
 }
 
-/**
- * Look one person up. Returns { found, email, status, firstName, lastName }.
- *
- * Throws only for what stops every later lookup too — a bad key, no credits,
- * a rate limit — so the caller can stop spending rather than fail forty times.
- */
+/** Look one person up. */
 export async function findPersonEmail({
   finder = DEFAULT_FINDER,
   apiKey = '',
@@ -136,8 +103,7 @@ export async function findPersonEmail({
     const json = await call(fetchImpl, APOLLO_MATCH, {
       method: 'POST',
       headers: { 'content-type': 'application/json', accept: 'application/json', 'x-api-key': key },
-      // Work email only: the personal-email and phone reveals cost more and
-      // switch the endpoint to webhook delivery.
+      // Work email only: the personal-email and phone reveals cost more and switch the endpoint to webhook delivery.
       body: JSON.stringify({ linkedin_url: profileUrl }),
     }, 'Apollo');
     return readApollo(json);
@@ -169,13 +135,7 @@ export async function findPersonEmail({
   throw new Error(`Unknown email finder "${finder}".`);
 }
 
-/**
- * Which leads a lookup would spend on, and how many.
- *
- * The rule is the spend gate: a person, with a profile link, without an
- * address already, not on the do-not-contact list, and — unless the user
- * widened it — judged a fit. Capped at the number the user typed.
- */
+/** Which leads a lookup would spend on, and how many. */
 export function lookupTargets(records, notes, { include = ['fit'], limit = 10, isSuppressed = () => false } = {}) {
   const out = [];
   for (const record of records || []) {
@@ -192,10 +152,7 @@ export function lookupTargets(records, notes, { include = ['fit'], limit = 10, i
   return out;
 }
 
-/**
- * Look up a list, one at a time, stopping on the first refusal that would
- * repeat for every later one. Returns note patches.
- */
+/** Look up a list, one at a time, stopping on the first refusal that would repeat for every later one. */
 export async function findEmails({
   records,
   finder,

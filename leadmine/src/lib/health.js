@@ -1,23 +1,6 @@
-/**
- * Extraction health.
- *
- * Fallback selectors keep a single broken selector from failing a run — but
- * they also hide the case that matters: Google reshuffles the DOM, *every*
- * strategy for a field misses, and the run cheerfully produces eight hundred
- * rows with an empty Name column. Nothing errors, so nothing stops.
- *
- * This measures how often each field actually came back and stops the run when
- * a field that should almost always be present mostly is not.
- */
+/** Extraction health. */
 
-/**
- * Fields that indicate a broken scraper when missing, with the fill rate below
- * which the run should stop.
- *
- * These are deliberately not a blanket rule: a phone number is genuinely
- * absent for plenty of real businesses, so a low phone rate is information,
- * not a fault. Only fields Maps shows for every listing are gates.
- */
+/** Fields that indicate a broken scraper when missing, with the fill rate below which the run should stop. */
 export const DEFAULT_GATES = {
   name: 0.9,
   mapsUrl: 0.9,
@@ -34,10 +17,7 @@ export const DEFAULT_WATCHED = [
   'website',
 ];
 
-/**
- * Below this many records the rates are noise — a village with four dentists
- * would otherwise trip a 90% gate on a single missing field.
- */
+/** Below this many records the rates are noise. */
 export const MIN_SAMPLE = 20;
 
 /** The gates and watch list for a source, falling back to the defaults. */
@@ -45,9 +25,7 @@ export function gatesFor(source) {
   return {
     gates: (source && source.healthGates) || DEFAULT_GATES,
     watched: (source && source.watched) || DEFAULT_WATCHED,
-    // Who changed the page, and what a row is, both depend on the source. A
-    // LinkedIn run that broke used to be told "Google may have changed the
-    // page", which sends everyone to look at the wrong site.
+    // Who changed the page, and what a row is, both depend on the source.
     site: (source && source.site) || 'Google',
     noun: (source && source.rowNoun) || 'listings',
   };
@@ -73,12 +51,7 @@ export function fieldRates(records, fields = DEFAULT_WATCHED) {
   return rates;
 }
 
-/**
- * Decide whether a run is healthy enough to continue.
- *
- * Returns `ok: true` for a sample too small to judge — refusing to guess is
- * the point; a false stop is as bad as a missed one.
- */
+/** Decide whether a run is healthy enough to continue. */
 export function assessHealth(
   records,
   { gates = DEFAULT_GATES, minSample = MIN_SAMPLE, watched = DEFAULT_WATCHED, site, noun } = {}

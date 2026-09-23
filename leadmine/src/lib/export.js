@@ -3,20 +3,9 @@ import { sequencerRows, SEQUENCER_COLUMNS, STATUS_LABEL } from './crm.js';
 import { effectiveVerdict, VERDICT_LABEL } from './qualify.js';
 import { peopleSummary } from './link.js';
 
-/**
- * Serialisers for the three download formats.
- *
- * Column order is fixed here so the CSV, the Excel sheet and the JSON keys all
- * line up, and so a rerun produces a diffable file.
- */
+/** Serialisers for the three download formats. */
 
-/**
- * Column sets per source.
- *
- * A LinkedIn person and a Maps business share almost no fields, so one merged
- * table would be mostly blank either way. The exporter picks the set that
- * matches what was actually scraped.
- */
+/** Column sets per source. */
 export const MAPS_COLUMNS = [
   { key: 'name', label: 'Business Name' },
   { key: 'category', label: 'Category' },
@@ -38,9 +27,7 @@ export const MAPS_COLUMNS = [
   { key: 'priceLevel', label: 'Price Level' },
   { key: 'claimed', label: 'Claimed' },
   { key: 'allEmails', label: 'Other Emails' },
-  // What the business's own website says about itself — its schema.org
-  // description, the people it names, its headcount. Read during the email
-  // pass at no extra request.
+  // What the business's own website says about itself.
   { key: 'siteDescription', label: 'Website Description' },
   { key: 'sitePeople', label: 'People Named On Website' },
   { key: 'employees', label: 'Employees' },
@@ -48,16 +35,7 @@ export const MAPS_COLUMNS = [
   { key: 'mapsUrl', label: 'Google Maps URL' },
 ];
 
-/*
- * People, from either door.
- *
- * LinkedIn's own search and a search engine's results describe the same
- * person with the same fields, so one column set covers both — and a file
- * holding rows from both keeps every column either of them filled. Which door
- * a row came through is a column of its own: a public-web row has no
- * connection degree because there is no degree to have, not because the
- * scrape missed it.
- */
+// People, from either door.
 export const PEOPLE_COLUMNS = [
   { key: 'name', label: 'Name' },
   { key: 'headline', label: 'Headline' },
@@ -72,11 +50,7 @@ export const PEOPLE_COLUMNS = [
   { key: 'source', label: 'Found Via' },
 ];
 
-/*
- * Posts. A post is a lead because of when it was written and what it asks, so
- * those come first; the reason it was judged to ask comes with it, and so
- * does the reason a row was set aside when set-aside rows are shown.
- */
+// Posts.
 export const POSTS_COLUMNS = [
   { key: 'postedAt', label: 'Posted On' },
   { key: 'ageDays', label: 'Age (Days)' },
@@ -99,14 +73,7 @@ export const LINKEDIN_COLUMNS = PEOPLE_COLUMNS;
 /** Kept as the default so existing callers and tests keep working. */
 export const COLUMNS = MAPS_COLUMNS;
 
-/*
- * What the user and the judge said about each lead.
- *
- * Kept in the notes store, not on the record, so a re-scrape cannot wipe
- * them (see store.js). Joined in only at export time, and only when there is
- * something to join — a file with eleven empty columns on the end is a file
- * that looks broken.
- */
+// What the user and the judge said about each lead.
 export const ANNOTATION_COLUMNS = [
   { key: 'fit', label: 'Fit' },
   { key: 'fitReason', label: 'Why' },
@@ -121,12 +88,7 @@ export const ANNOTATION_COLUMNS = [
   { key: 'doNotContact', label: 'Do Not Contact' },
 ];
 
-/**
- * Records with their notes and links folded in, as export fields.
- *
- * `linked` maps a person's key to the business they work at; `people` maps a
- * business's key to the people found working there.
- */
+/** Records with their notes and links folded in, as export fields. */
 export function annotate(records, { notes = new Map(), linked = new Map(), people = new Map(), isSuppressed } = {}) {
   return (records || []).map((record) => {
     const note = notes.get(record.key) || {};
@@ -208,12 +170,7 @@ export function toRows(records, columns = columnsFor(records)) {
   };
 }
 
-/**
- * Build the downloadable file.
- *
- * Async because the workbook writer compresses through CompressionStream; CSV
- * and JSON resolve immediately.
- */
+/** Build the downloadable file. */
 export async function buildFile(records, format, meta = {}, extras = null) {
   const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
   const slug = (s) =>
@@ -222,18 +179,12 @@ export async function buildFile(records, format, meta = {}, extras = null) {
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '');
 
-  // The stamp is always truthy, so the search terms have to be defaulted
-  // before it is appended — otherwise every file is named after the clock only.
+  // The stamp is always truthy, so the search terms have to be defaulted before it is appended.
   const search = [slug(meta.category), slug(meta.city)].filter(Boolean).join('_');
   const source = meta.source || ((records || []).find((r) => r && r.source) || {}).source || '';
   const base = `${source ? `${slug(source)}_` : ''}${search || 'leads'}_${stamp}`;
 
-  /*
-   * For a cold-email tool: its own column names, only rows with an address,
-   * and never a lead that is suppressed, judged a poor fit or closed. A
-   * sequencer mails every row it is given, so this is the last place a "no"
-   * can be honoured.
-   */
+  // For a cold-email tool.
   if (format === 'sequencer') {
     const rows = sequencerRows(records, (extras && extras.notes) || new Map(), {
       isSuppressed: (extras && extras.isSuppressed) || (() => false),

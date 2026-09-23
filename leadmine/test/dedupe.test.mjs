@@ -178,10 +178,7 @@ test('absorbInto keeps the key stable when a record is merged again', async () =
 });
 
 test('one person found two ways is one row, not two', () => {
-  // The logged-in search anonymises anyone outside your network — "LinkedIn
-  // Member", no name — while their public profile page names them. So the
-  // same person can arrive twice by different routes, and the profile slug is
-  // the only thing both records reliably share.
+  // The logged-in search anonymises anyone outside your network.
   const fromSearch = {
     name: 'Raghu Vaidyanathan',
     headline: 'Manager Finance at Visesh Cargo',

@@ -1,30 +1,11 @@
-/**
- * The search queue.
- *
- * A run is no longer one search. It is a list of tasks, where a task is "run
- * this term at this map point", and the list comes from two multipliers:
- *
- *   batch  — several category/city pairs entered at once
- *   grid   — each pair expanded into a grid of map viewports
- *
- * Keeping the queue as plain data (rather than a loop in the worker) is what
- * makes a run resumable: it can be written to storage after every task and
- * picked up later exactly where it stopped.
- */
+/** The search queue. */
 
 import { buildGrid, gridSteps, viewportSpanMetres } from './geo.js';
 import { supportsGrid, buildTerm } from './sources.js';
 import { buildUrl as buildQueryUrl, partition } from './linkedin-query.js';
 import { postQueries, postSearchUrl } from './posts.js';
 
-/**
- * Parse the batch box into search pairs. Accepts either separator people
- * actually type:
- *
- *   dentists, Chennai
- *   gyms in Coimbatore
- *   # comments and blank lines are ignored
- */
+/** Parse the batch box into search pairs. */
 export function parseBatch(text, source) {
   const searches = [];
 
@@ -66,14 +47,7 @@ export function searchesFromConfig(config = {}) {
   return [{ category, city, term: buildTerm(config.source, category, city) }];
 }
 
-/**
- * A LinkedIn search that carries real facets, as the URL that runs it.
- *
- * A keyword string cannot say "in Theni" — it can only say the word "Theni",
- * which is a different and much worse question. `geoUrn` and `serviceCategory`
- * are the real filters, and they only fit in a URL, so a task that has them
- * carries the URL instead of a search term.
- */
+/** A LinkedIn search that carries real facets, as the URL that runs it. */
 function facetUrl(term, facets) {
   return buildQueryUrl({
     scalars: { keywords: String(term || '').trim(), origin: 'FACETED_SEARCH' },
@@ -91,14 +65,7 @@ function usedFacets(config) {
   return out;
 }
 
-/**
- * The searches a LinkedIn run with facets should make.
- *
- * One search per location when asked, because a people search stops after a
- * fixed number of pages however good the filter is: two places in one search
- * share that ceiling instead of getting one each. This is the LinkedIn
- * equivalent of the geographic grid Maps gets.
- */
+/** The searches a LinkedIn run with facets should make. */
 /** The names chosen per facet, dropping the blanks. */
 function chosenLabels(config) {
   const out = {};
@@ -109,47 +76,16 @@ function chosenLabels(config) {
   return out;
 }
 
-/**
- * The searches a LinkedIn run with filters should make.
- *
- * Two ways to get a filtered search, and the second is why a filter works at
- * all for a place nobody has looked up yet:
- *
- *   - **by URL**, when every chosen name already has LinkedIn's id. Nothing
- *     is driven; the URL is built and the tab goes straight there.
- *   - **by driving the page**, otherwise. The run lands on the plain keyword
- *     search and then works LinkedIn's own filter panels — type the name, tick
- *     what comes back, press Show results — and LinkedIn writes the URL. The
- *     ids are learned on the way, so the same search is a URL next time.
- *
- * One search per location when asked, because a people search stops after a
- * fixed number of pages however good the filter is: two places in one search
- * share that ceiling instead of getting one each.
- */
+/** The searches a LinkedIn run with filters should make. */
 export function facetSearches(config = {}) {
-  // Facets are LinkedIn's. A Maps run with a leftover geoUrn from a people
-  // search would otherwise be sent to a LinkedIn URL.
+  // Facets are LinkedIn's.
   if (config.source !== 'linkedin') return [];
 
   const labels = chosenLabels(config);
-  // Nothing chosen: the run is a plain keyword search, and `searchesFromConfig`
-  // already puts the town in it.
+  // Nothing chosen: the run is a plain keyword search, and `searchesFromConfig` already puts the town in it.
   if (!Object.keys(labels).length) return [];
 
-  /*
-   * A town typed in "Where?" is a location the user asked for.
-   *
-   * Once any facet exists the town stops going into the keywords — rightly,
-   * because `keywords` is not a location filter, it is a word hunted for
-   * anywhere in a profile. But with a service category chosen and no location
-   * among the filters, the town was then dropped on the floor and the run went
-   * out with no location at all: a worldwide search, from a form showing
-   * "Chennai".
-   *
-   * It becomes a real location filter instead. No id is needed — the run
-   * drives LinkedIn's own location panel, types the name and ticks what comes
-   * back, and learns the id on the way.
-   */
+  // A town typed in "Where?" is a location the user asked for.
   const typedCity = String(config.city || '').trim();
   if (!labels.geoUrn && typedCity) labels.geoUrn = [typedCity];
 
@@ -175,8 +111,7 @@ export function facetSearches(config = {}) {
 
     const base = {
       category: config.category || '',
-      // The label, not the id: this is what lands on every record and in the
-      // export's filename.
+      // The label, not the id: this is what lands on every record and in the export's filename.
       city: placeIndex === null ? places.join(', ') : places[placeIndex] || '',
       term,
     };
@@ -196,18 +131,9 @@ export function facetSearches(config = {}) {
   return places.map((_, index) => search(index));
 }
 
-/**
- * The initial queue: one "locate" task per search.
- *
- * A locate task runs the plain search, which both collects its own results and
- * tells us where on the globe the city actually is — the map centre and zoom
- * land in the tab's URL. That is what the grid is then built around, so no
- * geocoding service is needed.
- */
+/** The initial queue: one "locate" task per search. */
 export function buildTaskList(config = {}) {
-  // Scraping the tab the user already set up: there is one search, it is
-  // whatever is on screen, and the extension must not navigate — navigating
-  // is exactly what would throw away the filters they applied by hand.
+  // Scraping the tab the user already set up.
   if (config.useCurrentTab) {
     return [
       {
@@ -225,12 +151,9 @@ export function buildTaskList(config = {}) {
     ];
   }
 
-  // A LinkedIn people search is not geographic, so no grid is laid over it
-  // however the coverage control is set.
+  // A LinkedIn people search is not geographic, so no grid is laid over it however the coverage control is set.
   const steps = supportsGrid(config.source) ? gridSteps(config.grid) : 1;
-  // Facets outrank the typed city: a real location filter and the word
-  // "Theni" in the keywords are not the same search, and only one of them
-  // is the one the user asked for.
+  // Facets outrank the typed city.
   const searches = facetSearches(config);
   const plain = searches.length ? searches : searchesFromConfig(config);
   return (config.source === 'posts' ? postSearches(plain, config) : plain).map((search, index) => ({
@@ -244,15 +167,7 @@ export function buildTaskList(config = {}) {
   }));
 }
 
-/**
- * The engine searches a Posts run makes: one per intent group per search.
- *
- * "Corporate trainer" alone finds trainers advertising themselves at least as
- * often as anyone needing one. Each group adds the words a requirement is
- * written in, and each is its own search because one query holding all of
- * them ranks worse and runs into Google's 32-word limit. The window in days
- * rides in the URL, which is why the URL is built here and not per source.
- */
+/** The engine searches a Posts run makes: one per intent group per search. */
 function postSearches(searches, config) {
   const days = Number(config.postsDays) || 10;
   const out = [];
@@ -264,10 +179,7 @@ function postSearches(searches, config) {
   return out;
 }
 
-/**
- * Grid tasks for a search, once its locate task has revealed the map centre.
- * Returns [] when gridding is off or the centre could not be read.
- */
+/** Grid tasks for a search, once its locate task has revealed the map centre. */
 export function expandGridTasks(task, centre, config = {}, viewport) {
   const steps = supportsGrid(config.source) ? gridSteps(config.grid) : 1;
   if (steps <= 1 || !centre) return [];

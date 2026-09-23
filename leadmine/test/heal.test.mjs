@@ -1,9 +1,4 @@
-/**
- * Self-healing selectors.
- *
- * The scoring is pure and takes fingerprints, so it is tested here without a
- * DOM; the DOM glue is exercised by the browser tests.
- */
+/** Self-healing selectors. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
