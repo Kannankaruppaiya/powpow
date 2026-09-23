@@ -13,6 +13,8 @@
     commentary: '.update-components-text, .feed-shared-inline-show-more-text, .feed-shared-update-v2__description',
     actor: '.update-components-actor, .feed-shared-actor',
     actorName: '.update-components-actor__title, .update-components-actor__name, .feed-shared-actor__name',
+    // The author's own headline, which names their employer.
+    actorDescription: '.update-components-actor__description, .feed-shared-actor__description',
     authWall: 'form.login__form, .authwall, [data-test-id="auth-wall"]',
     captcha: '#captcha-internal, iframe[title*="captcha" i], .challenge-dialog',
   };
@@ -66,7 +68,10 @@
         /* not a URL */
       }
     }
-    return { name: name.replace(/\s*(?:•|·)\s*(?:1st|2nd|3rd\+?|Following)\b.*$/i, '').trim(), url };
+    const described = actor.querySelector(SEL.actorDescription);
+    const headlineEl = described && (described.querySelector('[aria-hidden="true"]') || described);
+    const headline = headlineEl ? norm(headlineEl.textContent) : '';
+    return { name: name.replace(/\s*(?:•|·)\s*(?:1st|2nd|3rd\+?|Following)\b.*$/i, '').trim(), url, headline };
   }
 
   /** "Girish PM Girish PM" → "Girish PM", when a name is its own echo. */
@@ -149,6 +154,7 @@
         name: author.name || 'LinkedIn post',
         author: author.name,
         authorUrl: author.url,
+        authorHeadline: author.headline,
         headline: text.slice(0, 150),
         text,
         summary: text.slice(0, 300),

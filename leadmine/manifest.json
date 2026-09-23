@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "LeadMine \u2014 Google Maps & LinkedIn Lead Scraper",
   "short_name": "LeadMine",
-  "version": "6.0.0",
+  "version": "6.1.0",
   "description": "Leads from Google Maps, LinkedIn and posts that ask for something \u2014 judged by AI, tracked to follow-up, exported.",
   "minimum_chrome_version": "116",
   "permissions": [

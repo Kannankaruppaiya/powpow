@@ -190,7 +190,7 @@ test('a people search on the same engine still reads people', async (t) => {
 
 /* ----------------------------------------------------- LinkedIn's own search */
 
-const card = ({ id, name, profile, text, reshare = '' }) => `
+const card = ({ id, name, profile, text, reshare = '', headline = '' }) => `
   <li class="artdeco-card">
     <div data-urn="urn:li:activity:${id}" class="feed-shared-update-v2">
       <div class="update-components-actor">
@@ -198,6 +198,7 @@ const card = ({ id, name, profile, text, reshare = '' }) => `
           <span class="update-components-actor__title"><span aria-hidden="true">${name}</span>
           <span class="visually-hidden">${name}</span> • 2nd</span>
         </a>
+        ${headline ? `<span class="update-components-actor__description"><span aria-hidden="true">${headline}</span><span class="visually-hidden">${headline}</span></span>` : ''}
       </div>
       <div class="update-components-text"><span dir="ltr">${text}</span>
         <button class="see-more">…see more</button></div>
@@ -217,6 +218,7 @@ const LINKEDIN_PAGE = `<!doctype html><html><head><meta charset="utf-8"></head><
         id: LI_ID_1,
         name: 'Girish PM',
         profile: 'https://www.linkedin.com/in/girish-pm-940872238',
+        headline: 'Talent Acquisition at Wells Fargo | Hiring',
         text: 'Dear Trainers, we are looking for experienced Freelance Corporate Trainers for a Customer Leadership program. 📞 86600 80253',
       })}
       ${card({
@@ -298,6 +300,7 @@ test('each post on LinkedIn’s page is one row, with its author and whole text'
   assert.equal(girish.source, 'posts');
   assert.equal(girish.author, 'Girish PM', 'the screen-reader copy and the degree are not the name');
   assert.equal(girish.authorUrl, 'https://www.linkedin.com/in/girish-pm-940872238');
+  assert.equal(girish.authorHeadline, 'Talent Acquisition at Wells Fargo | Hiring', 'the author’s own headline, read once');
   assert.match(girish.text, /86600 80253$/, '"…see more" is not part of the post');
   assert.equal(girish.postUrl, `https://www.linkedin.com/feed/update/urn:li:activity:${LI_ID_1}/`);
 });

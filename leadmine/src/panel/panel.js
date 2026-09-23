@@ -14,6 +14,7 @@ import {
   parseSuppressionText, suppressionText,
 } from '../lib/crm.js';
 import { linkRecords } from '../lib/link.js';
+import { GCC_EXTRA_KEY, loadGccList, buildGccIndex, gccMatcher, gccFirst, gccLabel, parseExtra } from '../lib/gcc.js';
 import { HOOK_KEY, DEFAULT_HOOK, sendToPowPow } from '../lib/powpow.js';
 import { SCHEDULE_KEY, DEFAULT_SCHEDULE, cannotSchedule, describeSchedule, nextRunAt } from '../lib/schedule.js';
 
@@ -68,6 +69,7 @@ const ui = Object.fromEntries(
     'judgeBrief', 'judgeScope', 'judgeRun', 'judgeStatus', 'judgeHelp',
     'finderBox', 'finderProvider', 'finderMax', 'finderKey', 'finderMaybe', 'finderRun', 'finderStatus',
     'finderHelp', 'dncText', 'dncSave', 'dncStatus', 'linkNote',
+    'gccText', 'gccSave', 'gccStatus', 'gccHelp', 'gccNote',
   ].map((id) => [id, el(id)])
 );
 
@@ -105,6 +107,11 @@ function applyCoverage() {
 
 let current = null;
 let batchMode = false;
+// The built-in GCC list and the user's own names, as one matcher.
+let gccList = [];
+let gccExtra = [];
+let gccFor = () => null;
+
 /** Every record for the current job, loaded from IndexedDB for the table. */
 let rows = [];
 let visibleRows = [];
@@ -925,6 +932,8 @@ function passesShow(record) {
   const note = notes.get(record.key) || {};
   const verdict = effectiveVerdict(note);
   switch (ui.show.value) {
+    case 'gcc':
+      return Boolean(gccFor(record));
     case 'fit':
       return verdict === 'fit';
     case 'fitmaybe':
@@ -994,10 +1003,13 @@ function applyFilter() {
           ...(() => {
             // What the judge said is searchable too: "trainer" should find the business whose reason reads "hires trainers".
             const n = notes.get(r.key) || {};
-            return [n.reason, n.services, n.decisionMaker, n.personEmail];
+            return [n.reason, n.services, n.decisionMaker, n.personEmail, gccLabel(gccFor(r))];
           })()]
           .some((v) => String(v || '').toLowerCase().includes(needle))
       );
+  // GCC leads first, and a GCC's requirement post before anything else.
+  visibleRows = gccFirst(visibleRows, gccFor);
+  renderGccNote();
 
   renderAside();
 
@@ -1088,6 +1100,11 @@ function leadCard(record) {
         ['lead-3', [emailCell(record), text('lead-tag', record.category)]],
       ];
 
+  const gcc = gccFor(record);
+  if (gcc) {
+    card.classList.add('is-gcc');
+    lines[0][1].splice(1, 0, gccBadge(gcc));
+  }
   lines.push(['lead-4', decisionLine(record, note)]);
 
   for (const [cls, kids] of lines) {
@@ -1097,6 +1114,13 @@ function leadCard(record) {
     card.appendChild(row);
   }
   return card;
+}
+
+/** "GCC", with which one and how that was decided on hover. */
+function gccBadge(gcc) {
+  const badge = text('gcc-badge', 'GCC');
+  badge.title = `${gccLabel(gcc)} — ${gcc.via}${gcc.cities && gcc.cities.length ? ` · ${gcc.cities.join(', ')}` : ''}`;
+  return badge;
 }
 
 /** The fourth line: what was decided about this lead. */
@@ -1623,7 +1647,7 @@ ui.download.addEventListener('click', async () => {
   try {
     // Straight from the database: no message-size ceiling on a big export.
     const stored = current && current.jobId ? await store.getRecords(current.jobId) : [];
-    const all = showAside ? stored : stored.filter((r) => !r.setAside);
+    const all = gccFirst(showAside ? stored : stored.filter((r) => !r.setAside), gccFor);
     if (!all.length) {
       showError('Nothing to download yet.');
       return;
@@ -1637,6 +1661,7 @@ ui.download.addEventListener('click', async () => {
       linked: links.personToBusiness,
       people: links.businessToPeople,
       isSuppressed,
+      gccOf: gccFor,
     });
     if (ui.format.value === 'sequencer' && !count) {
       showError(
@@ -1728,6 +1753,7 @@ ui.judgeRun.addEventListener('click', async () => {
       notes: everyNote,
       allRecords: library.length ? library : rows,
       ...aiCredentials(),
+      gccOf: gccFor,
       shouldStop: () => stopJudging,
       onBatch: async (patches, { done, total }) => {
         await store.putNotes(patches);
@@ -1859,6 +1885,39 @@ ui.finderRun.addEventListener('click', async () => {
     ui.finderRun.textContent = 'Find work emails';
     applyFilter();
   }
+});
+
+/* ------------------------------------------------------------ GCC */
+
+async function restoreGcc() {
+  gccList = await loadGccList().catch(() => []);
+  const stored = await chrome.storage.local.get(GCC_EXTRA_KEY);
+  gccExtra = stored[GCC_EXTRA_KEY] || [];
+  ui.gccText.value = gccExtra.join('\n');
+  applyGccList();
+}
+
+function applyGccList() {
+  gccFor = gccMatcher(buildGccIndex(gccList, gccExtra));
+  ui.gccStatus.textContent = gccList.length
+    ? `${gccList.length.toLocaleString()} built in${gccExtra.length ? `, ${gccExtra.length} of yours` : ''}.`
+    : 'The built-in list did not load; only your names are used.';
+}
+
+function renderGccNote() {
+  const count = rows.filter((r) => gccFor(r)).length;
+  ui.gccNote.hidden = !count;
+  ui.gccNote.textContent = count
+    ? `${count} ${count === 1 ? 'lead is' : 'leads are'} from a Global Capability Centre (GCC) — listed first.`
+    : '';
+}
+
+ui.gccSave.addEventListener('click', async () => {
+  gccExtra = parseExtra(ui.gccText.value);
+  await chrome.storage.local.set({ [GCC_EXTRA_KEY]: gccExtra });
+  ui.gccText.value = gccExtra.join('\n');
+  applyGccList();
+  applyFilter();
 });
 
 /* --------------------------------------------------- do not contact */
@@ -2018,6 +2077,7 @@ function showVersion() {
   }
   applyJudgeState();
   await loadSuppression().catch(() => {});
+  await restoreGcc().catch(() => {});
   applyFilterNote();
   const res = await chrome.runtime.sendMessage({ type: 'GET_JOB' });
   render((res && res.job) || { status: 'idle', count: 0, tasksTotal: 0 });

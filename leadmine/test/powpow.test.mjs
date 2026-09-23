@@ -89,3 +89,16 @@ test('a gateway refusal becomes a sentence, and a dead gateway never throws', as
   assert.match(down.error, /Is the gateway running/);
   assert.match((await sendToPowPow({ url: 'not a url', token: 't' }, 'm')).error, /not a URL/);
 });
+
+test('GCC leads lead the message, tagged, and the agent is told they come first', () => {
+  const records = [
+    { ...business, key: 'x', name: 'Plain Co' },
+    { ...post, key: 'y', author: 'Meena', authorHeadline: 'HR at Wells Fargo' },
+  ];
+  const gccOf = (r) => (r.key === 'y' ? { name: 'Wells Fargo', via: 'author works there' } : null);
+  const message = buildHookMessage({ records, config: { source: 'posts' }, gccOf });
+  assert.match(message, /1 is from a Global Capability Centre \(GCC\), listed first\./);
+  assert.ok(message.indexOf('[GCC: Wells Fargo] Meena') < message.indexOf('Plain Co'), 'the GCC lead first');
+  assert.match(message, /Lead with the GCC ones/);
+  assert.doesNotMatch(buildHookMessage({ records: [business], config: {} }), /GCC/, 'no GCC talk when there is none');
+});

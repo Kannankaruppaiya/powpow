@@ -52,3 +52,12 @@ test('the cold-email format has the importers’ columns and says how many rows 
   assert.match(header, /^"email","first_name","last_name","company"/);
   assert.match(row, /^"info@acme\.in"/);
 });
+
+test('a GCC lead says which GCC and how that was decided, and alone earns the column', async () => {
+  const gccOf = (r) => (r.key === 'b1' ? { name: 'Wells Fargo', via: 'works there' } : null);
+  const rows = annotate(records, { gccOf });
+  assert.equal(rows[0].gcc, 'Wells Fargo (works there)');
+  assert.equal(rows[1].gcc, '');
+  const { content } = await buildFile(records, 'csv', {}, { notes: new Map(), gccOf });
+  assert.match(content.split('\r\n')[0], /"GCC"/);
+});

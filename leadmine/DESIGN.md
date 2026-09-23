@@ -275,6 +275,11 @@ extension asks twice, so the second press means something.
 pill, a due follow-up is a word and an outline, and a do-not-contact lead is
 struck through as well as faded.
 
+**GCC is a priority, not a verdict.** A GCC lead is badged and sorted first,
+but it is never judged a fit for being one, and nothing is hidden for not
+being one. The badge is a word in an accent pill, and its tooltip says which
+GCC and why.
+
 ## The four states
 
 The form and the run never share the screen. While a scrape is going, the

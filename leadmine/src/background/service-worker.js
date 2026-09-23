@@ -15,6 +15,7 @@ import { cacheKey, planFrom, absorb, markEnd, clearEnd } from '../lib/search-cac
 import { annotatePost, narrowPosts } from '../lib/posts.js';
 import { suppressionChecker } from '../lib/crm.js';
 import { HOOK_KEY, DEFAULT_HOOK, buildHookMessage, sendToPowPow, shouldSend } from '../lib/powpow.js';
+import { loadGccMatcher } from '../lib/gcc.js';
 import {
   SCHEDULE_KEY, ALARM_NAME, DEFAULT_SCHEDULE, nextRunAt, scheduledConfig, cannotSchedule, missedRun,
 } from '../lib/schedule.js';
@@ -818,6 +819,7 @@ async function notifyPowPow(config) {
     job,
     scheduled: job.scheduled,
     maxLeads: Number(settings.maxLeads) || 15,
+    gccOf: await loadGccMatcher(),
   });
   const sent = await sendToPowPow(settings, message);
   await save({

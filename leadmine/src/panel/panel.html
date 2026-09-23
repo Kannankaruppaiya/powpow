@@ -432,6 +432,7 @@
         <!-- Which leads, by what was decided about them rather than by what they say. -->
         <select id="show" class="input" aria-label="Which leads">
           <option value="all">All</option>
+          <option value="gcc">GCC companies</option>
           <option value="fit">Fit</option>
           <option value="fitmaybe">Fit + maybe</option>
           <option value="unjudged">Not judged</option>
@@ -448,7 +449,7 @@
 
       <!-- After the scrape: judging, email finding and the do-not-contact list. -->
       <details class="advanced" id="toolsBox">
-        <summary>Judge, find emails, do not contact</summary>
+        <summary>Judge, find emails, GCC list, do not contact</summary>
         <div class="stack advanced-body">
           <div class="field">
             <label class="label" for="judgeBrief">What makes a lead a good fit for you?</label>
@@ -493,6 +494,20 @@
           </div>
 
           <div class="field">
+            <label class="label" for="gccText">Your GCC companies <em class="optional">added to the built-in list</em></label>
+            <textarea id="gccText" class="input" rows="2" spellcheck="false"
+              placeholder="One per line — a Global Capability Centre the built-in list misses"></textarea>
+            <div class="row">
+              <button type="button" id="gccSave" class="btn btn--sm">Save names</button>
+              <span id="gccStatus" class="muted small" role="status" aria-live="polite"></span>
+            </div>
+            <span class="help" id="gccHelp">
+              Leads from India's Global Capability Centres are marked GCC and listed first,
+              requirement posts ahead of the rest.
+            </span>
+          </div>
+
+          <div class="field">
             <label class="label" for="dncText">Do not contact</label>
             <textarea id="dncText" class="input" rows="3" spellcheck="false"
               placeholder="One per line — an email, a whole domain, a LinkedIn profile or a phone number"></textarea>
@@ -530,6 +545,7 @@
         </div>
       </div>
 
+      <p id="gccNote" class="muted small" hidden></p>
       <p id="linkNote" class="muted small" hidden></p>
 
       <div class="row">

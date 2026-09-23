@@ -13,6 +13,7 @@ import {
   effectiveVerdict,
   JUDGE_SCHEMA,
   JUDGE_SPEC,
+  JUDGE_SYSTEM,
 } from '../src/lib/qualify.js';
 
 const business = {
@@ -52,6 +53,15 @@ test('the digest carries what bears on fit and leaves contact details out', () =
   const p = leadDigest(post);
   assert.match(p, /Posted: 2 days ago/);
   assert.ok(!p.includes('hr@corp.in'));
+});
+
+test('a GCC lead tells the judge which GCC, and the rules say what that means', () => {
+  const d = leadDigest({ ...post, authorHeadline: 'HR at Wells Fargo' }, { name: 'Wells Fargo', via: 'author works there' });
+  assert.match(d, /Author headline: HR at Wells Fargo/);
+  assert.match(d, /GCC: Wells Fargo, a Global Capability Centre in India \(author works there\)/);
+  assert.match(leadDigest(post, { name: '', via: 'a GCC, not named' }), /GCC: the post names a Global Capability Centre/);
+  assert.doesNotMatch(leadDigest(business), /GCC/);
+  assert.match(JUDGE_SYSTEM, /"GCC:" line comes from a Global Capability Centre in India, the user's first\npriority/);
 });
 
 test('the user’s own marks become examples, both sides of the line', () => {

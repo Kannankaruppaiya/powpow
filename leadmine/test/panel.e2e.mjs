@@ -142,6 +142,8 @@ const SETUP = (total) => {
           phone: '',
           email: '',
           category: '',
+          // Every seventh author works at a GCC, when the test asks for them.
+          ...(window.__gcc && i % 7 === 3 ? { authorHeadline: 'HR Manager at Wells Fargo | Hiring' } : {}),
         }
       : {}),
     // The same person, found through a search engine instead.
@@ -209,8 +211,8 @@ const SETUP = (total) => {
   };
   const realFetch = window.fetch.bind(window);
   window.fetch = async (url, init = {}) => {
-    // The "Where?" picker reads packaged JSON, not a provider. Let it through.
-    if (String(url).includes('/src/data/geo/')) return realFetch(url, init);
+    // The "Where?" picker and the GCC list read packaged JSON, not a provider. Let it through.
+    if (String(url).includes('/src/data/')) return realFetch(url, init);
     const listing = (init.method || 'GET') === 'GET';
     const next = listing ? window.__aiModels : window.__aiNext;
     (listing ? window.__aiModelCalls : window.__aiCalls).push({
@@ -253,7 +255,7 @@ async function openPanel(
     idle = false, paused = false, running = false, linkedin = false, web = false, withheld = false,
     posts = false,
     budget = null,
-    aiKey = '', urns = null, noManifest = false, stale = false,
+    aiKey = '', urns = null, noManifest = false, stale = false, gcc = false,
   } = {}
 ) {
   let chromium;
@@ -277,6 +279,7 @@ async function openPanel(
   if (linkedin) await page.addInitScript(() => { window.__linkedin = true; });
   if (web) await page.addInitScript(() => { window.__web = true; });
   if (posts) await page.addInitScript(() => { window.__posts = true; });
+  if (gcc) await page.addInitScript(() => { window.__gcc = true; });
   if (withheld) await page.addInitScript(() => { window.__withheld = true; });
   if (budget) await page.addInitScript((b) => { window.__budget = b; }, budget);
   // Filter ids the extension has already learned, as a run would have left them.
@@ -1947,6 +1950,55 @@ test('the results filter searches what a post and a person say, not only busines
     await ctx.page.waitForTimeout(300);
     assert.match(await ctx.page.textContent('#rowNote'), /^[\d,]+ of [\d,]+ rows$/);
     assert.ok((await ctx.page.locator('#rowBody .lead').count()) > 0, 'post text is searchable');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('GCC posts are badged, listed first, and can be shown on their own', async (t) => {
+  const ctx = await openPanel(t, { posts: true, gcc: true });
+  if (!ctx) return;
+  try {
+    assert.deepEqual(ctx.errors, []);
+    await ctx.page.click('#viewResults');
+    await ctx.page.waitForTimeout(400);
+
+    const first = ctx.page.locator('#rowBody .lead:first-child');
+    // i = 3 is the first GCC author with a requirement post.
+    assert.equal(await first.locator('.lead-name').textContent(), 'Sarala Geriga 3');
+    assert.equal(await first.locator('.gcc-badge').textContent(), 'GCC');
+    assert.match(await first.locator('.gcc-badge').getAttribute('title'), /^Wells Fargo — author works there/);
+    assert.match(await ctx.page.textContent('#gccNote'), /^\d+ leads are from a Global Capability Centre \(GCC\) — listed first\.$/);
+
+    await ctx.page.selectOption('#show', 'gcc');
+    await ctx.page.waitForTimeout(300);
+    const shown = await ctx.page.locator('#rowBody .lead').count();
+    assert.equal(await ctx.page.locator('#rowBody .lead .gcc-badge').count(), shown, 'only GCC leads');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('a name the user adds to the GCC list marks its leads at once', async (t) => {
+  const ctx = await openPanel(t, { posts: true });
+  if (!ctx) return;
+  try {
+    await ctx.page.click('#viewResults');
+    await ctx.page.waitForTimeout(400);
+    assert.equal(await ctx.page.locator('.gcc-badge').count(), 0, 'nothing here names a GCC');
+    assert.match(await ctx.page.textContent('#gccStatus'), /^[\d,]+ built in\.$/);
+
+    await ctx.page.click('#toolsBox summary');
+    await ctx.page.fill('#gccText', 'sfjbs\nsfjbs');
+    await ctx.page.click('#gccSave');
+    await ctx.page.waitForTimeout(300);
+    assert.equal(await ctx.page.inputValue('#gccText'), 'sfjbs', 'the list is kept once per name');
+    assert.match(await ctx.page.textContent('#gccStatus'), /, 1 of yours\.$/);
+    const saved = await ctx.page.evaluate(() => chrome.storage.local.get('mls.gccExtra'));
+    assert.deepEqual(saved['mls.gccExtra'], ['sfjbs']);
+    // The post asks for profiles at an sfjbs address, which now reads as that company's own ask.
+    assert.ok((await ctx.page.locator('#rowBody .gcc-badge').count()) > 0, 'the added name marks the rows at once');
+    assert.match(await ctx.page.locator('#rowBody .gcc-badge').first().getAttribute('title'), /^sfjbs — named in the post/);
   } finally {
     await ctx.close();
   }

@@ -303,7 +303,7 @@ see the per-field rates.
 
 Collecting is half the job. Six hundred rows with nothing saying which are
 worth a call is a spreadsheet you still have to read, so the Results tab now
-carries what happens next. It is behind **Judge, find emails, do not contact**,
+carries what happens next. It is behind **Judge, find emails, GCC list, do not contact**,
 because Download is still that view's one action.
 
 Every lead card has a fourth line: the verdict, the reason, where the
@@ -396,6 +396,54 @@ is right to write to: an address, not on the do-not-contact list, not judged or
 marked a poor fit, not closed, not certain to bounce. `reason` arrives as a
 custom variable, which is the best first line a cold email can have. Turn on
 your sequencer's import dedupe.
+
+---
+
+## GCC leads first
+
+India's Global Capability Centres — the captive tech, finance and operations
+centres that Wells Fargo, Goldman Sachs, Walmart and the rest run for
+themselves — are the first priority. A lead from one is marked **GCC** on its
+card, listed first, and a GCC's requirement post goes above everything else.
+**Show → GCC companies** lists only them; the export gets a **GCC** column
+saying which one and how that was decided.
+
+A lead counts as a GCC when:
+
+| What | Example |
+| --- | --- |
+| The company field names one | `Wells Fargo International Solutions Pvt Ltd` |
+| The headline says who they work for | `Talent Acquisition at Goldman Sachs` |
+| A post's author works at one | author headline `HR Manager at Bank of America` |
+| A post names one as the employer or client | `for our client Deutsche Bank, Pune`, `SAP Labs India` |
+| A post says GCC without naming it | `for a leading GCC in Chennai` — the Gulf's "GCC countries" does not count |
+
+Names that are also products people train on — SAP, Oracle, Salesforce,
+ServiceNow — only count with a company around them: "SAP FICO trainer needed"
+is about the software, "trainer needed at SAP Labs India" is about the
+company. Names that are ordinary words (Target, Shell, Visa) only count in a
+company field, and only whole.
+
+The judge is told which leads are GCCs and that they come first; a GCC name
+does not make a lead a fit by itself. A PowPow message puts GCC leads first
+and tags them `[GCC: …]`.
+
+**Your own names.** Add a centre the list misses under **Your GCC companies**;
+it is matched like the built-in ones, and a common word you add is trusted.
+
+### Where the list comes from
+
+`src/data/gcc.json` holds **817** companies with their India cities and
+aliases, merged from the public lists that could be read without an account:
+Flexiple (all-India and city pages for Bengaluru, Hyderabad, Delhi NCR,
+Mumbai, Chennai and Pune), ANSR's Fortune 500 list, GCC Index, OceanFrogs,
+Business of GCC, Wisemonk, Mind2Markets, a Hyderabad list on GitHub, and
+2025–26 launch news. Service vendors and staffing firms those lists mix in
+(Accenture, Capgemini, Adecco …) are left out.
+
+India has about 2,100 GCCs. The complete lists — AIM's GCC Explorer, GCCPROs,
+KAS — sit behind a sign-up or a sale, so the long tail of small centres is
+not here. Add the ones you meet under **Your GCC companies**.
 
 ---
 
@@ -876,6 +924,7 @@ Untick *Only posts that ask for something* to keep everything.
 | Posted On / Age (Days) | Decoded from the post id |
 | Intent / Score / Why | The classifier, with the cues it saw |
 | Author / Author Profile | The result title; the profile link on LinkedIn's own page |
+| Author Headline | The line under the author's name on LinkedIn's own page — "HR at Wells Fargo" |
 | Post | Title and snippet from the engine; the whole text on LinkedIn's page |
 | Emails In Post / Phones In Post | Written in the post text |
 | Post URL | The post itself — where a reply goes |

@@ -2,6 +2,7 @@ import { buildXlsx } from './xlsx.js';
 import { sequencerRows, SEQUENCER_COLUMNS, STATUS_LABEL } from './crm.js';
 import { effectiveVerdict, VERDICT_LABEL } from './qualify.js';
 import { peopleSummary } from './link.js';
+import { gccLabel } from './gcc.js';
 
 /** Serialisers for the three download formats. */
 
@@ -58,6 +59,7 @@ export const POSTS_COLUMNS = [
   { key: 'score', label: 'Score' },
   { key: 'signals', label: 'Why' },
   { key: 'author', label: 'Author' },
+  { key: 'authorHeadline', label: 'Author Headline' },
   { key: 'authorUrl', label: 'Author Profile' },
   { key: 'text', label: 'Post' },
   { key: 'emails', label: 'Emails In Post' },
@@ -75,6 +77,7 @@ export const COLUMNS = MAPS_COLUMNS;
 
 // What the user and the judge said about each lead.
 export const ANNOTATION_COLUMNS = [
+  { key: 'gcc', label: 'GCC' },
   { key: 'fit', label: 'Fit' },
   { key: 'fitReason', label: 'Why' },
   { key: 'services', label: 'What They Do / Need' },
@@ -89,8 +92,9 @@ export const ANNOTATION_COLUMNS = [
 ];
 
 /** Records with their notes and links folded in, as export fields. */
-export function annotate(records, { notes = new Map(), linked = new Map(), people = new Map(), isSuppressed } = {}) {
+export function annotate(records, { notes = new Map(), linked = new Map(), people = new Map(), isSuppressed, gccOf } = {}) {
   return (records || []).map((record) => {
+    const gcc = gccOf ? gccOf(record) : null;
     const note = notes.get(record.key) || {};
     const verdict = effectiveVerdict(note);
     const business = linked.get(record.key);
@@ -98,6 +102,7 @@ export function annotate(records, { notes = new Map(), linked = new Map(), peopl
     const dnc = isSuppressed ? isSuppressed(record, note) : Boolean(note.suppressed);
     return {
       ...record,
+      gcc: gcc ? `${gccLabel(gcc)} (${gcc.via})` : '',
       fit: verdict ? VERDICT_LABEL[verdict] : '',
       fitReason: note.feedback && note.feedbackWhy ? note.feedbackWhy : note.reason || '',
       services: note.services || '',

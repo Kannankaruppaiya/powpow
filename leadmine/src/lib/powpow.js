@@ -21,7 +21,7 @@ const MAX_MESSAGE = 12000;
 const clip = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
 
 /** One lead as a line the agent can quote. Contact details included — that is the point. */
-export function leadLine(record, note = {}) {
+export function leadLine(record, note = {}, gcc = null) {
   const verdict = note.feedback === 'good' ? 'fit' : note.feedback === 'bad' ? 'not a fit' : note.verdict ? note.verdict.replace('_', ' ') : '';
   const head =
     record.source === 'posts'
@@ -38,11 +38,12 @@ export function leadLine(record, note = {}) {
     .filter(Boolean)
     .join(' · ');
   const why = note.reason ? ` — ${verdict}: ${clip(note.reason, 160)}` : verdict ? ` — ${verdict}` : '';
-  return `- ${head}${why}${contact ? `\n  ${contact}` : ''}`;
+  const tag = gcc ? `[GCC: ${gcc.name || 'unnamed'}] ` : '';
+  return `- ${tag}${head}${why}${contact ? `\n  ${contact}` : ''}`;
 }
 
 /** The prompt the agent gets. */
-export function buildHookMessage({ records, notes = new Map(), config = {}, job = {}, scheduled = false, maxLeads = 15 }) {
+export function buildHookMessage({ records, notes = new Map(), config = {}, job = {}, scheduled = false, maxLeads = 15, gccOf = () => null }) {
   const source = config.source || 'maps';
   const noun = { maps: 'businesses', linkedin: 'people', web: 'people', posts: 'posts' }[source] || 'leads';
   const search = [config.category, config.city].filter(Boolean).join(' in ') || (config.batch ? 'a batch of searches' : 'a search');
@@ -51,21 +52,26 @@ export function buildHookMessage({ records, notes = new Map(), config = {}, job 
     const n = notes.get(r.key) || {};
     return n.feedback === 'good' ? 'fit' : n.feedback === 'bad' ? 'no_fit' : n.verdict || '';
   };
+  // GCC leads go first, whatever the judge said about the rest.
+  const gccs = new Map((records || []).map((r) => [r.key, gccOf(r)]));
   const list = [...(records || [])]
     .filter((r) => verdictOf(r) !== 'no_fit')
-    .sort((a, b) => (rank[verdictOf(a)] ?? 2) - (rank[verdictOf(b)] ?? 2));
+    .sort((a, b) => (gccs.get(a.key) ? 0 : 1) - (gccs.get(b.key) ? 0 : 1) || (rank[verdictOf(a)] ?? 2) - (rank[verdictOf(b)] ?? 2));
   const shown = list.slice(0, maxLeads);
+  const gccCount = list.filter((r) => gccs.get(r.key)).length;
 
   const header =
     `LeadMine ${scheduled ? 'scheduled run' : 'run'} finished: ${list.length} ${noun} for ${search}` +
     (job.skippedSeen ? ` (${job.skippedSeen} already seen before were left out)` : '') +
-    '.';
+    '.' +
+    (gccCount ? ` ${gccCount} ${gccCount === 1 ? 'is' : 'are'} from a Global Capability Centre (GCC), listed first.` : '');
   const body = shown.length
-    ? shown.map((r) => leadLine(r, notes.get(r.key) || {})).join('\n')
+    ? shown.map((r) => leadLine(r, notes.get(r.key) || {}, gccs.get(r.key))).join('\n')
     : 'Nothing new this time.';
   const ask =
     'Please send the user a short summary of these leads: how many there are, the three most ' +
     'promising and why, and anything that looks urgent (a post asking for something this week). ' +
+    (gccCount ? 'Lead with the GCC ones: they are the user\'s first priority. ' : '') +
     'Keep contact details exactly as given. Do not contact any of these leads yourself.';
 
   let message = `${header}\n\n${body}${list.length > shown.length ? `\n…and ${list.length - shown.length} more in LeadMine.` : ''}\n\n${ask}`;

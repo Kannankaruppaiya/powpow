@@ -21,11 +21,16 @@ export function kindOf(record) {
 }
 
 /** One lead as the model reads it: the fields that bear on fit, nothing else. */
-export function leadDigest(record) {
+export function leadDigest(record, gcc = null) {
   const kind = kindOf(record);
+  const gccLine = gcc
+    ? `GCC: ${gcc.name ? `${clip(gcc.name, 80)}, a Global Capability Centre in India (${gcc.via})` : 'the post names a Global Capability Centre in India'}`
+    : '';
   if (kind === 'post') {
     return [
       `Author: ${clip(record.author || record.name, 80)}`,
+      record.authorHeadline ? `Author headline: ${clip(record.authorHeadline, 160)}` : '',
+      gccLine,
       record.ageDays !== '' && record.ageDays !== undefined ? `Posted: ${record.ageDays} days ago` : '',
       `Post: ${clip(record.text || record.summary || record.headline, 900)}`,
     ].filter(Boolean).join('\n');
@@ -38,6 +43,7 @@ export function leadDigest(record) {
       record.location ? `Location: ${clip(record.location, 80)}` : '',
       record.summary ? `Context: ${clip(record.summary, 300)}` : '',
       record.openToWork ? 'Open to work: yes' : '',
+      gccLine,
     ].filter(Boolean).join('\n');
   }
   return [
@@ -52,6 +58,7 @@ export function leadDigest(record) {
     record.sitePeople ? `People named on the site: ${clip(record.sitePeople, 200)}` : '',
     record.siteDescription ? `Says about itself: ${clip(record.siteDescription, 300)}` : '',
     record.siteText ? `Website text: ${clip(record.siteText, 900)}` : '',
+    gccLine,
   ].filter(Boolean).join('\n');
 }
 
@@ -87,6 +94,9 @@ trainers" — not a restatement of the verdict. Say what is missing when it is "
 
 Judge only from what each lead says. Never invent facts. A lead with too little
 information to judge is "maybe", with the reason saying what was missing.
+
+A lead with a "GCC:" line comes from a Global Capability Centre in India, the user's first
+priority. When a GCC lead fits, say so in the reason; it does not make a lead fit on its own.
 
 When the user has judged earlier leads themselves, those examples show what THEY mean by
 a fit. Follow them over your own assumptions.
@@ -215,6 +225,7 @@ export async function judgeLeads({
   shouldStop = () => false,
   fetchImpl,
   sleepImpl,
+  gccOf = () => null,
 } = {}) {
   const text = String(brief || '').trim();
   if (!text) throw new Error('Describe what a good lead looks like first.');
@@ -226,7 +237,7 @@ export async function judgeLeads({
 
   for (const batch of batches) {
     if (shouldStop()) break;
-    const leads = batch.records.map((record, i) => ({ id: `L${i + 1}`, record, digest: leadDigest(record) }));
+    const leads = batch.records.map((record, i) => ({ id: `L${i + 1}`, record, digest: leadDigest(record, gccOf(record)) }));
     const examples = examplesFrom(allRecords, notes, { kind: batch.kind });
 
     const raw = await requestJson({

@@ -639,6 +639,19 @@ select.input { appearance: auto; }
 }
 .lead-dot { flex: none; color: var(--ink-3); }
 
+/* A GCC lead is the first priority, so it says so beside the name. */
+.gcc-badge {
+  flex: none;
+  padding: 0 6px;
+  font-size: 10px;
+  font-weight: var(--w-medium);
+  line-height: 16px;
+  letter-spacing: 0.02em;
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+  border-radius: var(--r-pill);
+}
+
 /* A verdict is text first and colour second — "Not a fit" reads without it. */
 .verdict {
   flex: none;
