@@ -47,7 +47,7 @@ const ui = Object.fromEntries(
     'categoryLabel', 'cityLabel', 'limitLabel', 'limitHint', 'limitRow', 'limitSlot', 'advancedBody',
     'optEmails', 'optContact', 'optVerify', 'optDeep',
     'optCurrentTab', 'useCurrentTab', 'currentTabHint',
-    'category', 'city', 'batch', 'grid', 'maxResults',
+    'category', 'city', 'batch', 'grid', 'maxResults', 'postsRow', 'postsDays', 'postsIntentOnly',
     'country', 'region', 'cityOptions', 'placeRow', 'placeHint', 'cityIgnored', 'useTypedCity',
     'liFilters', 'optSplit', 'splitLocations',
     'geoInput', 'geoAdd', 'geoOptions', 'geoChips', 'geoHelp',
@@ -242,6 +242,36 @@ const SOURCE_UI = {
       'connection-degree limit, so it names people a signed-in search would show only ' +
       'as “LinkedIn Member”. Public, indexed profiles only.',
   },
+
+  /*
+   * Recent posts that ask for something — "SAP FI trainer required, Mumbai".
+   * The engine finds them without a login; each post's own id dates it to the
+   * minute, and the classifier keeps the ones asking rather than selling.
+   */
+  posts: {
+    categoryLabel: 'What do they need?',
+    cityLabel: 'Where?',
+    categoryPlaceholder: 'corporate trainer',
+    cityPlaceholder: 'Chennai',
+    noun: 'posts',
+    limitLabel: 'How many posts?',
+    limitHint: 'Leave blank for every post the search will show.',
+    filterField: 'text',
+    assistSub:
+      "Describe what people would be asking for. I'll work out the words their posts use.",
+    assistPlaceholder: 'Companies posting that they need a ServiceNow trainer for their team',
+    filterLabel: 'Post text contains',
+    filterHint: 'Only keep posts that mention one of these. Separate several with commas.',
+    grid: false,
+    emails: false,
+    // A LinkedIn post search the user has open has today's posts; an engine
+    // has them a week or more later. Reading that tab is how to get both.
+    currentTab: true,
+    note:
+      'Finds public LinkedIn posts through Google — no login. Engines index posts days ' +
+      'late, so for the newest ones open LinkedIn search → Posts → Latest → Past week, ' +
+      'tick “Use the tab I’m on” and press Start.',
+  },
 };
 
 function applySource() {
@@ -281,6 +311,7 @@ function applySource() {
   for (const node of [ui.optEmails, ui.optContact, ui.optVerify]) node.hidden = !conf.emails;
   ui.sourceNote.hidden = !conf.note;
   ui.sourceNote.textContent = conf.note;
+  ui.postsRow.hidden = ui.source.value !== 'posts';
   applyFilterNote();
 }
 
@@ -657,6 +688,8 @@ async function restoreSettings() {
   ui.skipSeen.checked = Boolean(s.skipSeen);
   ui.useCurrentTab.checked = Boolean(s.useCurrentTab);
   ui.categoryFilter.value = s.categoryFilter ?? '';
+  ui.postsDays.value = ['3', '7', '10', '14', '30'].includes(String(s.postsDays)) ? String(s.postsDays) : '10';
+  ui.postsIntentOnly.checked = s.postsIntentOnly !== false;
   // Someone who knows their own searches closes the planner once and should
   // never have to close it again.
   assistChosen = typeof s.assistOpen === 'boolean';
@@ -699,6 +732,8 @@ function readConfig() {
     grid: ui.grid.value,
     assistOpen: ui.assist.open,
     maxResults: Math.max(0, Number(ui.maxResults.value) || 0),
+    postsDays: Number(ui.postsDays.value) || 10,
+    postsIntentOnly: ui.postsIntentOnly.checked,
     deep: ui.deep.checked,
     fetchEmails: ui.fetchEmails.checked,
     followContactPage: ui.followContactPage.checked,
@@ -1007,7 +1042,23 @@ function renderAside() {
   ui.asideNote.hidden = !asideRows.length;
   if (!asideRows.length) return;
 
-  const conf = SOURCE_UI[(current && current.config && current.config.source)] || SOURCE_UI.maps;
+  const sourceId = current && current.config && current.config.source;
+  const conf = SOURCE_UI[sourceId] || SOURCE_UI.maps;
+
+  // A Posts run sets rows aside for several reasons at once — too old, not
+  // asking, a repost — and naming only the first row's made the rest look
+  // like the same thing. Count them instead.
+  const reasons = new Map();
+  for (const row of asideRows) reasons.set(row.setAside, (reasons.get(row.setAside) || 0) + 1);
+  if (sourceId === 'posts' || reasons.size > 1) {
+    const parts = [...reasons.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([reason, n]) => `${n.toLocaleString()} ${reason}`);
+    ui.asideText.textContent = `${asideRows.length.toLocaleString()} set aside — ${parts.join(', ')}. `;
+    ui.asideToggle.textContent = showAside ? 'Hide them' : 'Show them';
+    return;
+  }
+
   const term = asideRows[0].setAside;
   const found = observedCategories(asideRows, conf.filterField).slice(0, 4);
 
@@ -1042,7 +1093,11 @@ function applyFilter() {
   visibleRows = !needle
     ? source
     : source.filter((r) =>
-        [r.name, r.area, r.category, r.city, r.email, r.phone]
+        // Every field a card shows, whichever kind of row it is. This used to
+        // cover business fields only, so typing "trainer" over a page of
+        // people matched nobody: a headline was never searched.
+        [r.name, r.area, r.category, r.city, r.email, r.phone,
+          r.headline, r.company, r.location, r.summary, r.text, r.emails, r.phones, r.intent]
           .some((v) => String(v || '').toLowerCase().includes(needle))
       );
 
@@ -1104,7 +1159,9 @@ function leadCard(record) {
   // web-sourced person as a business gave a card with an empty phone row and
   // no headline at all.
   const person = record.source === 'linkedin' || record.source === 'web';
-  const lines = person
+  const lines = record.source === 'posts'
+    ? postLines(record)
+    : person
     ? [
         [
           'lead-1',
@@ -1151,6 +1208,45 @@ function leadCard(record) {
     card.appendChild(row);
   }
   return card;
+}
+
+/**
+ * A post, three lines: who and how long ago, what it says, how to reach them.
+ *
+ * The age leads because it is the reason the row exists; a requirement from
+ * three weeks ago has usually been filled. The author's name opens the post,
+ * which is where a reply goes.
+ */
+function postLines(record) {
+  const age = record.ageDays === '' || record.ageDays === undefined ? '' : ageLabel(Number(record.ageDays));
+  return [
+    [
+      'lead-1',
+      [
+        record.postUrl
+          ? copyable(record.postUrl, 'lead-name', record.author || record.name || 'LinkedIn post')
+          : text('lead-name', record.author || record.name),
+        text('lead-mark', age),
+      ],
+    ],
+    ['lead-2', [text('lead-sub lead-headline', record.text || record.headline)]],
+    [
+      'lead-3',
+      [
+        record.emails ? copyable(String(record.emails).split(';')[0].trim(), 'lead-email') : null,
+        record.phones ? copyable(String(record.phones).split(';')[0].trim(), 'lead-phone') : null,
+        text('lead-tag', record.setAside || (record.intent && record.intent !== 'DEMAND' ? record.intent.toLowerCase() : '')),
+      ],
+    ],
+  ];
+}
+
+/** "today", "1 day ago", "9 days ago" — a post's age as a person says it. */
+function ageLabel(days) {
+  if (!Number.isFinite(days)) return '';
+  const whole = Math.floor(days);
+  if (whole <= 0) return 'today';
+  return whole === 1 ? '1 day ago' : `${whole} days ago`;
 }
 
 function text(cls, value) {

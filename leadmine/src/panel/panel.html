@@ -65,11 +65,16 @@
             <input type="radio" name="source" value="web" />
             <span>Public web</span>
           </label>
+          <label class="seg">
+            <input type="radio" name="source" value="posts" />
+            <span>Posts</span>
+          </label>
         </fieldset>
         <select id="source" class="sr-only" tabindex="-1" aria-hidden="true">
           <option value="maps" selected>maps</option>
           <option value="linkedin">linkedin</option>
           <option value="web">web</option>
+          <option value="posts">posts</option>
         </select>
 
         <label class="check card" id="optCurrentTab" hidden>
@@ -268,6 +273,23 @@
                  placeholder="All of them" />
           <span class="help" id="limitHint">0 means no limit</span>
         </label>
+        <!-- Posts only. A post is a lead because it is recent and because it
+             asks for something, so both are questions the run cannot guess.
+             The date comes from the post's own id, not the engine's filter. -->
+        <div class="field" id="postsRow" hidden>
+          <label class="label" for="postsDays">How recent?</label>
+          <select id="postsDays" class="input">
+            <option value="3">Last 3 days</option>
+            <option value="7">Last 7 days</option>
+            <option value="10" selected>Last 10 days</option>
+            <option value="14">Last 14 days</option>
+            <option value="30">Last 30 days</option>
+          </select>
+          <label class="check">
+            <input type="checkbox" id="postsIntentOnly" checked />
+            <span>Only posts that ask for something — not trainers selling, courses or thank-yous</span>
+          </label>
+        </div>
         <select id="grid" class="sr-only" tabindex="-1" aria-hidden="true">
           <option value="off">off</option>
           <option value="light">light</option>

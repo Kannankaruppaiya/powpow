@@ -96,3 +96,17 @@ test('a search engine has no grid, no emails and no place link to gate on', () =
   assert.ok(web.gates.name > 0 && web.gates.profileUrl > 0);
   assert.equal(web.gates.mapsUrl, undefined);
 });
+
+test('the Posts source searches public post pages, recent ones only', () => {
+  const posts = sourceFor('posts');
+  assert.equal(posts.id, 'posts');
+  assert.equal(supportsGrid('posts'), false);
+  assert.equal(posts.supportsEmails, false, 'contacts come out of the post text, not a website');
+  const url = new URL(buildUrl('posts', 'site:linkedin.com/posts corporate trainer'));
+  assert.equal(url.hostname, 'www.google.com');
+  assert.match(url.searchParams.get('tbs'), /^qdr:d\d+$/);
+  // A post is gated on what every post has: its link and the id in it.
+  const gates = gatesFor(posts);
+  assert.ok(gates.gates.postUrl > 0 && gates.gates.postId > 0);
+  assert.equal(gates.site, 'The search engine');
+});

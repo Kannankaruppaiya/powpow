@@ -26,7 +26,7 @@
 (() => {
   'use strict';
 
-  const { norm } = globalThis.MLSParse;
+  const { norm, parsePostTitle } = globalThis.MLSParse;
 
   const PROFILE = /(?:^|\.)linkedin\.com\/in\/([^/?#]+)/i;
 
@@ -59,6 +59,69 @@
     return { slug: slug.toLowerCase(), url: `https://www.linkedin.com/in/${slug}` };
   }
 
+  /*
+   * Posts, not people.
+   *
+   * The Posts source runs the same engine search with `site:linkedin.com/posts`
+   * and wants each result's post rather than a profile. Everything else here —
+   * finding the results region, telling a result from page furniture, reading
+   * the snippet, paging safely, spotting a CAPTCHA — is the same problem, so
+   * the adapter keeps one set of shape rules and swaps only what a result
+   * links to. The query decides which: it is on the page, it cannot drift
+   * from what the run asked for, and a person searching by hand gets the
+   * same reading.
+   */
+  const POSTS_QUERY = /site:\S*linkedin\.com\/(?:posts|feed)/i;
+  const POST_PAGE = /(?:^|\.)linkedin\.com\/(?:posts|feed\/update)\//i;
+  const POST_ID = /(?:activity|ugcPost|share)(?:%3A|:|-)(\d{18,20})(?!\d)/i;
+
+  function postsMode() {
+    try {
+      return POSTS_QUERY.test(new URLSearchParams(location.search).get('q') || '');
+    } catch {
+      return false;
+    }
+  }
+
+  /** The post a link points at, following one layer of redirect. */
+  function postFrom(anchor) {
+    const raw = anchor.getAttribute('href') || '';
+    if (!raw) return null;
+
+    let href = raw;
+    try {
+      const url = new URL(raw, location.href);
+      const wrapped = url.searchParams.get('uddg') || url.searchParams.get('url');
+      href = wrapped && POST_PAGE.test(wrapped) ? wrapped : url.href;
+    } catch {
+      /* fall through to the raw string */
+    }
+
+    let decoded = href;
+    try {
+      decoded = decodeURIComponent(href);
+    } catch {
+      /* a stray % — read it as it is */
+    }
+    if (!POST_PAGE.test(decoded)) return null;
+    const match = decoded.match(POST_ID);
+    if (!match) return null;
+
+    // Tracking parameters are not part of the post, and they make the same
+    // post look like two links.
+    let clean = decoded;
+    try {
+      const url = new URL(decoded);
+      clean = `${url.origin}${url.pathname}`;
+    } catch {
+      /* keep what there is */
+    }
+    return { slug: match[1], url: clean };
+  }
+
+  /** What a result links to, in whichever mode the search is. */
+  const targetFrom = (anchor) => (postsMode() ? postFrom(anchor) : profileFrom(anchor));
+
   /** Does this text read like a URL rather than a title? */
   const URLISH = /^(?:https?:|www\.)/i;
   const isUrlish = (text) => URLISH.test(text) || /linkedin\.com/i.test(text.replace(/\s*[›>/]\s*/g, ''));
@@ -75,7 +138,7 @@
   function profileAnchors(root) {
     const found = [];
     for (const anchor of root.querySelectorAll('a[href]')) {
-      const profile = profileFrom(anchor);
+      const profile = targetFrom(anchor);
       // A link with no text is an image or a tracking pixel, not a result.
       if (profile && norm(anchor.textContent)) found.push({ anchor, ...profile });
     }
@@ -241,7 +304,7 @@
   function slugsIn(el) {
     const slugs = new Set();
     for (const anchor of el.querySelectorAll('a[href]')) {
-      const profile = profileFrom(anchor);
+      const profile = targetFrom(anchor);
       if (profile) slugs.add(profile.slug);
     }
     return slugs;
@@ -268,7 +331,7 @@
     // Location column, because it sits in the same run of text as the place.
     let text = norm(best.textContent);
     for (const link of best.querySelectorAll('a[href]')) {
-      if (!profileFrom(link)) continue;
+      if (!targetFrom(link)) continue;
       for (const label of new Set([norm(link.textContent), titleOf(link)])) {
         if (label) text = text.replace(label, ' ');
       }
@@ -367,6 +430,38 @@
     return node.matches && node.matches(EXECUTABLE) ? null : node;
   }
 
+  /*
+   * The engine's own date in front of a snippet — "5 days ago —", "Sep 7,
+   * 2026 ·". It is the engine's guess at when it saw the page, not when the
+   * post was written, so it is dropped rather than kept as text; the post id
+   * carries the real date.
+   */
+  const ENGINE_DATE =
+    /^(?:\d+\s+(?:minutes?|hours?|days?|weeks?|months?)\s+ago|[A-Z][a-z]{2,8}\.? \d{1,2}, \d{4}|\d{1,2} [A-Z][a-z]{2,8}\.? \d{4})\s*[—–·-]\s*/;
+
+  /** One post result as a record. The worker dates and classifies it. */
+  function postRecord(hit) {
+    const { author, text: fromTitle } = parsePostTitle(titleOf(hit.anchor));
+    const snippet = snippetFor(hit.anchor).replace(ENGINE_DATE, '').trim();
+    // The title is usually the post's first line and the snippet the next
+    // few. Keep both, once: some engines repeat the title in the snippet.
+    const text =
+      fromTitle && !snippet.toLowerCase().includes(fromTitle.toLowerCase().slice(0, 40))
+        ? `${fromTitle} — ${snippet}`
+        : snippet || fromTitle;
+    return {
+      source: 'posts',
+      name: author || 'LinkedIn post',
+      author,
+      headline: fromTitle,
+      text,
+      summary: snippet.slice(0, 300),
+      postId: hit.slug,
+      postUrl: hit.url,
+      detailScraped: false,
+    };
+  }
+
   let endReason = '';
 
   /*
@@ -431,6 +526,7 @@
     extractResult(slug) {
       const hit = resultLinks().find((r) => r.slug === slug);
       if (!hit) return null;
+      if (postsMode()) return postRecord(hit);
 
       const { name, headline } = splitTitle(titleOf(hit.anchor));
       if (!name) return null;

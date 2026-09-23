@@ -79,7 +79,9 @@ export function citiesFor(country, regionName, { source = 'maps', limit = CITY_L
   if (!country || !Array.isArray(country.s)) return [];
   const wanted = String(regionName || '').trim();
   const regions = wanted ? country.s.filter((r) => r.n === wanted) : country.s;
-  const qualify = source !== 'linkedin';
+  // LinkedIn matches words literally, and a post rarely names its state:
+  // "Chennai, Tamil Nadu" in a Posts query asks for a phrase nobody wrote.
+  const qualify = source !== 'linkedin' && source !== 'posts';
 
   const out = [];
   for (const region of regions) {

@@ -275,3 +275,19 @@ test('a cached answer is deduplicated the way a live one is', () => {
   assert.match(cached, /recordKey\(record\)/, 'a cache hit hands back duplicates');
   assert.ok(!/task\.stoppedBecause/.test(cached), 'a run answered in full from disk reads as one that stopped early');
 });
+
+test('set-aside rows are written under this job, where the panel looks for them', () => {
+  // They were written under `job.id`, which does not exist. A row stored
+  // under `undefined` falls out of the jobId index: "Show them" showed
+  // nothing, and the rows sat in the database for good, cleared by nothing.
+  const block = WORKER.slice(WORKER.indexOf('filterByCategory(records'), WORKER.indexOf('config.skipSeen'));
+  assert.match(block, /putRecords\(job\.jobId,/);
+  assert.doesNotMatch(WORKER, /\bjob\.id\b/, 'the job has no `id` field');
+});
+
+test('a search that ended is recorded, so repeating it costs nothing', () => {
+  const loop = WORKER.slice(WORKER.indexOf('async function pageThrough'), WORKER.indexOf('async function rememberUrns'));
+  assert.match(loop, /markEnd\(entry, page - 1\)/, 'the last page is remembered where the search runs out');
+  const cached = WORKER.slice(WORKER.indexOf('async function servedFromCache'), WORKER.indexOf('async function pageThrough'));
+  assert.match(cached, /!plan\.complete/, 'a complete answer is served even when shorter than asked for');
+});

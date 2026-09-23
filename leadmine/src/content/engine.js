@@ -257,7 +257,9 @@
     }
 
     if (typeof adapter.finalise === 'function') adapter.finalise(records, config, context);
-    for (const record of records) record.source = adapter.id;
+    // An adapter that reads two kinds of result says which one each record
+    // is; otherwise the adapter is the source.
+    for (const record of records) record.source = record.source || adapter.id;
 
     report({ phase: 'done' });
     return { records, context, stoppedBecause: harvest.stoppedBecause || '' };

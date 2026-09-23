@@ -8,6 +8,7 @@ import {
   summariseRates,
   DEFAULT_GATES,
   MIN_SAMPLE,
+  gatesFor,
 } from '../src/lib/health.js';
 
 const good = (n, overrides = {}) =>
@@ -104,4 +105,13 @@ test('the default gates cover the fields Maps always shows', () => {
   assert.ok(DEFAULT_GATES.name > 0.5);
   assert.ok(DEFAULT_GATES.mapsUrl > 0.5);
   assert.equal(DEFAULT_GATES.phone, undefined, 'phone must never be a gate');
+});
+
+test('a broken run names the site that changed, not always Google', () => {
+  const linkedin = gatesFor({ healthGates: { name: 0.9 }, watched: ['name'], site: 'LinkedIn', rowNoun: 'people' });
+  const health = assessHealth(good(50, { name: '' }), linkedin);
+  assert.match(health.reason, /LinkedIn may have changed the page/);
+  assert.match(health.reason, /of people/);
+  // Maps keeps its wording.
+  assert.match(assessHealth(good(50, { name: '' })).reason, /Google may have changed the page/);
 });

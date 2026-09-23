@@ -82,6 +82,8 @@ const SETUP = (total) => {
     });
   }
 
+  if (window.__posts) job.config = { source: 'posts', category: 'corporate trainer' };
+
   // A LinkedIn run where most of the results came back as "LinkedIn Member".
   if (window.__withheld) {
     Object.assign(job, {
@@ -128,6 +130,29 @@ const SETUP = (total) => {
           location: 'Chennai, Tamil Nadu, India',
           degree: '2nd',
           profileUrl: `https://www.linkedin.com/in/priya-sharma-${i}`,
+        }
+      : {}),
+    // A recent post asking for a trainer: dated from its id, judged, with the
+    // contacts that were written in it. Every fifth one was set aside.
+    ...(window.__posts
+      ? {
+          key: `post:75025889167437${String(i).padStart(5, '0')}`,
+          source: 'posts',
+          name: `Sarala Geriga ${i}`,
+          author: `Sarala Geriga ${i}`,
+          text: 'URGENT CORPORATE TRAINER REQUIREMENT – Pune. Share your profile at ta7069@sfjbs.com',
+          headline: 'URGENT CORPORATE TRAINER REQUIREMENT – Pune',
+          postId: `75025889167437${String(i).padStart(5, '0')}`,
+          postUrl: `https://www.linkedin.com/feed/update/urn:li:activity:75025889167437${String(i).padStart(5, '0')}/`,
+          postedAt: '2026-09-20T10:00:00.000Z',
+          ageDays: 3.2,
+          intent: i % 5 ? 'DEMAND' : 'SUPPLY',
+          setAside: i % 5 ? undefined : 'not a requirement post (supply)',
+          emails: 'ta7069@sfjbs.com',
+          phones: '88617 81909',
+          phone: '',
+          email: '',
+          category: '',
         }
       : {}),
     // The same person, found through a search engine instead. No degree, no
@@ -239,6 +264,7 @@ async function openPanel(
   t,
   {
     idle = false, paused = false, running = false, linkedin = false, web = false, withheld = false,
+    posts = false,
     budget = null,
     aiKey = '', urns = null, noManifest = false, stale = false,
   } = {}
@@ -263,6 +289,7 @@ async function openPanel(
   if (running) await page.addInitScript(() => { window.__running = true; });
   if (linkedin) await page.addInitScript(() => { window.__linkedin = true; });
   if (web) await page.addInitScript(() => { window.__web = true; });
+  if (posts) await page.addInitScript(() => { window.__posts = true; });
   if (withheld) await page.addInitScript(() => { window.__withheld = true; });
   if (budget) await page.addInitScript((b) => { window.__budget = b; }, budget);
   // Filter ids the extension has already learned, as a run would have left
@@ -502,7 +529,7 @@ test('the public-web source shows the controls that apply to it', async (t) => {
   }
 });
 
-test('the three source labels fit the panel at its narrowest', async (t) => {
+test('the four source labels fit the panel at its narrowest', async (t) => {
   const ctx = await openPanel(t, { idle: true });
   if (!ctx) return;
   try {
@@ -528,7 +555,7 @@ test('the three source labels fit the panel at its narrowest', async (t) => {
       };
     });
 
-    assert.equal(fits.spans.length, 3);
+    assert.equal(fits.spans.length, 4);
     assert.ok(fits.over <= 1, `the source control overflows its column by ${fits.over}px`);
     assert.ok(fits.page <= 0, `the panel scrolls sideways by ${fits.page}px`);
     for (const span of fits.spans) {
@@ -1956,6 +1983,89 @@ test('the version and the run status survive the row they lost', async (t) => {
     assert.match(await ctx.page.textContent('#version'), /^v\d+\.\d+\.\d+$/);
     assert.equal(await ctx.page.isVisible('#viewSetup'), true);
     assert.equal(await ctx.page.isVisible('#viewResults'), true);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('a post reads as a post: who, how long ago, what it asks, how to reach them', async (t) => {
+  const ctx = await openPanel(t, { posts: true });
+  if (!ctx) return;
+  try {
+    await ctx.page.click('#viewResults');
+    await ctx.page.waitForTimeout(400);
+
+    const first = ctx.page.locator('#rowBody .lead:first-child');
+    assert.equal(await first.locator('.lead-name').textContent(), 'Sarala Geriga 1');
+    // The age is why the row exists, so it is the mark beside the name.
+    assert.equal(await first.locator('.lead-mark').textContent(), '3 days ago');
+    assert.match(await first.locator('.lead-headline').textContent(), /TRAINER REQUIREMENT/);
+    // The contacts written in the post are one click from the clipboard.
+    assert.equal(await first.locator('.lead-email').getAttribute('data-copy'), 'ta7069@sfjbs.com');
+    assert.equal(await first.locator('.lead-phone').getAttribute('data-copy'), '88617 81909');
+    // The name opens the post, which is where a reply goes.
+    assert.match(await first.locator('.lead-name').getAttribute('data-copy'), /urn:li:activity:/);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('a posts run says why each set-aside post was set aside', async (t) => {
+  const ctx = await openPanel(t, { posts: true });
+  if (!ctx) return;
+  try {
+    await ctx.page.click('#viewResults');
+    await ctx.page.waitForTimeout(400);
+    const note = await ctx.page.textContent('#asideNote');
+    assert.match(note, /set aside — \d[\d,]* not a requirement post \(supply\)/, note);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('the results filter searches what a post and a person say, not only business fields', async (t) => {
+  const ctx = await openPanel(t, { posts: true });
+  if (!ctx) return;
+  try {
+    await ctx.page.click('#viewResults');
+    await ctx.page.waitForTimeout(400);
+    // Typing a word from the post used to match nothing: only name, area,
+    // category, city, email and phone were searched.
+    await ctx.page.fill('#filter', 'pune');
+    await ctx.page.waitForTimeout(300);
+    assert.match(await ctx.page.textContent('#rowNote'), /^[\d,]+ of [\d,]+ rows$/);
+    assert.ok((await ctx.page.locator('#rowBody .lead').count()) > 0, 'post text is searchable');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('the Posts source asks how recent, and sends it with the run', async (t) => {
+  const ctx = await openPanel(t, { idle: true });
+  if (!ctx) return;
+  try {
+    await ctx.page.evaluate(() => {
+      window.__started = null;
+      const send = chrome.runtime.sendMessage;
+      chrome.runtime.sendMessage = async (m) => {
+        if (m.type === 'START_JOB') window.__started = m.config;
+        return send(m);
+      };
+    });
+    assert.equal(await ctx.page.isVisible('#postsRow'), false, 'only a Posts run has a date window');
+    await ctx.page.click('#sourceGroup label.seg:has(input[value="posts"])');
+    assert.equal(await ctx.page.isVisible('#postsRow'), true);
+    assert.equal(await ctx.page.inputValue('#postsDays'), '10', 'ten days by default');
+    assert.equal(await ctx.page.textContent('#categoryLabel'), 'What do they need?');
+    await ctx.page.selectOption('#postsDays', '7');
+    await ctx.page.fill('#category', 'corporate trainer');
+    await ctx.page.click('#start');
+    await ctx.page.waitForTimeout(300);
+    const sent = await ctx.page.evaluate(() => window.__started);
+    assert.ok(sent, 'the run started');
+    assert.equal(sent.source, 'posts');
+    assert.equal(sent.postsDays, 7);
+    assert.equal(sent.postsIntentOnly, true, 'only asking posts, unless told otherwise');
   } finally {
     await ctx.close();
   }

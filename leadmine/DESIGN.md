@@ -165,10 +165,13 @@ are.
 
 ## Components
 
-**Segmented control** — for the source, now three options. Cheaper to read
-than a select: every choice is visible without opening anything. Three is the
-ceiling at 400px; a fourth source would have to become a select, because
-labels that truncate are worse than a list that opens.
+**Segmented control** — for the source, now four options. Cheaper to read
+than a select: every choice is visible without opening anything. Three was
+thought to be the ceiling at 400px, and the fourth got in only because its
+label is one short word — "Posts". A test measures that every label still
+sits on one line and the control does not overflow; a fifth source, or a
+longer fourth label, has to become a select, because labels that truncate are
+worse than a list that opens.
 
 **Segmented control, three up** — for how thorough. This was three stacked
 cards, a hundred pixels each: a third of the panel spent on one setting that

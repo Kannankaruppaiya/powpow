@@ -143,6 +143,44 @@
     return index === -1 ? '' : norm(raw.slice(index + 'phone:tel:'.length));
   }
 
+  /**
+   * Author and text out of the title an engine shows for a LinkedIn post.
+   *
+   * LinkedIn titles its post pages in a few shapes, and engines add their own
+   * site suffix on top:
+   *
+   *   "Urgent SAP FI trainer requirement | Shreya Wagh"
+   *   "Shreya Wagh on LinkedIn: Urgent SAP FI trainer requirement…"
+   *   "Shreya Wagh's Post - LinkedIn"
+   *   "🚨 Urgent requirement | Shreya Wagh posted on the topic | LinkedIn"
+   */
+  function parsePostTitle(title) {
+    let text = norm(title)
+      .replace(/\s*[-|·–—]\s*LinkedIn\s*$/i, '')
+      .replace(/\s*\|\s*LinkedIn\s*$/i, '')
+      .trim();
+
+    const onLinkedIn = text.match(/^(.{2,80}?) on LinkedIn:\s*(.*)$/i);
+    if (onLinkedIn) return { author: onLinkedIn[1].trim(), text: onLinkedIn[2].trim() };
+
+    const possessive = text.match(/^(.{2,80}?)['’]s (?:Post|Activity|Update)$/i);
+    if (possessive) return { author: possessive[1].trim(), text: '' };
+
+    const bar = text.lastIndexOf(' | ');
+    if (bar > 0) {
+      const author = text
+        .slice(bar + 3)
+        .replace(/\s+(?:posted|reposted|commented)(?: on the topic| on this)?$/i, '')
+        .trim();
+      // A name is short. A long tail after the bar is part of the post, which
+      // happens when the post itself uses " | " as punctuation.
+      if (author && author.split(' ').length <= 8 && author.length <= 80) {
+        return { author, text: text.slice(0, bar).trim() };
+      }
+    }
+    return { author: '', text };
+  }
+
   globalThis.MLSParse = {
     norm,
     nameKey,
@@ -151,5 +189,6 @@
     parseCardParts,
     deriveArea,
     phoneFromItemId,
+    parsePostTitle,
   };
 })();

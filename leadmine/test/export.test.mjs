@@ -178,3 +178,19 @@ test('a file holding both doors says which one each row came through', () => {
   // rather than as a fact about where the row came from.
   assert.deepEqual(rows.rows.map((r) => r[at]), ['linkedin', 'web']);
 });
+
+test('posts export their own columns, date and intent first', async () => {
+  const { columnsFor, toCsv, POSTS_COLUMNS } = await import('../src/lib/export.js');
+  const rows = [
+    {
+      source: 'posts', postedAt: '2026-09-07T04:49:49.113Z', ageDays: 2.8, intent: 'DEMAND', score: 90,
+      signals: 'requirement, urgent', author: 'Sarala Geriga', text: '=HYPERLINK("x") trainer required',
+      emails: 'ta7069@sfjbs.com', phones: '88617 81909',
+      postUrl: 'https://www.linkedin.com/feed/update/urn:li:activity:7502588916743708672/',
+    },
+  ];
+  assert.equal(columnsFor(rows), POSTS_COLUMNS);
+  const csv = toCsv(rows);
+  assert.match(csv, /^﻿"Posted On","Age \(Days\)","Intent"/);
+  assert.match(csv, /"'=HYPERLINK/, 'post text is guarded against formula injection like any other cell');
+});

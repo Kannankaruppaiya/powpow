@@ -15,6 +15,7 @@
 import { buildGrid, gridSteps, viewportSpanMetres } from './geo.js';
 import { supportsGrid, buildTerm } from './sources.js';
 import { buildUrl as buildQueryUrl, partition } from './linkedin-query.js';
+import { postQueries, postSearchUrl } from './posts.js';
 
 /**
  * Parse the batch box into search pairs. Accepts either separator people
@@ -231,7 +232,8 @@ export function buildTaskList(config = {}) {
   // "Theni" in the keywords are not the same search, and only one of them
   // is the one the user asked for.
   const searches = facetSearches(config);
-  return (searches.length ? searches : searchesFromConfig(config)).map((search, index) => ({
+  const plain = searches.length ? searches : searchesFromConfig(config);
+  return (config.source === 'posts' ? postSearches(plain, config) : plain).map((search, index) => ({
     id: `s${index}`,
     ...search,
     point: null,
@@ -240,6 +242,26 @@ export function buildTaskList(config = {}) {
     found: 0,
     error: '',
   }));
+}
+
+/**
+ * The engine searches a Posts run makes: one per intent group per search.
+ *
+ * "Corporate trainer" alone finds trainers advertising themselves at least as
+ * often as anyone needing one. Each group adds the words a requirement is
+ * written in, and each is its own search because one query holding all of
+ * them ranks worse and runs into Google's 32-word limit. The window in days
+ * rides in the URL, which is why the URL is built here and not per source.
+ */
+function postSearches(searches, config) {
+  const days = Number(config.postsDays) || 10;
+  const out = [];
+  for (const search of searches) {
+    for (const query of postQueries(search.category, search.city)) {
+      out.push({ ...search, term: query, url: postSearchUrl(query, days) });
+    }
+  }
+  return out;
 }
 
 /**

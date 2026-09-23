@@ -45,6 +45,11 @@ export function gatesFor(source) {
   return {
     gates: (source && source.healthGates) || DEFAULT_GATES,
     watched: (source && source.watched) || DEFAULT_WATCHED,
+    // Who changed the page, and what a row is, both depend on the source. A
+    // LinkedIn run that broke used to be told "Google may have changed the
+    // page", which sends everyone to look at the wrong site.
+    site: (source && source.site) || 'Google',
+    noun: (source && source.rowNoun) || 'listings',
   };
 }
 
@@ -74,7 +79,10 @@ export function fieldRates(records, fields = DEFAULT_WATCHED) {
  * Returns `ok: true` for a sample too small to judge — refusing to guess is
  * the point; a false stop is as bad as a missed one.
  */
-export function assessHealth(records, { gates = DEFAULT_GATES, minSample = MIN_SAMPLE, watched = DEFAULT_WATCHED } = {}) {
+export function assessHealth(
+  records,
+  { gates = DEFAULT_GATES, minSample = MIN_SAMPLE, watched = DEFAULT_WATCHED, site, noun } = {}
+) {
   const list = records || [];
   const fields = [...new Set([...watched, ...Object.keys(gates)])];
   const rates = fieldRates(list, fields);
@@ -92,18 +100,18 @@ export function assessHealth(records, { gates = DEFAULT_GATES, minSample = MIN_S
     sample: list.length,
     rates,
     breaches,
-    reason: breaches.length ? describeBreaches(breaches) : 'healthy',
+    reason: breaches.length ? describeBreaches(breaches, { site, noun }) : 'healthy',
   };
 }
 
 /** A sentence a user can act on, not a stack trace. */
-export function describeBreaches(breaches) {
+export function describeBreaches(breaches, { site = 'Google', noun = 'listings' } = {}) {
   if (!breaches || !breaches.length) return '';
   const parts = breaches.map(
     ({ field, rate, threshold }) =>
-      `${field} found in only ${Math.round(rate * 100)}% of listings (expected ${Math.round(threshold * 100)}%+)`
+      `${field} found in only ${Math.round(rate * 100)}% of ${noun} (expected ${Math.round(threshold * 100)}%+)`
   );
-  return `Extraction looks broken — ${parts.join('; ')}. Google may have changed the page. Run paused so you do not export empty rows.`;
+  return `Extraction looks broken — ${parts.join('; ')}. ${site} may have changed the page. Run paused so you do not export empty rows.`;
 }
 
 /** Compact rates for the UI, worst first, skipping fields nothing was found for. */

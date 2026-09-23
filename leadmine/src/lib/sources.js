@@ -8,11 +8,14 @@
  */
 
 import { buildSearchUrl as mapsSearchUrl } from './geo.js';
+import { postSearchUrl } from './posts.js';
 
 export const SOURCES = {
   maps: {
     id: 'maps',
     label: 'Google Maps',
+    site: 'Google Maps',
+    rowNoun: 'listings',
     /** Businesses: name and the place link are on every single result. */
     healthGates: { name: 0.9, mapsUrl: 0.9 },
     watched: ['name', 'mapsUrl', 'category', 'address', 'phone', 'rating', 'website'],
@@ -34,6 +37,8 @@ export const SOURCES = {
   linkedin: {
     id: 'linkedin',
     label: 'LinkedIn People',
+    site: 'LinkedIn',
+    rowNoun: 'people',
     /** People: a name and a profile link are the two universal fields. */
     healthGates: { name: 0.9, profileUrl: 0.9 },
     watched: ['name', 'profileUrl', 'headline', 'company', 'location', 'degree'],
@@ -60,6 +65,8 @@ export const SOURCES = {
   web: {
     id: 'web',
     label: 'Public web',
+    site: 'The search engine',
+    rowNoun: 'results',
     /** A search result gives a name and a profile link, and little else. */
     healthGates: { name: 0.9, profileUrl: 0.9 },
     watched: ['name', 'profileUrl', 'headline', 'company', 'location'],
@@ -97,6 +104,50 @@ export const SOURCES = {
     buildTerm: (category, city) =>
       ['site:linkedin.com/in', category, city].filter(Boolean).join(' ').trim(),
     noun: 'people',
+  },
+
+  /*
+   * Recent LinkedIn posts that ask for something.
+   *
+   * Not people and not businesses: a post is an event — "SAP FI trainer
+   * required, Mumbai, starts Monday" — and what makes it a lead is that it is
+   * recent and that it asks. The engine finds candidates; the post's own id
+   * says exactly when it was written, and the classifier in posts.js says
+   * whether it asks, sells or thanks. See posts.js for why the engine's own
+   * date filter cannot be trusted with either.
+   *
+   * No LinkedIn login is needed for the engine path. "Use the tab I'm on"
+   * also reads a LinkedIn post search the user already has open — the only
+   * place a post from the last day or two can be found before any engine
+   * has indexed it.
+   */
+  posts: {
+    id: 'posts',
+    label: 'LinkedIn posts',
+    site: 'The search engine',
+    rowNoun: 'posts',
+    // Every post has a link, and the link carries the id its date comes from.
+    healthGates: { postUrl: 0.9, postId: 0.9 },
+    watched: ['postUrl', 'postId', 'author', 'text', 'postedAt'],
+    supportsGrid: false,
+    supportsEmails: false,
+    filterField: ['text', 'headline', 'author'],
+    filterLabel: 'Post text contains',
+    filterHint: 'Only keep posts whose text matches',
+    urlPart: '/search',
+    // "Use the tab I'm on" reads an engine's results or LinkedIn's own post
+    // search. '/search' alone would also admit a LinkedIn people search, and
+    // that page's adapter would hand back people into a posts run.
+    matchesTab: (url) =>
+      /^https:\/\/([\w-]+\.)?linkedin\.com\/search\/results\/content/.test(url) ||
+      /^https?:\/\/(?:[\w-]+\.)?google\.[a-z.]+\/search\b/.test(url) ||
+      /^https?:\/\/(?:[\w-]+\.)?duckduckgo\.com\//.test(url),
+    // One URL per intent group is built in tasks.js, where the window in
+    // days is known. This is the plain fallback for a bare term.
+    buildUrl: (term) => postSearchUrl(String(term).trim(), 10),
+    buildTerm: (category, city) =>
+      ['site:linkedin.com/posts', category, city].filter(Boolean).join(' ').trim(),
+    noun: 'posts',
   },
 };
 

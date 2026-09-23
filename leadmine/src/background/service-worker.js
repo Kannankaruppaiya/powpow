@@ -29,7 +29,8 @@ import * as store from '../lib/store.js';
 import { buildTaskList, expandGridTasks, insertAfter, nextPending, taskProgress } from '../lib/tasks.js';
 import { URN_KEY, withSeed, learn } from '../lib/urns.js';
 import { pageOf, pageUrl } from '../lib/linkedin-query.js';
-import { cacheKey, planFrom, absorb } from '../lib/search-cache.js';
+import { cacheKey, planFrom, absorb, markEnd, clearEnd } from '../lib/search-cache.js';
+import { annotatePost, narrowPosts } from '../lib/posts.js';
 
 const STORE_KEY = 'mls.job';
 
@@ -172,7 +173,9 @@ function waitForTabComplete(tabId, expect = '/maps/', timeout = 45000) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       chrome.tabs.onUpdated.removeListener(listener);
-      reject(new Error('Timed out waiting for Google Maps to load.'));
+      // Every source waits here, not only Maps: naming Maps on a LinkedIn run
+      // sent people looking for a Maps tab that was never involved.
+      reject(new Error(`Timed out waiting for the page to load (${expect}).`));
     }, timeout);
 
     function settle(fn, value) {
@@ -214,6 +217,7 @@ async function ensureContentScript(tabId) {
       'src/content/adapters/maps.js',
       'src/content/adapters/linkedin.js',
       'src/content/adapters/web.js',
+      'src/content/adapters/linkedin-posts.js',
     ],
   });
   await new Promise((r) => setTimeout(r, 300));
@@ -470,7 +474,9 @@ async function servedFromCache(task, config, url) {
   if (!key) return null;
   const wantPages = Math.min(config.maxPages || 10, 100);
   const plan = planFrom(await store.getMeta(key), wantPages);
-  if (plan.reused < wantPages) return null;
+  // A search that has fewer pages than were asked for is still answered in
+  // full once all of its pages are held.
+  if (plan.reused < wantPages && !plan.complete) return null;
 
   // The stored pages are raw: LinkedIn repeats people across pages, and a
   // live run merges them. Handing back the concatenation would give a cached
@@ -557,7 +563,10 @@ async function pageThrough(first, task, config, tabId) {
   }
   task.pagesReused = plan.reused;
 
-  for (let page = Math.max(start + 1, plan.from); page <= lastPage; page += 1) {
+  // Every page this search has is already held: going on would only pay to
+  // be shown the last page again.
+  const firstToFetch = plan.complete ? lastPage + 1 : Math.max(start + 1, plan.from);
+  for (let page = firstToFetch; page <= lastPage; page += 1) {
     if (cancelRequested) break;
     if (want && byKey.size >= want) {
       task.stoppedBecause = `the limit of ${want}`;
@@ -606,8 +615,13 @@ async function pageThrough(first, task, config, tabId) {
 
     if (byKey.size === before) {
       task.stoppedBecause = `page ${page} repeated what page ${page - 1} already had`;
+      // Where the search ends, so a repeat is answered from disk instead of
+      // paying to rediscover it.
+      if (key) entry = markEnd(entry, page - 1);
       break;
     }
+    // A page past a recorded end had people on it: the search grew.
+    if (key && entry && entry.end !== undefined && page > entry.end) entry = clearEnd(entry);
     await save({ found: byKey.size, message: `Page ${page} — ${byKey.size} so far…` });
   }
 
@@ -660,7 +674,14 @@ async function drainQueue(config, tabId) {
     });
 
     try {
-      const harvested = await runTask(task, config, tabId);
+      let harvested = await runTask(task, config, tabId);
+      // A post is dated and judged as it arrives, so the live cards already
+      // say how old it is and whether it asks for anything.
+      if (config.source === 'posts') {
+        const topic = task.category || (task.context && task.context.query) || config.category || '';
+        const now = Date.now();
+        harvested = harvested.map((record) => annotatePost(record, { now, topic }));
+      }
       task.found = harvested.length;
       task.status = 'done';
 
@@ -695,7 +716,7 @@ async function drainQueue(config, tabId) {
         tasks: job.tasks,
         found: records.length,
         health: { ok: health.ok, rates: health.rates, sample: health.sample },
-        message: `${task.term}: ${harvested.length} listings (${added} new).`,
+        message: `${task.term}: ${harvested.length} ${sourceFor(config.source).noun} (${added} new).`,
       });
 
       if (!health.ok) {
@@ -816,6 +837,31 @@ async function finishRun(config) {
   // below: there is no point fetching a website for a listing the user has
   // already said they do not want.
   const source = sourceFor(config.source);
+
+  /*
+   * Posts: keep the recent ones that ask for something.
+   *
+   * Re-annotated first, because two sightings of one post merged into the
+   * longer text, and the longer text is the better judge. Then narrowed on
+   * the post's own date and on intent — set aside with a reason, never
+   * deleted, the same as the category filter below.
+   */
+  if (source.id === 'posts') {
+    const now = Date.now();
+    records = records.map((r) => annotatePost(r, { now, topic: r.searchCategory || config.category || '' }));
+    const days = Number(config.postsDays) || 10;
+    const { kept, dropped } = narrowPosts(records, { days, intentOnly: config.postsIntentOnly !== false, now });
+    if (dropped.length) await store.putRecords(job.jobId, dropped);
+    records = kept;
+    await save({
+      filteredOut: dropped.length,
+      found: records.length,
+      message: kept.length
+        ? `${kept.length} recent posts kept — ${dropped.length} set aside (older than ${days} days, or not asking for anything).`
+        : `No post from the last ${days} days asked for anything. ${dropped.length} set aside — open Results to see them.`,
+    });
+  }
+
   const filterText = String(config.categoryFilter || '').trim();
   if (filterText) {
     const { kept, dropped } = filterByCategory(records, config.categoryFilter, source.filterField);
@@ -824,13 +870,18 @@ async function finishRun(config) {
       // always the wrong filter, and deleting the rows destroys the evidence
       // at exactly the moment the user needs it — along with an hour of
       // scraping they would have to repeat to get it back.
-      await store.putRecords(job.id, dropped.map((r) => ({ ...r, setAside: filterText })));
+      // Under the job's jobId — the job has no plain id field, and rows
+      // written under `undefined` fall out of the jobId index — the panel's "Show them"
+      // found nothing, and the rows stayed in the database for good, reachable
+      // by no job and cleared by no Clear.
+      await store.putRecords(job.jobId, dropped.map((r) => ({ ...r, setAside: filterText })));
       records = kept;
       await save({
-        filteredOut: dropped.length,
+        // Added to, not replaced: a Posts run may already have set some aside.
+        filteredOut: (job.filteredOut || 0) + dropped.length,
         found: records.length,
         message: kept.length
-          ? `${dropped.length} listings set aside — ${source.filterLabel.toLowerCase()} did not match.`
+          ? `${dropped.length} ${source.noun} set aside — ${source.filterLabel.toLowerCase()} did not match.`
           : `All ${dropped.length} were set aside by the ${source.filterLabel.toLowerCase()} filter “${filterText}”. They are kept — open Results to see them.`,
       });
     }
@@ -913,7 +964,9 @@ async function acquireTab(config) {
 
   const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
   const source = sourceFor(config.source);
-  if (!active || !String(active.url || '').includes(source.urlPart)) {
+  const url = String((active && active.url) || '');
+  const fits = source.matchesTab ? source.matchesTab(url) : url.includes(source.urlPart);
+  if (!active || !fits) {
     throw new Error(
       `Open your ${source.label} search in this tab first, then press Start. ` +
         'Current-tab mode scrapes the page you are on so your filters are kept.'
@@ -1040,7 +1093,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       const { settled, total } = taskProgress(job.tasks);
       const prefix = total > 1 ? `Search ${Math.min(settled + 1, total)}/${total} — ` : '';
       const patch = { phase: msg.phase, detailed: msg.detailed };
-      if (msg.phase === 'listing') patch.message = `${prefix}found ${msg.found} listings…`;
+      if (msg.phase === 'listing') {
+        const noun = sourceFor(job.config && job.config.source).noun;
+        patch.message = `${prefix}found ${msg.found} ${noun}…`;
+      }
       if (msg.phase === 'details') patch.message = `${prefix}listing ${msg.detailed} of ${msg.total}…`;
       save(patch);
       return undefined;

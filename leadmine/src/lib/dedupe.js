@@ -47,6 +47,11 @@ export function recordKey(record) {
   // slug does not change, and it is what lets the same person found through
   // two different routes — the logged-in search and a public web result —
   // come back as one row rather than two.
+  // A post is its id. The same post turns up under a /posts/ URL from an
+  // engine and a /feed/update/ URN on LinkedIn; the id is what both share.
+  const post = String(record.postId || '');
+  if (/^\d{18,20}$/.test(post)) return `post:${post}`;
+
   const profile = String(record.profileUrl || '').match(/linkedin\.com\/in\/([^/?#]+)/i);
   if (profile) return `li:${decodeURIComponent(profile[1]).toLowerCase()}`;
 
@@ -66,7 +71,11 @@ function isBetter(field, current, next) {
 
   if (Array.isArray(next)) return next.length > (Array.isArray(current) ? current.length : 0);
   // A detail-panel address is longer and more complete than a card's snippet.
-  if (field === 'address' || field === 'hours') return String(next).length > String(current).length;
+  // Post text too: an engine snippet is a truncated copy of what LinkedIn
+  // itself shows, and a merge must keep the whole post.
+  if (field === 'address' || field === 'hours' || field === 'text') {
+    return String(next).length > String(current).length;
+  }
   return false;
 }
 

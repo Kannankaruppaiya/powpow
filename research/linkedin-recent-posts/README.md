@@ -6,6 +6,12 @@ corporate training requirement. Then collect them as leads.
 
 This folder is standalone research. It is not part of the PowPow gateway.
 
+> The same method now ships inside the LeadMine extension as its **Posts**
+> source (`leadmine/`, see "Recent posts that ask for something" in its
+> README): post-id dating, the DEMAND / SUPPLY / RECAP classifier, and reading
+> LinkedIn's own post search from your tab. Use that for day-to-day runs; this
+> script stays as the command-line version of the research.
+
 ---
 
 ## 1. Research findings (tested 2026-09-23)

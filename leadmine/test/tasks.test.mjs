@@ -283,3 +283,27 @@ test('a location the user chose is not overridden by the Where box', () => {
 test('a plain keyword run is left alone', () => {
   assert.deepEqual(facetSearches({ source: 'linkedin', category: 'x', city: 'Chennai' }), []);
 });
+
+test('a Posts search runs once per intent group, each with its own recent-only URL', () => {
+  const tasks = buildTaskList({ source: 'posts', category: 'corporate trainer', city: 'Chennai', postsDays: 7 });
+  assert.equal(tasks.length, 2);
+  for (const task of tasks) {
+    assert.match(task.term, /^site:linkedin\.com\/posts corporate trainer Chennai \(/);
+    const url = new URL(task.url);
+    assert.equal(url.searchParams.get('q'), task.term);
+    assert.equal(url.searchParams.get('tbs'), 'qdr:d9', 'seven days asked for, a two-day margin for the engine');
+    assert.equal(task.category, 'corporate trainer', 'the record still says what was searched for');
+    assert.equal(task.expandsToGrid, false);
+  }
+  assert.notEqual(tasks[0].id, tasks[1].id);
+});
+
+test('a Posts batch multiplies by the intent groups, and defaults to ten days', () => {
+  const tasks = buildTaskList({ source: 'posts', batch: 'SAP FI trainer, Mumbai\nServiceNow trainer' });
+  assert.equal(tasks.length, 4);
+  assert.equal(new URL(tasks[0].url).searchParams.get('tbs'), 'qdr:d12');
+  // Reading the tab the user has open is still one task, and builds nothing.
+  const current = buildTaskList({ source: 'posts', useCurrentTab: true });
+  assert.equal(current.length, 1);
+  assert.equal(current[0].useCurrentTab, true);
+});

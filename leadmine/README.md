@@ -5,7 +5,7 @@
 A Chrome extension that turns a search you could run by hand into **one
 downloadable file**.
 
-Three sources:
+Four sources:
 
 - **Google Maps** — every business listing for a city and a category: name,
   phone, verified email, area, rating, website, hours and more. It works around
@@ -19,6 +19,12 @@ Three sources:
   through LinkedIn. No login and no connection degree, so it names people a
   signed-in search shows only as "LinkedIn Member". See
   [Reaching people outside your network](#reaching-people-outside-your-network).
+- **Posts** — recent LinkedIn posts that *ask for something*: "SAP FI trainer
+  required, Mumbai", "looking for freelance corporate trainers". Each post is
+  dated to the minute from its own id, anything older than the window you
+  pick (3–30 days) is set aside, and a classifier keeps the posts that ask and
+  sets aside the ones that sell, advertise a course or say thank you. See
+  [Recent posts that ask for something](#recent-posts-that-ask-for-something).
 
 Type `dentists` + `Chennai`, press start, and you get a spreadsheet.
 
@@ -358,6 +364,7 @@ popup  ──START_JOB──▶  service worker  ──RUN_SCRAPE──▶  cont
 | `src/lib/tasks.js` | The search queue — batch parsing, grid expansion, resume points |
 | `src/lib/dedupe.js` | Stable business identity, record merging, the cross-run seen index |
 | `src/lib/search-cache.js` | What a LinkedIn search already returned, so it is never paid for twice |
+| `src/lib/posts.js` | Post ids to dates, the DEMAND/SUPPLY/RECAP classifier, contacts in a post, the date and intent narrowing |
 | `src/lib/email.js` | Fetches business websites, extracts/ranks emails, finds social links |
 | `src/lib/verify.js` | Email verification over DNS-over-HTTPS |
 | `src/lib/store.js` | IndexedDB: job metadata, records, the cross-run seen index |
@@ -650,6 +657,83 @@ scraping the challenge page into the spreadsheet.
 
 ---
 
+## Recent posts that ask for something
+
+The question this source answers is *"who posted in the last ten days that
+they need a corporate trainer?"* Both halves are harder than they look.
+
+### When: the post's id, not the engine's date
+
+A search engine's "past week" is **its** date — when it first saw the page —
+not when the post was written. Engines index LinkedIn posts one to three
+weeks late: asked on 23 September for the last ten days, the newest
+"trainer requirement" post one engine held was from the 7th. So the engine's
+filter both lets old posts through and cannot promise new ones.
+
+What does not drift is the post's own id. LinkedIn ids are snowflakes: the
+top 41 bits are the millisecond the post was created.
+
+```
+https://www.linkedin.com/posts/…-activity-7500139413100740609-4Xw3
+7500139413100740609 >> 22  =  1788172581935 ms  =  2026-08-31 10:36:21 UTC
+```
+
+That is the date LinkedIn shows for the post, read off the URL alone. The
+run asks the engine for a slightly wider window (`tbs=qdr:dN`, two days of
+margin) and then makes the exact cut from each id.
+
+### Asks for something: DEMAND, SUPPLY, RECAP
+
+The words that mark a requirement also mark its opposites, and a keyword
+search for "corporate training" returns all four of these:
+
+| Post | Intent |
+| --- | --- |
+| "Urgent corporate trainer requirement – Pune. Share your profile…" | **DEMAND** — kept |
+| "I am a certified corporate trainer, available for sessions. If you require…" | SUPPLY — set aside |
+| "New batch starts Monday, enrol now, limited seats" | SUPPLY — set aside |
+| "Successfully conducted a corporate training at Acme. Thank you for the opportunity" | RECAP — set aside |
+
+Each post is scored on cues for each side, and the **Why** column lists the
+cues that fired (`requirement, urgent, share your profile, commercials`, or
+`not: introduces self`), so a row can be judged by reading its reason.
+Untick *Only posts that ask for something* to keep everything.
+
+### Two doors
+
+- **Through Google, no login** (the default). Every search runs once per
+  intent group — `(required OR requirement OR urgent OR needed)` and
+  `("looking for" OR hiring OR seeking OR "share your profile")` — because
+  one query holding all of them ranks worse and runs into Google's 32-word
+  limit. The results are read by the Public web adapter's shape rules, with
+  a result being any link to a post instead of a profile.
+- **LinkedIn's own post search, from your tab.** The only place a post from
+  yesterday can be found before any engine has indexed it. Open LinkedIn
+  search → **Posts** → sort by **Latest** → **Past week**, tick **Use the tab
+  I'm on**, press Start. The run reads the posts on that page and the ones
+  behind "Show more results"; it never opens a post or a profile. The
+  account warning at the top of this file applies here.
+
+### What comes back
+
+| Column | Where it comes from |
+| --- | --- |
+| Posted On / Age (Days) | Decoded from the post id |
+| Intent / Score / Why | The classifier, with the cues it saw |
+| Author / Author Profile | The result title; the profile link on LinkedIn's own page |
+| Post | Title and snippet from the engine; the whole text on LinkedIn's page |
+| Emails In Post / Phones In Post | Written in the post text |
+| Post URL | The post itself — where a reply goes |
+| Set Aside Because | "older than 10 days", "not a requirement post (supply)", "a copy of a newer post" |
+
+One post, one row: the id is the key, so a post found by both doors — and
+by both intent groups — is merged, keeping the longer text. A repost carries
+a new id but the same text; the newer copy is kept and the older set aside.
+Tick **Skip ones I've already downloaded** and a daily run returns only the
+posts that are new since yesterday's.
+
+---
+
 ## Where the place lists come from
 
 The "Where?" picker offers 250 countries, ~5,300 states and ~152,000 towns.
@@ -685,7 +769,7 @@ outcome rather than the mechanism. Every value is a token in
 ## Development
 
 ```bash
-npm test          # 254 unit tests — geo, queue, dedupe, parsing, email, verify, health, xlsx, export
+npm test          # unit tests — geo, queue, dedupe, parsing, posts, email, verify, health, xlsx, export
 npm run test:dom  # browser tests of the DOM wiring (see below)
 npm run icons     # regenerate the PNG icons
 npm run package   # build the distributable zip
@@ -743,6 +827,8 @@ Common problems:
 | Public web: "asking for a CAPTCHA" | Solve it in the tab, then press Resume. Fewer, slower runs avoid it. |
 | Public web: "returned no results for this query" | The engine matched nothing — not a pagination problem. Try the rarer word alone, or a different city spelling. |
 | Public web finds far fewer than LinkedIn | Only public, indexed profiles are there at all. It is a different set, not a smaller copy of the same one. |
+| Posts: nothing from the last few days | Engines index posts days late. Use LinkedIn's own post search in your tab (see [Two doors](#two-doors)). |
+| Posts: a lead was set aside | Open Results and press **Show them** — every set-aside post says why. Untick *Only posts that ask for something* if the classifier is too strict for your search. |
 
 ---
 

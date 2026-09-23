@@ -8,7 +8,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { cacheKey, isFresh, planFrom, absorb, depthOf, emptyEntry } from '../src/lib/search-cache.js';
+import { cacheKey, isFresh, planFrom, absorb, depthOf, emptyEntry, markEnd, clearEnd } from '../src/lib/search-cache.js';
 
 const PLAIN = 'https://www.linkedin.com/search/results/people/?keywords=kotlin%20chennai';
 const NOISY =
@@ -142,4 +142,55 @@ test('a month-old page is never served alongside a fresh one', () => {
   const plan = planFrom(fresh, 5, now);
   assert.equal(plan.reused, 0);
   assert.deepEqual(plan.have, [], 'a month-old page was handed back as this run’s answer');
+});
+
+/*
+ * A search shorter than the depth asked for.
+ *
+ * Ten pages wanted, three exist. Without an end marker the cache always looked
+ * seven pages short, so every repeat paid for page one and then for one more
+ * page that only repeated the last — two searches a run for an answer already
+ * held in full.
+ */
+test('a search with fewer pages than asked for is answered from disk once all are held', () => {
+  const now = Date.now();
+  const entry = markEnd(held(3, now), 3);
+  const plan = planFrom(entry, 10, now);
+  assert.equal(plan.complete, true);
+  assert.equal(plan.reused, 3);
+  assert.equal(plan.have.length, 3);
+});
+
+test('the end marker survives the pages that arrive after it', () => {
+  const now = Date.now();
+  let entry = markEnd(held(2, now), 2);
+  entry = absorb(entry, 2, [{ name: 'again' }], now);
+  assert.equal(entry.end, 2, 'absorbing a page threw the end away');
+});
+
+test('an end is only trusted while every page up to it is fresh', () => {
+  const now = Date.now();
+  const stale = markEnd(held(3, now - 30 * 86400000), 3);
+  assert.equal(planFrom(stale, 10, now).complete, false);
+  // A gap below the end is not a complete answer either.
+  const gappy = markEnd(absorb(emptyEntry(), 1, [{ name: 'a' }], now), 3);
+  assert.equal(planFrom(gappy, 10, now).complete, false);
+});
+
+test('a search that grew past its end is no longer complete', () => {
+  const now = Date.now();
+  const entry = clearEnd(markEnd(held(3, now), 3));
+  assert.equal(entry.end, undefined);
+  assert.equal(planFrom(entry, 10, now).complete, false);
+  assert.equal(clearEnd(undefined), undefined);
+});
+
+test('a people search and an "all" search for the same words are different searches', () => {
+  // The adapter reads both /people/ and /all/ pages. Keyed on the words
+  // alone, a cached people search was served for an "all" search and back.
+  const people = cacheKey('https://www.linkedin.com/search/results/people/?keywords=kotlin');
+  const all = cacheKey('https://www.linkedin.com/search/results/all/?keywords=kotlin');
+  assert.notEqual(people, all);
+  // People keys are unchanged, so answers already on disk stay usable.
+  assert.equal(people, 'search:keywords=kotlin');
 });

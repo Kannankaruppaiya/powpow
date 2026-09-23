@@ -214,3 +214,20 @@ test('a profile URL outranks a name that two people share', () => {
   const b = { name: 'Anand Kumar', profileUrl: 'https://www.linkedin.com/in/anand-kumar-2' };
   assert.notEqual(recordKey(a), recordKey(b), 'two different people stay two rows');
 });
+
+test('a post is keyed on its id, whichever URL it was found under', () => {
+  const id = '7502588916743708672';
+  const fromEngine = {
+    source: 'posts', postId: id, name: 'Sarala Geriga', text: 'Urgent corporate trainer requirement…',
+    postUrl: `https://www.linkedin.com/posts/sarala_x-activity-${id}-b0d4`,
+  };
+  const fromLinkedIn = {
+    source: 'posts', postId: id, name: 'Sarala Geriga',
+    text: 'Urgent corporate trainer requirement – Pune. Share your profile at ta7069@sfjbs.com',
+    postUrl: `https://www.linkedin.com/feed/update/urn:li:activity:${id}/`,
+  };
+  assert.equal(recordKey(fromEngine), `post:${id}`);
+  const [merged, ...rest] = dedupeRecords([fromEngine, fromLinkedIn]);
+  assert.equal(rest.length, 0, 'one post, one row');
+  assert.match(merged.text, /ta7069@sfjbs\.com/, 'the full text wins over the truncated snippet');
+});

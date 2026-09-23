@@ -63,6 +63,27 @@ export const PEOPLE_COLUMNS = [
   { key: 'source', label: 'Found Via' },
 ];
 
+/*
+ * Posts. A post is a lead because of when it was written and what it asks, so
+ * those come first; the reason it was judged to ask comes with it, and so
+ * does the reason a row was set aside when set-aside rows are shown.
+ */
+export const POSTS_COLUMNS = [
+  { key: 'postedAt', label: 'Posted On' },
+  { key: 'ageDays', label: 'Age (Days)' },
+  { key: 'intent', label: 'Intent' },
+  { key: 'score', label: 'Score' },
+  { key: 'signals', label: 'Why' },
+  { key: 'author', label: 'Author' },
+  { key: 'authorUrl', label: 'Author Profile' },
+  { key: 'text', label: 'Post' },
+  { key: 'emails', label: 'Emails In Post' },
+  { key: 'phones', label: 'Phones In Post' },
+  { key: 'postUrl', label: 'Post URL' },
+  { key: 'searchCategory', label: 'Search' },
+  { key: 'setAside', label: 'Set Aside Because' },
+];
+
 /** The name this set had when LinkedIn was the only source of people. */
 export const LINKEDIN_COLUMNS = PEOPLE_COLUMNS;
 
@@ -73,6 +94,7 @@ export const COLUMNS = MAPS_COLUMNS;
 export function columnsFor(records) {
   const first = (records || []).find((r) => r && r.source);
   const id = first ? first.source : '';
+  if (id === 'posts') return POSTS_COLUMNS;
   return id === 'linkedin' || id === 'web' ? PEOPLE_COLUMNS : MAPS_COLUMNS;
 }
 
