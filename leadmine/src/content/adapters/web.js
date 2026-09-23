@@ -75,12 +75,42 @@
   const POST_PAGE = /(?:^|\.)linkedin\.com\/(?:posts|feed\/update)\//i;
   const POST_ID = /(?:activity|ugcPost|share)(?:%3A|:|-)(\d{18,20})(?!\d)/i;
 
+  const PROFILES_QUERY = /site:\S*linkedin\.com\/in\b/i;
+
+  /*
+   * Posts or people.
+   *
+   * The query says so when it carries a site: filter. When it does not — a
+   * plain "corporate training required" search the user ran by hand and then
+   * pointed a Posts run at — the page says so instead: whichever kind of
+   * LinkedIn link its results hold more of. Decided once per page, not per
+   * link, because the answer cannot change halfway down a list and every
+   * shape rule below asks it.
+   */
+  let modeFor = '';
+  let modeIsPosts = false;
+
   function postsMode() {
+    if (modeFor === location.href) return modeIsPosts;
+    let q = '';
     try {
-      return POSTS_QUERY.test(new URLSearchParams(location.search).get('q') || '');
+      q = new URLSearchParams(location.search).get('q') || '';
     } catch {
-      return false;
+      /* no query to read */
     }
+    if (POSTS_QUERY.test(q)) modeIsPosts = true;
+    else if (PROFILES_QUERY.test(q)) modeIsPosts = false;
+    else {
+      let posts = 0;
+      let people = 0;
+      for (const anchor of document.querySelectorAll('a[href]')) {
+        if (postFrom(anchor)) posts += 1;
+        else if (profileFrom(anchor)) people += 1;
+      }
+      modeIsPosts = posts > people;
+    }
+    modeFor = location.href;
+    return modeIsPosts;
   }
 
   /** The post a link points at, following one layer of redirect. */
@@ -506,6 +536,7 @@
     getSearchContext() {
       endReason = '';
       latest = null;
+      modeFor = '';
       const params = new URLSearchParams(location.search);
       return { query: norm(params.get('q') || ''), filters: {}, url: location.href };
     },

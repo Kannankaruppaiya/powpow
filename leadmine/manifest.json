@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "LeadMine \u2014 Google Maps & LinkedIn Lead Scraper",
   "short_name": "LeadMine",
-  "version": "5.15.0",
+  "version": "5.16.0",
   "description": "Scrape business leads from Google Maps, people from LinkedIn search, and recent LinkedIn posts that ask for something \u2014 into one downloadable Excel, CSV or JSON file.",
   "minimum_chrome_version": "116",
   "permissions": [
@@ -17,6 +17,8 @@
     "https://www.google.com/maps/*",
     "https://www.google.co.in/maps/*",
     "https://www.linkedin.com/search/*",
+    "https://www.linkedin.com/in/*",
+    "https://www.linkedin.com/company/*",
     "https://generativelanguage.googleapis.com/*",
     "https://api.groq.com/*",
     "<all_urls>"
@@ -31,6 +33,8 @@
         "https://www.google.com/maps/*",
         "https://www.google.co.in/maps/*",
         "https://www.linkedin.com/search/*",
+        "https://www.linkedin.com/in/*",
+        "https://www.linkedin.com/company/*",
         "https://duckduckgo.com/*",
         "https://html.duckduckgo.com/*",
         "https://www.google.com/search*",

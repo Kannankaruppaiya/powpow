@@ -74,6 +74,7 @@ export const POSTS_COLUMNS = [
   { key: 'intent', label: 'Intent' },
   { key: 'score', label: 'Score' },
   { key: 'signals', label: 'Why' },
+  { key: 'engagement', label: 'Engagement' },
   { key: 'author', label: 'Author' },
   { key: 'authorUrl', label: 'Author Profile' },
   { key: 'text', label: 'Post' },

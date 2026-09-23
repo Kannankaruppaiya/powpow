@@ -335,3 +335,111 @@ test('a posts run on LinkedIn stops at the limit it was given', async (t) => {
   if (!result) return;
   assert.equal(result.records.length, 1);
 });
+
+/* ------------------------------------- the redesign, on a profile page */
+
+/*
+ * The page the two tuning posts were read from: Abhishek Sharma's profile,
+ * in LinkedIn's redesign. No data-urn anywhere and no class a selector could
+ * name — every class is a hash. What is left is the shape: each card links
+ * to its own post, carries the author's profile link, a "1w •" line, the
+ * text, a "… more" control, and the counts and buttons under it.
+ */
+const SCREENSHOT_1 = '7500937754445463554';
+const SCREENSHOT_2 = '7495873100000000000';
+
+const redesignCard = ({ id, age, text, counts }) => `
+  <div class="x8f2k">
+    <div class="q1z">
+      <a class="p0" href="https://www.linkedin.com/in/abhishek-sharma-23848735/"><img alt="" src="data:,"></a>
+      <div class="n7">
+        <a class="p0" href="https://www.linkedin.com/in/abhishek-sharma-23848735/">
+          <span class="h2x">Abhishek Sharma</span></a>
+        <span class="m1"> • 3rd+</span>
+        <div class="t9">Team Manager || Delivery Management || Te...</div>
+        <a class="t8" href="https://www.linkedin.com/feed/update/urn:li:activity:${id}/"><span>${age} •</span></a>
+      </div>
+      <button aria-label="Open control menu">…</button>
+    </div>
+    <div class="b4"><span>${text}</span><button class="m2">… more</button></div>
+    <div class="c5"><span>${counts[0]}</span><span>${counts[1]}</span></div>
+    <div class="d6"><button>Like</button><button>Comment</button><button>Repost</button><button>Send</button></div>
+  </div>`;
+
+const PROFILE_PAGE = `<!doctype html><html><head><meta charset="utf-8"></head><body>
+  <nav><a href="https://www.linkedin.com/feed/">Home</a>
+    <a href="https://www.linkedin.com/feed/update/urn:li:activity:7400000000000000000/">Notification</a></nav>
+  <main>
+    <section class="zz1"><h2>Activity</h2>
+      <div class="car">
+        ${redesignCard({
+          id: SCREENSHOT_1,
+          age: '1w',
+          counts: ['3', '1'],
+          text:
+            'Hi Connections,<br><br>A QA Automation corporate trainer is required in an IT company. Required ' +
+            'skillsets are mentioned below:<br><br>Company is especially interested in corporate trainers with ' +
+            'hands-on experience in:<br><br>✅ Cypress – End-to-end automation<br>✅ Playwright – Modern browser ' +
+            'automation<br>✅ Guard rail – AI safety and quality controls<br>✅ Evals – Evaluating AI-powered ' +
+            'applications<br><br>Additional skills that matter:',
+        })}
+        ${redesignCard({
+          id: SCREENSHOT_2,
+          age: '2w',
+          counts: ['8', '1'],
+          text:
+            'Part Time or Freelancing Technical Training Specialist (AI, Machine Learning, &amp; Business ' +
+            'Intelligence) is required !!<br><br>Position Overview:<br><br>We are seeking an experienced and ' +
+            'versatile Technical Training Specialist to lead comprehensive technology programs that can enhance ' +
+            'the Python skills of our company colleagues and keep them updated.',
+        })}
+      </div>
+      <a href="https://www.linkedin.com/in/abhishek-sharma-23848735/recent-activity/all/">Show all</a>
+    </section>
+  </main>
+  </body></html>`;
+
+test('the redesigned profile page yields both posts, with author, age line gone and text whole', async (t) => {
+  const browser = await launch(t);
+  if (!browser) return;
+  const page = await browser.newPage();
+  await page.route('https://www.linkedin.com/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'text/html', body: PROFILE_PAGE })
+  );
+  await page.goto('https://www.linkedin.com/in/abhishek-sharma-23848735/');
+  await page.addScriptTag({ content: CHROME_STUB });
+  for (const src of CONTENT_SCRIPTS) await page.addScriptTag({ content: src });
+  const result = await page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        window.__listener({ type: 'RUN_SCRAPE', config: { scrollDelay: 30, deep: false } }, {}, resolve);
+      })
+  );
+  await browser.close();
+
+  assert.equal(result.ok, true, result.error);
+  const ids = result.records.map((r) => r.postId).sort();
+  assert.deepEqual(ids, [SCREENSHOT_2, SCREENSHOT_1].sort(), 'the nav link is not a post');
+
+  const qa = result.records.find((r) => r.postId === SCREENSHOT_1);
+  assert.equal(qa.source, 'posts');
+  assert.equal(qa.author, 'Abhishek Sharma');
+  assert.equal(qa.authorUrl, 'https://www.linkedin.com/in/abhishek-sharma-23848735');
+  assert.match(qa.text, /^Hi Connections, A QA Automation corporate trainer is required/);
+  assert.match(qa.text, /Additional skills that matter:$/, '"… more" and the counts are not the post');
+  assert.ok(!/1w|Team Manager|Like|Repost/.test(qa.text), qa.text);
+
+  const spec = result.records.find((r) => r.postId === SCREENSHOT_2);
+  assert.match(spec.text, /Technical Training Specialist .* is required/);
+});
+
+test('a plain search with no site: filter is read as posts when its LinkedIn results are posts', async (t) => {
+  // "corporate training required" typed into Google by hand, then a Posts run
+  // pointed at that tab. Without a site: filter in the query, the page's own
+  // links decide — here three posts against one profile.
+  const result = await scrapeEngine(t, { query: 'corporate training required' });
+  if (!result) return;
+  assert.equal(result.ok, true, result.error);
+  assert.ok(result.records.length >= 3, JSON.stringify(result.records.map((r) => r.postUrl || r.profileUrl)));
+  assert.ok(result.records.every((r) => r.source === 'posts' && r.postId));
+});

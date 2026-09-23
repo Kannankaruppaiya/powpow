@@ -43,37 +43,146 @@
       .map((value) => (value.match(URN) || [])[1])
       .find(Boolean) || '';
 
-  /**
-   * One element per post: the outermost one carrying its URN.
+  /*
+   * A post id in a link: /feed/update/urn:li:activity:<id>/ or a
+   * /posts/…-activity-<id>-xxxx share link. The redesigned LinkedIn (the
+   * "I'm looking for…" search bar) links every post card this way, and does
+   * not promise the data-urn attribute the older markup carried.
+   */
+  const LINK_ID = /(?:urn(?::|%3A)li(?::|%3A)activity(?::|%3A)|-activity-)(\d{18,20})(?!\d)/i;
+  const LINKS = 'a[href*="urn:li:activity:"], a[href*="urn%3Ali%3Aactivity%3A"], a[href*="-activity-"]';
+
+  const linkId = (a) => ((a.getAttribute('href') || '').match(LINK_ID) || [])[1] || '';
+
+  /** Every post id mentioned anywhere inside an element. */
+  function idsIn(el) {
+    const ids = new Set();
+    const own = urnOf(el);
+    if (own) ids.add(own);
+    for (const holder of el.querySelectorAll(SEL.urnHolders)) {
+      const id = urnOf(holder);
+      if (id) ids.add(id);
+    }
+    for (const a of el.querySelectorAll(LINKS)) {
+      const id = linkId(a);
+      if (id) ids.add(id);
+    }
+    return ids;
+  }
+
+  /*
+   * The card around a post link, found by shape: climb from the link while
+   * the element still holds no other post. The last element that is about
+   * this post alone is the card; one more step up is the list.
    *
-   * LinkedIn nests URN holders — the card, then an inner wrapper, sometimes a
-   * reshared post inside it with a URN of its own. The outermost holder is
-   * the post as the user sees it; a reshared original inside it is part of
-   * that post, not a second result.
+   * A reshared post inside a card links to its own id too, and would stop
+   * the climb inside the card — so an id that sits inside another post's
+   * card is a reshare, and dropped by the outermost-wins rule below.
+   */
+  function cardFromLink(a, id) {
+    let card = a;
+    for (let el = a.parentElement, hops = 0; el && el !== document.body && hops < 14; el = el.parentElement, hops += 1) {
+      const ids = idsIn(el);
+      if (ids.size > 1 || (ids.size === 1 && !ids.has(id))) break;
+      card = el;
+    }
+    return card;
+  }
+
+  /**
+   * One element per post: the outermost one about that post.
+   *
+   * Two ways in, because LinkedIn has shipped both: elements carrying the
+   * post's URN as an attribute, and — in the redesign — cards that only link
+   * to it. LinkedIn nests URN holders (the card, an inner wrapper, a
+   * reshared post with its own URN); the outermost is the post as the user
+   * sees it, and a reshared original inside it is part of that post.
    */
   function postCards() {
-    const cards = new Map();
+    const found = new Map();
     for (const el of document.querySelectorAll(SEL.urnHolders)) {
       const id = urnOf(el);
       if (!id) continue;
       const outer = el.parentElement && el.parentElement.closest(SEL.urnHolders);
       if (outer && urnOf(outer)) continue;
-      if (!cards.has(id)) cards.set(id, el);
+      if (!found.has(id)) found.set(id, el);
+    }
+    for (const a of document.querySelectorAll(LINKS)) {
+      const id = linkId(a);
+      if (!id || found.has(id) || a.closest('nav, header, aside, [role="dialog"]')) continue;
+      found.set(id, cardFromLink(a, id));
+    }
+    // Outermost wins: a card inside another card is a reshare.
+    const cards = new Map();
+    for (const [id, el] of found) {
+      const inside = [...found.values()].some((other) => other !== el && other.contains(el));
+      if (!inside) cards.set(id, el);
     }
     return cards;
   }
 
-  /** The visible post text, without LinkedIn's "…see more" control. */
-  function postText(card) {
-    const body = card.querySelector(SEL.commentary);
-    const raw = body ? body.textContent : card.innerText || card.textContent || '';
-    return norm(String(raw).replace(/…\s*(?:see )?more\s*$/i, '').replace(/\bhashtag\s*#/gi, '#'));
+  /*
+   * The text of an element as a person sees it, without its buttons.
+   *
+   * innerText, not textContent: LinkedIn breaks a post into lines with <br>,
+   * and textContent glues "Hi Connections," onto "A QA Automation…". The
+   * buttons inside — "… more", the control menu's "…" — are subtracted.
+   */
+  function seenText(el) {
+    let text = String(el.innerText || el.textContent || '');
+    for (const button of el.querySelectorAll('button, [role="button"]')) {
+      const label = String(button.innerText || button.textContent || '').trim();
+      if (label) text = text.replace(label, ' ');
+    }
+    return text;
+  }
+
+  const AUTHOR_OR_POST_LINK = 'a[href*="/in/"], a[href*="/company/"], a[href*="/school/"], ' + LINKS;
+
+  /*
+   * The post body, when no class names it: the element in the card with the
+   * most text that is not the header. The header is what links to the author
+   * or to the post (the name, the "1w •"); the counts and buttons are short.
+   * Preferring what follows the post's own link keeps a long headline from
+   * winning over a short post.
+   */
+  function bodyByShape(card, id) {
+    const own = [...card.querySelectorAll(LINKS)].find((a) => linkId(a) === id);
+    let best = null;
+    let bestLength = 0;
+    let bestFollows = false;
+    for (const el of card.querySelectorAll('div, span, p, section, article')) {
+      if (el.closest('button, [role="button"], nav, header')) continue;
+      if (el.querySelector(AUTHOR_OR_POST_LINK) || el.closest('a')) continue;
+      const length = norm(seenText(el)).length;
+      if (!length) continue;
+      const follows = Boolean(own && own.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING);
+      const better = follows !== bestFollows ? follows : length > bestLength;
+      if (better) {
+        best = el;
+        bestLength = length;
+        bestFollows = follows;
+      }
+    }
+    return best;
+  }
+
+  /** The post text, without LinkedIn's "…see more" control. */
+  function postText(card, id) {
+    const body = card.querySelector(SEL.commentary) || bodyByShape(card, id);
+    const raw = body ? seenText(body) : '';
+    return norm(String(raw).replace(/…\s*(?:see\s+)?more\s*$/i, '').replace(/\bhashtag\s*#/gi, '#'));
   }
 
   /** The author's name and profile, from the actor block at the top. */
   function authorOf(card) {
     const actor = card.querySelector(SEL.actor) || card;
-    const nameEl = actor.querySelector(SEL.actorName);
+    let nameEl = actor.querySelector(SEL.actorName);
+    // No actor class to name: the author is the first profile or company
+    // link in the card that has visible text.
+    if (!nameEl) {
+      nameEl = [...card.querySelectorAll('a[href*="/in/"], a[href*="/company/"]')].find((a) => norm(a.textContent));
+    }
     // LinkedIn renders the name twice — once for the eye (aria-hidden) and
     // once for a screen reader, clipped rather than removed, so innerText
     // reads both: "Girish PM Girish PM". The sighted copy is the name.
@@ -128,8 +237,20 @@
   globalThis.MLSAdapters.linkedinPosts = {
     id: 'posts',
 
+    /*
+     * Where posts are listed: LinkedIn's post search, a person's or a
+     * company's activity, and a profile page's own posts carousel — the one
+     * the two posts this source was tuned on were read from. The people
+     * search keeps its own adapter.
+     */
     matchesUrl(url) {
-      return /^https:\/\/([\w-]+\.)?linkedin\.com\/search\/results\/content/.test(String(url || ''));
+      const u = String(url || '');
+      return (
+        /^https:\/\/([\w-]+\.)?linkedin\.com\/search\/results\/content/.test(u) ||
+        /^https:\/\/([\w-]+\.)?linkedin\.com\/in\/[^/?#]+\/recent-activity\//.test(u) ||
+        /^https:\/\/([\w-]+\.)?linkedin\.com\/company\/[^/?#]+\/posts/.test(u) ||
+        /^https:\/\/([\w-]+\.)?linkedin\.com\/in\/[^/?#]+\/?(?:[?#].*)?$/.test(u)
+      );
     },
 
     blockedReason() {
@@ -169,7 +290,7 @@
     extractResult(id) {
       const card = postCards().get(id);
       if (!card) return null;
-      const text = postText(card);
+      const text = postText(card, id);
       // A card with no text yet is a skeleton; it will be read next round.
       if (!text) return null;
       const author = authorOf(card);

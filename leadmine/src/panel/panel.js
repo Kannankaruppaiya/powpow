@@ -1235,7 +1235,13 @@ function postLines(record) {
       [
         record.emails ? copyable(String(record.emails).split(';')[0].trim(), 'lead-email') : null,
         record.phones ? copyable(String(record.phones).split(';')[0].trim(), 'lead-phone') : null,
-        text('lead-tag', record.setAside || (record.intent && record.intent !== 'DEMAND' ? record.intent.toLowerCase() : '')),
+        // Why it was set aside, or what it was judged to be — or, for a
+        // requirement, what kind of engagement it is for.
+        text(
+          'lead-tag',
+          record.setAside ||
+            (record.intent && record.intent !== 'DEMAND' ? record.intent.toLowerCase() : record.engagement || '')
+        ),
       ],
     ],
   ];

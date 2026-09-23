@@ -694,6 +694,31 @@ search for "corporate training" returns all four of these:
 | "New batch starts Monday, enrol now, limited seats" | SUPPLY — set aside |
 | "Successfully conducted a corporate training at Acme. Thank you for the opportunity" | RECAP — set aside |
 
+The classifier reads a post in three passes:
+
+1. **Blank out clauses that borrow a buyer's words.** "If your team needs
+   Azure training, I'm available" and "Looking for new opportunities" contain
+   exactly the words a requirement uses. So does an agency opening "Looking
+   for corporate trainers? We have a pool of 500". They are removed before
+   anything asks whether the post is asking.
+2. **Find a role next to a need.** "A QA Automation corporate trainer **is
+   required**", "Technical Training Specialist (AI, Machine Learning, &
+   Business Intelligence) **is required**", "We **are seeking** an
+   experienced … Technical Training Specialist". A role word within one
+   sentence of a need word is the strongest single signal. It is what those
+   two real posts, and almost every requirement, have in common.
+3. **Weigh what is left.** Selling only counts in the first person or when
+   something is being sold ("I am a certified trainer", "enrol now"). A
+   thank-you only counts when someone says *they* ran the session.
+
+   A requirement routinely says "should have delivered corporate training",
+   "we offer flexible hours" or "I am looking for a trainer". An earlier
+   version read those as the trainer's own post and sent a real requirement
+   to SUPPLY.
+
+`test/posts-corpus.test.mjs` holds the real posts this was checked against,
+in both directions. A change that breaks one of them is a regression.
+
 Each post is scored on cues for each side, and the **Why** column lists the
 cues that fired (`requirement, urgent, share your profile, commercials`, or
 `not: introduces self`), so a row can be judged by reading its reason.
@@ -707,6 +732,11 @@ Untick *Only posts that ask for something* to keep everything.
   one query holding all of them ranks worse and runs into Google's 32-word
   limit. The results are read by the Public web adapter's shape rules, with
   a result being any link to a post instead of a profile.
+- **A person's or a company's posts, from your tab.** A profile page's
+  posts, `…/recent-activity/all/`, or a company's Posts tab. Open it, tick
+  **Use the tab I'm on**, press Start. This works on LinkedIn's redesign too:
+  cards there carry no `data-urn`, so a post is found by the link to itself
+  and its body by shape.
 - **LinkedIn's own post search, from your tab.** The only place a post from
   yesterday can be found before any engine has indexed it. Open LinkedIn
   search → **Posts** → sort by **Latest** → **Past week**, tick **Use the tab
@@ -720,6 +750,7 @@ Untick *Only posts that ask for something* to keep everything.
 | --- | --- |
 | Posted On / Age (Days) | Decoded from the post id |
 | Intent / Score / Why | The classifier, with the cues it saw |
+| Engagement | freelance / part-time / contract / full-time, when the post says |
 | Author / Author Profile | The result title; the profile link on LinkedIn's own page |
 | Post | Title and snippet from the engine; the whole text on LinkedIn's page |
 | Emails In Post / Phones In Post | Written in the post text |
