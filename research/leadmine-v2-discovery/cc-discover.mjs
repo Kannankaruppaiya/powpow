@@ -24,6 +24,7 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { gunzipSync, gzipSync } from "node:zlib";
+import { pathToFileURL } from "node:url";
 
 // ---------- args ----------
 const args = process.argv.slice(2);
@@ -111,7 +112,7 @@ export function seedsFromFile(text, name) {
   return rows.slice(1).map((r) => r[col] ?? "");
 }
 
-function splitCsvLine(line) {
+export function splitCsvLine(line) {
   const out = [];
   let cur = "";
   let quoted = false;
@@ -130,7 +131,7 @@ function splitCsvLine(line) {
 }
 
 // ---------- 2. Common Crawl index ----------
-async function getWithRetry(url, init = {}, tries = 5) {
+export async function getWithRetry(url, init = {}, tries = 5) {
   for (let i = 0; i < tries; i++) {
     const res = await fetch(url, { ...init, headers: { "User-Agent": UA, ...(init.headers ?? {}) } });
     // The index answers "no captures" with 404; that is an answer, not a failure.
@@ -143,7 +144,7 @@ async function getWithRetry(url, init = {}, tries = 5) {
   throw new Error(`gave up after ${tries} tries: ${url}`);
 }
 
-async function latestCrawls(n) {
+export async function latestCrawls(n) {
   const res = await getWithRetry(`${INDEX}/collinfo.json`);
   if (!res.ok) throw new Error(`collinfo.json: ${res.status}`);
   return (await res.json()).slice(0, n).map((c) => c.id);
@@ -206,7 +207,7 @@ export function pickCaptures(captures, max) {
 }
 
 // ---------- 3. WARC records ----------
-async function fetchRecord(c) {
+export async function fetchRecord(c) {
   const start = Number(c.offset);
   const end = start + Number(c.length) - 1;
   const res = await getWithRetry(`${DATA}/${c.filename}`, { headers: { Range: `bytes=${start}-${end}` } });
@@ -334,10 +335,29 @@ export function extractPage(html, pageUrl) {
     }
   })();
 
-  const hrefs = [...html.matchAll(/href\s*=\s*["']([^"'#]+)["']/gi)].map((m) => decodeEntities(m[1]));
+  // Every <a>, with its anchor text: the text is what a best-first crawl scores
+  // a link on before fetching it, and what names the person behind a profile link.
+  const anchors = [...html.matchAll(/<a\b[^>]*?href\s*=\s*["']([^"'#]+)["'][^>]*>([\s\S]*?)<\/a>/gi)].map((m) => ({
+    href: decodeEntities(m[1]),
+    text: htmlToText(m[2]).replace(/\s+/g, " ").slice(0, 120),
+  }));
+  const hrefs = uniq([...anchors.map((a) => a.href), ...[...html.matchAll(/href\s*=\s*["']([^"'#]+)["']/gi)].map((m) => decodeEntities(m[1]))]);
   const mailtos = hrefs.filter((h) => /^mailto:/i.test(h)).map((h) => h.slice(7).split("?")[0]);
   const tels = hrefs.filter((h) => /^tel:/i.test(h)).map((h) => h.slice(4).replace(/[^\d+]/g, ""));
   const outHosts = [];
+  const links = [];
+  const seenLinks = new Set();
+  for (const a of anchors) {
+    try {
+      const u = new URL(a.href, pageUrl);
+      if (!/^https?:$/.test(u.protocol)) continue;
+      u.hash = "";
+      if (!seenLinks.has(u.href) && links.length < 500) {
+        seenLinks.add(u.href);
+        links.push({ url: u.href, text: a.text });
+      }
+    } catch {}
+  }
   for (const h of hrefs) {
     try {
       const u = new URL(h, pageUrl);
@@ -368,6 +388,7 @@ export function extractPage(html, pageUrl) {
     entities,
     termHits,
     outHosts: uniq(outHosts),
+    links,
     text,
   };
 }
@@ -394,7 +415,7 @@ export function buildFrontier(pages, seen) {
 }
 
 // ---------- 6. seeds from a search engine ----------
-async function serperSeeds(q) {
+export async function serperSeeds(q) {
   const key = process.env.SERPER_API_KEY;
   if (!key) throw new Error("--query needs SERPER_API_KEY (Google results via serper.dev)");
   const hosts = [];
@@ -558,6 +579,11 @@ function selftest() {
   assert(person?.name === "Priya Raman" && person.org === "Acme Learning", "JSON-LD Person with employer, bad block skipped");
   assert(x.termHits.trainer >= 1 && x.termHits.workshop === 1, "term hits counted");
   assert(x.outHosts.includes("testconf.in") && !x.outHosts.includes("acme.in"), "outside links only");
+  assert(
+    x.links.some((l) => l.url === "https://in.linkedin.com/in/priya-raman-qa/" && l.text === "LinkedIn") &&
+      x.links.some((l) => l.url === "https://acme.in/contact"),
+    "links keep their anchor text and resolve relative hrefs",
+  );
 
   const body = Buffer.from(html, "utf8");
   const http = Buffer.from(`HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=UTF-8\r\nX-Crawler-Content-Encoding: gzip\r\n\r\n`);
@@ -586,7 +612,10 @@ function selftest() {
   console.log("selftest passed");
 }
 
-main().catch((e) => {
-  console.error(e.message);
-  process.exit(1);
-});
+// Run only when executed, so experiment.mjs can import the pieces above.
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  main().catch((e) => {
+    console.error(e.message);
+    process.exit(1);
+  });
+}

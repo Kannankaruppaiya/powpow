@@ -11,7 +11,18 @@ The starting point was a shortlist of seven repositories and a proposed
 "LeadMine v2" architecture. This README checks that shortlist against what the
 repositories actually contain. Then it records what Common Crawl can and cannot
 do for LeadMine, and sets out a plan scaled for one person running LeadMine.
-`cc-discover.mjs` is a working first step.
+A second, longer shortlist followed, focused on crawl frontiers, entity
+resolution and active learning. §6 checks it and §7 builds the experiment it
+ended with.
+
+| File | What it is |
+|---|---|
+| `cc-discover.mjs` | Common Crawl only: seed sites → their captured pages → contacts, LinkedIn links, a frontier of related domains (§3) |
+| `experiment.mjs` | The measurement: Google results → best-first crawl across Common Crawl, Wayback, sitemaps, CT subdomains and live pages → resolved people → how many Google did not return (§7) |
+| `lib/frontier.mjs` | The lead-specific crawl frontier: six-part score, per-host politeness, evidence feedback |
+| `lib/resolve.mjs` | People from pages, and the same person across pages |
+| `lib/sources.mjs` | Serper, Common Crawl, Wayback, crt.sh, robots.txt, sitemaps, live fetch |
+| `test/` | `node --test test/*.test.mjs`: 22 tests, including a whole run against a fake web |
 
 ---
 
@@ -175,8 +186,8 @@ from evidence LeadMine collected itself.
 
 | Phase | What | Built with | Done when |
 |---|---|---|---|
-| **1. Now** | Run `cc-discover.mjs` on the websites from a real LeadMine Maps export ("corporate training institutes, Chennai"). Measure how many hosts have captures, how many pages yield a contact, and what the frontier looks like. | This folder | There are numbers for one real run, recorded in this README the way `linkedin-recent-posts` records its findings. |
-| **2** | A local corpus: write `-pages.jsonl` into SQLite with FTS5, and add a `people` table keyed on LinkedIn URL / email / phone. | `node:sqlite` | "Show everyone linked to testconf.in" is one query. |
+| **1. Now** | Run `experiment.mjs` (§7) on one real query in the trainer niche, label the review sheet, and record X, new, Z and F here the way `linkedin-recent-posts` records its findings. Run the breadth-first control too. | This folder | There are numbers for one real run, and a yes or no on "does expansion find relevant leads Google missed?" |
+| **2** | A local corpus: load the `documents / people / evidence / relationships` JSONL into SQLite with FTS5. *(The schema exists: §7.)* | `node:sqlite` | "Show everyone linked to testconf.in" is one query. |
 | **3** | Qualification: an LLM reads each candidate's evidence against a one-paragraph ICP and writes the reason. No score column. | PowPow's model config | Every exported lead has a `reason` a human can disagree with. |
 | **4** | Own live fetch for the top frontier hosts: `sitemap.xml` first, then only the pages of the kinds in §3. It fills the gaps from finding 3 and finding 4. | StormCrawler patterns, not StormCrawler | The frontier's SPA hosts have text. |
 | **5. Maybe** | OpenSearch, when the corpus is shared or outgrows SQLite. ccrawl's `mcp` mode inside the PowPow gateway, so a chat channel can ask "who trains Playwright in Chennai?". | OpenSearch, ccrawl-cli | There is a second user. |
@@ -184,6 +195,150 @@ from evidence LeadMine collected itself.
 Rules carried over from LeadMine: a model proposes and never decides (the
 planner rule in `leadmine/DESIGN.md`). Rows are set aside with a reason, never
 silently dropped. Every figure in the UI says where it came from.
+
+## 6. The second shortlist, checked (2026-09-24)
+
+| Repo | Claimed | Found | Verdict |
+|---|---|---|---|
+| **DeepSearch** | A self-hosted engine for resources mainstream search misses: recursive crawler, open directories, sitemaps, CT subdomains, Wayback, Meilisearch/SQLite FTS, plugins | **Not found as described.** Searches for it turned up only different projects: [`sukirman1901/DeepSearch`](https://github.com/sukirman1901/DeepSearch), an MCP server over 7 sources with ChromaDB and no CT or Wayback. [`Trafexofive/DeepSearchStack`](https://github.com/Trafexofive/DeepSearchStack), which runs search → scrape → embed with SQLite FTS5. [`Reload-Apps/deepsearch-mcp`](https://github.com/Reload-Apps/deepsearch-mcp), a hosted person-footprint lookup. | **Need the exact link.** The pattern it describes (several discovery sources feeding one own index) is what `experiment.mjs` now implements, minus open directories. |
+| **url-frontier** ([crawler-commons](https://github.com/crawler-commons/url-frontier)) | A language-neutral frontier API | Confirmed: gRPC API plus a Java reference implementation, 65 stars. | **Borrowed the model**, not the service: URL states, per-host queues, a next-allowed time per host (`lib/frontier.mjs`). |
+| **Frontera** ([scrapinghub/frontera](https://github.com/scrapinghub/frontera)) | The frontier as the crawl's policy engine | Confirmed: Python, BSD-3, 1.3k stars. Built-in strategies are breadth-first, depth-first and Discovery (robots.txt plus sitemaps). | **Reference design.** Its "strategy decides priority, backend stores it" split is the split between `score()` and the queue. |
+| **crawl4go** ([ronxldwilson/crawl4go](https://github.com/ronxldwilson/crawl4go)) | BFS/DFS/best-first/adaptive, URL scoring, sitemaps, BM25 | Confirmed. It is a Go rewrite of [Crawl4AI](https://github.com/unclecode/crawl4ai). Its URL scorer weighs keywords, freshness and depth. **But** it is built around headless Chromium, a rotating Tor proxy pool and anti-bot detection, which is tooling for getting past sites that block crawlers. | **Study the strategies; leave the evasion half.** Its scorer is a subset of the six-part score here. Crawl4AI's own URL seeder takes `source="sitemap+cc"`, the same "sitemap plus Common Crawl" idea as this folder. |
+| **NetNeighbors** ([PeterCarragher](https://github.com/PeterCarragher/NetNeighbors)) | Seed domains → related domains through the Common Crawl web graph | Confirmed, as a demo notebook with 0 stars. It is backed by two peer-reviewed papers (ICWSM 2024, ACM TIST 2025) on finding related sites through backlinks and outlinks. It needs a host-level web graph loaded locally, and its example uses the 2024 graph. | **The right idea for backlinks**, meaning *who links to* a known trainer site. Page outlinks, which `experiment.mjs` already follows, cannot give that. It is the next source to add, once a run shows outlinks are not enough. |
+| **Certificate Transparency** | A company → its other public surfaces | Agreed. Implemented through crt.sh, **only for the seed companies**, and only subdomains whose label suggests people (`academy.`, `training.`, `events.`, `careers.` …). crt.sh is often slow. | In `experiment.mjs` as source `crt`. |
+| **Wayback Machine** | Recovering pages that are gone | Agreed. Implemented through the Wayback CDX API plus raw `id_` captures. **Every Wayback document is marked `historical`**, and so is any capture over a year old. A person seen only there is flagged `historical_only` and never shown as current. | In `experiment.mjs` as source `wayback`. |
+| **landermixer** ([ShapeStudio](https://github.com/ShapeStudio/landermixer)) | Name + company → public-web research; every fact carries a source; never guesses | Confirmed: MIT, TypeScript. An agent runs up to 15 web searches per prospect, anchored on a LinkedIn URL or on `--name` + `--company`, and "never invents a profile URL". | **Adopted the discipline**: a claim without a page and a date is not stored, and a LinkedIn link whose anchor is an icon gives a profile but no name (`lib/resolve.mjs`). The tool itself is *enrichment* at up to 15 searches per person, so it belongs after qualification, not in discovery. |
+| **OXORAY** ([Anurag-M1](https://github.com/Anurag-M1/OXORAY)) | Active learning: GP on embeddings, explore/exploit, BALD | It exists (2 stars), and its README closely mirrors OpenOutFind's. It drives a **logged-in LinkedIn account with "stealth browser automation"** and sends connection requests and follow-up messages on its own. | **Take nothing from it.** That is the account-ban failure LeadMine's README warns about, plus detection evasion. The active-learning idea is in OpenOutFind, whose README says the loop "is not yet shown to beat picking at random". So it is an experiment, not a known optimisation. Its prerequisite is labelled examples, which the review sheet in §7 produces. |
+| **node-canon** ([rasinmuhammed](https://github.com/rasinmuhammed/node-canon)) | Entity resolution with blocking, fingerprints, abbreviations and topology | Confirmed: Python, 0 stars. Its benchmark is self-reported on its own test set. | **Borrowed** blocking and abbreviation matching. **Deferred** topology: shared neighbours are worth adding once real runs show which duplicates survive. |
+| **embabel/dice** | Documents → entities → resolution → knowledge graph | Confirmed: Kotlin (JVM), 38 stars. | Design reference. The four-table schema in §7 is that pipeline without a graph database. |
+| **Fess** ([codelibs/fess](https://github.com/codelibs/fess)) | Crawler → indexer → OpenSearch → API | Confirmed: Java, Apache-2.0, 1.1k stars. | Same verdict as OpenSearch in §1: study it, and don't run it for one user. |
+| **DawnSearch** ([dawn-search](https://github.com/dawn-search/dawnsearch)) | Semantic search over Common Crawl | Confirmed: Rust, 14 stars, last updated 2026-02. | Not a dependency. Semantic retrieval waits until there are labelled examples to test it against. |
+| **linkedin-leadgen** | Browser → LinkedIn DOM → Claude scoring → SQLite | No repository by that name was found. | Unverified. The shape described is LeadMine's LinkedIn source plus a scorer. |
+| **Neo4j entity-resolution example** | Records → one real-world entity | Not checked. | — |
+
+Two notes on the research framing:
+
+- **"Unique additional leads = Y − X" is not the number.** Y already contains X, and
+  a person can also be in an earlier LeadMine export. The experiment counts
+  *new* as the people in neither set, after resolution. **Z and F cannot be
+  computed by a script**: "relevant" is a human judgement, so the run writes
+  a review sheet and `--score` reads the labels back.
+- **Evidence-driven, best-first crawling has a long history as "focused crawling"**
+  (Chakrabarti, van den Berg and Dom, 1999, and much work since). What is specific
+  here is the target, *people who fit an ICP*, and the evidence that drives
+  the frontier. That is the part to test and write up; the loop itself is
+  prior art.
+
+## 7. The experiment: `experiment.mjs`
+
+This builds the test proposed at the end of the second shortlist. It changes one
+thing: the seeds are **whatever Google returns**, not 20 hand-picked leads, so
+that "not in the Google set" has an exact meaning.
+
+```
+ Google (Serper) results ──► frontier (hop 0)        --seed / --seeds sites ──► frontier (hop 0)
+                                     │
+                    best-first pop: highest score whose host may be hit now
+                                     │
+          first time a site is reached: expand it from
+          cc (captures) · wayback (captures) · sitemap (lastmod) · crt (seed companies only)
+                                     │
+          fetch: CC capture → Wayback capture → live page (robots.txt honoured)
+                                     │
+          extract → person candidates, each with claim · page · date · confidence
+                                     │
+          links queued with anchor text, parent title, parent evidence, hop+1 if off-site
+          host's evidence per page updates the score of everything queued on that host
+                                     │
+          resolve → people → in the Google set? in the --baseline export? neither = new
+```
+
+### The frontier's score
+
+A URL is scored **before** it is fetched, so each part is a prediction from
+what is known at that moment. Each part is in [0, 1], and the score is their
+weighted average.
+
+| Part | Weight | Computed from |
+|---|---|---|
+| relevance | 0.30 | query words in the link's anchor text, its path and the linking page's title |
+| entity | 0.20 | the path or anchor looks like trainers, speakers, team or about (1), another useful kind (0.5), a homepage (0.4) |
+| proximity | 0.15 | 1/(1 + hops from a seed), plus a bonus per extra seed site that links to the host |
+| evidence | 0.15 | people and relevance found on the page that linked here (the feedback loop) |
+| freshness | 0.10 | capture date or sitemap lastmod; 0 at three years old, 0.5 when unknown |
+| quality | 0.10 | the host's evidence per page fetched so far; 0.5 before the first fetch |
+
+The weights are starting guesses, as the proposal said. So the report
+checks them: fetched pages are split into fifths by their score before fetching,
+next to how much evidence each fifth actually held. For a control, run the same
+query with `--weights proximity=1,relevance=0,entity=0,evidence=0,freshness=0,quality=0`,
+which is breadth-first. If the scored run does not find more new relevant
+people for the same `--max-pages`, the score is not earning its complexity.
+
+### The schema
+
+The run writes the four tables proposed, as JSONL, ready for SQLite in phase 2:
+
+| File | One row per | Key fields |
+|---|---|---|
+| `-documents.jsonl` | fetched page | url, source (`cc`/`wayback`/`live`), via (`google`/`seed`/`link`/`cc`/`wayback`/`sitemap`/`crt`), hop, observedAt, historical, contentHash, predictedScore and its parts, evidence found, text |
+| `-people.jsonl` | resolved person | person_id (from the strongest key, so re-runs keep it), names[], profiles[], emails[], phones[], orgs[], firstSeen, lastSeen, historicalOnly, inGoogleSet, inBaseline, isNew, foundVia |
+| `-evidence.jsonl` | claim | person_id, document_id, url, claim, confidence, observed_at, historical |
+| `-relationships.jsonl` | edge | `MENTIONED_IN`, `WORKS_AT`, `SPEAKS_AT`, `TEACHES`, `PROFILE`, org `LINKS_TO` org, each with the document that shows it |
+
+Resolution merges on a LinkedIn slug or a personal email. It merges on a full name
+only within one organisation's domain, and on an abbreviation ("A. Sharma") only
+when exactly one full name in that organisation fits. A false merge sends one
+person's pitch to another, so the resolver would rather leave a duplicate.
+
+### Run it
+
+```bash
+cd research/leadmine-v2-discovery
+node --test test/*.test.mjs                                  # 22 tests, offline
+
+SERPER_API_KEY=xxx node experiment.mjs --query "QA automation corporate trainer Chennai" \
+  --baseline ~/Downloads/leadmine-public-web.csv --max-pages 300 --out qa
+# … label the "relevant" column of qa-review.csv (y/n; a sample is fine), then:
+node experiment.mjs --score qa-review.csv
+
+# the breadth-first control, same budget
+SERPER_API_KEY=xxx node experiment.mjs --query "QA automation corporate trainer Chennai" \
+  --weights proximity=1,relevance=0,entity=0,evidence=0,freshness=0,quality=0 --max-pages 300 --out qa-bfs
+
+# archives only: no request ever reaches the sites themselves
+SERPER_API_KEY=xxx node experiment.mjs --query "…" --sources cc,wayback
+```
+
+Flags: `--sources cc,wayback,crt,sitemap,live` (all by default), `--max-pages 300`,
+`--per-host 15`, `--hops 2` (how far off the seed sites), `--crawls 2`,
+`--rate 1000` (ms between hits on one host), `--google-pages 2`, `--weights k=v,…`,
+`--baseline export.csv` (LeadMine People, Public web or Posts export), `--out prefix`.
+
+Live fetching identifies itself as `LeadMineResearch/0.1` with this repository's
+URL, obeys robots.txt (a 5xx robots.txt means "do not crawl", per RFC 9309),
+never runs more than one request at a time, and fetches only HTML. LinkedIn and
+other platforms are never crawled. A LinkedIn link on a page is recorded as
+evidence and not followed. The output files hold personal data and are
+git-ignored in this folder.
+
+### Status
+
+- The 22 offline tests pass. `test/experiment.test.mjs` runs the whole
+  pipeline against a seven-page fake web. It checks that a person on a Google
+  result, on a Common Crawl capture and on a conference page resolves to one
+  person. It checks that the new people are exactly those reached by a link,
+  a CT subdomain and a Wayback capture, that the Wayback one is flagged
+  historical, that the trainers page is fetched before the blog post, and that
+  switching live off reads only archives.
+- **It has not been run against the real web.** This environment's network
+  policy blocks Common Crawl, the Wayback Machine, crt.sh and ordinary sites.
+  A smoke run confirmed that the failure path records the reason
+  (`live 403`) and still writes the report. The first real run is the test
+  that matters.
+- **Not built yet:** embeddings or semantic filtering (relevance is lexical
+  until labels exist to test against), web-graph backlinks (NetNeighbors), LLM
+  qualification, and active learning. Each waits on the first run's labels.
 
 ## Sources
 
@@ -195,3 +350,11 @@ silently dropped. Every figure in the UI says where it came from.
 - ccrawl-cli commands: https://github.com/tamnd/ccrawl-cli
 - OpenOutFind (GPL-3.0): https://github.com/eracle/OpenOutFind
 - cc-index-server (pywb deployment): https://github.com/ikreymer/cc-index-server
+- Second shortlist: https://github.com/crawler-commons/url-frontier, https://github.com/scrapinghub/frontera,
+  https://github.com/ronxldwilson/crawl4go, https://github.com/unclecode/crawl4ai,
+  https://github.com/PeterCarragher/NetNeighbors, https://github.com/ShapeStudio/landermixer,
+  https://github.com/Anurag-M1/OXORAY, https://github.com/rasinmuhammed/node-canon,
+  https://github.com/embabel/dice, https://github.com/codelibs/fess, https://github.com/dawn-search/dawnsearch
+- Wayback CDX API: https://github.com/internetarchive/wayback/tree/master/wayback-cdx-server
+- robots.txt: RFC 9309, https://www.rfc-editor.org/rfc/rfc9309
+- Focused crawling: Chakrabarti, van den Berg, Dom, "Focused crawling: a new approach to topic-specific Web resource discovery", WWW 1999

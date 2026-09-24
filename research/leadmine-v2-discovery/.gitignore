@@ -1,0 +1,6 @@
+# Run outputs hold names, emails and phone numbers. Keep them out of git.
+*.jsonl
+*-review.csv
+*-pages.csv
+*-frontier.csv
+*-report.md
